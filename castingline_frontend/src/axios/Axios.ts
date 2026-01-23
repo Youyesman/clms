@@ -5,8 +5,13 @@ import axios from "axios";
 
 // export const BASE_URL = "http://127.0.0.1:8000/Api";
 // export const WEBSOCKET_URL = "ws://127.0.0.1:8000";
-export const BASE_URL = window.location.protocol + "//" + window.location.hostname + "/Api";
-export const WEBSOCKET_URL = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname;
+export const BASE_URL = process.env.NODE_ENV === 'development'
+    ? 'http://localhost:8000/Api'
+    : '/Api';
+
+export const WEBSOCKET_URL = process.env.NODE_ENV === 'development'
+    ? 'ws://localhost:8000'
+    : (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname;
 
 //모바일 웹뷰테스트용
 // export const BASE_URL = "http://192.168.0.7:8000/Api";
@@ -14,7 +19,7 @@ export const WEBSOCKET_URL = (window.location.protocol === "https:" ? "wss://" :
 //401에러처리 intercepter
 // 로딩 상태 관리를 위한 전역 변수 및 콜백
 let activeRequests = 0;
-let updateLoadingCallback: (isLoading: boolean) => void = () => {};
+let updateLoadingCallback: (isLoading: boolean) => void = () => { };
 
 export const setUpdateLoadingCallback = (callback: (isLoading: boolean) => void) => {
     updateLoadingCallback = callback;
