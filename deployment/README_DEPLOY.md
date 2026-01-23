@@ -4,10 +4,17 @@ This directory contains scripts and configuration files to deploy the CLMS appli
 
 ## Prerequisites
 - **OS**: Ubuntu 22.04 LTS
-- **User**: Assumed `ubuntu` (default for AWS EC2). If different, update paths in `clms-backend.service` and `clms.conf`.
+- **User**: Assumed `root` (User is currently root).
 - **Project Location**: Assumed `/home/clms`
 
 ## Deployment Steps
+
+# -1. **Apache2 설치**:
+    아직 Apache2가 설치되지 않았다면 먼저 설치해야 합니다.
+    ```bash
+    sudo apt update
+    sudo apt install -y apache2
+    ```
 
 0.  **기존 Docker 서비스 중지**:
     만약 현재 서버에서 Docker로 서비스가 실행 중이라면, 포트 충돌(80번 등)을 방지하기 위해 먼저 중지해야 합니다.
