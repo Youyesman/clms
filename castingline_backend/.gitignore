@@ -1,0 +1,37 @@
+# Python 관련
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.env
+
+# Django 관련
+*.sqlite3
+# migrations/
+*.log
+
+# IDE 관련
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 빌드 및 임시 파일
+dist/
+build/
+*.egg-info/
+*.egg
+
+# macOS 관련
+.DS_Store
+
+# 기타
+node_modules/
+*.bak
+*.swp
+*.csv
+config.json
+attachments/

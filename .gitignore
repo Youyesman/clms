@@ -1,0 +1,35 @@
+# [Python / Django]
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+db.sqlite3
+media/
+static/
+.vscode/
+.idea/
+
+# [Node / React]
+node_modules/
+dist/
+build/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.lock-wscript
+.DS_Store
+
+# [Docker]
+.docker/
+*clms-images.tar
+gh_deploy_key*
+
+# [Others]
+temp/
+tmp/
+*.log
