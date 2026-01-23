@@ -9,7 +9,7 @@ echo "Starting Frontend Setup..."
 if ! command -v node &> /dev/null; then
     echo "Node.js could not be found. Installing..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt-get install -y nodejs
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 fi
 
 # Install yarn globally
@@ -18,8 +18,8 @@ if ! command -v yarn &> /dev/null; then
     sudo npm install -g yarn
 fi
 
-# Navigate to frontend directory
-cd castingline_frontend
+# Navigate to project root then frontend directory
+cd "$(dirname "$0")/../castingline_frontend"
 
 # Install dependencies using yarn
 echo "Installing Node dependencies with yarn..."

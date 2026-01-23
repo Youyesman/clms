@@ -6,11 +6,11 @@ set -e
 echo "Starting Backend Setup..."
 
 # Update system
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv libpq-dev
+sudo DEBIAN_FRONTEND=noninteractive apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python3-venv libpq-dev
 
-# Navigate to backend directory
-cd castingline_backend
+# Navigate to project root then backend directory
+cd "$(dirname "$0")/../castingline_backend"
 
 # Create virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
