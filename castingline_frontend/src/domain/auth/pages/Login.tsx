@@ -129,7 +129,7 @@ export function Login() {
 
                 <form onSubmit={handleLogin}>
                     <FormGroup>
-                        <label>아이디222</label>
+                        <label>아이디</label>
                         <input
                             type="text"
                             value={username}
