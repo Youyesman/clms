@@ -1,60 +1,14 @@
-name: Deploy to Production
+name: Deploy to Production (Non-Docker)
 
 on:
   push:
     branches:
-      - main  # 또는 배포하려는 브랜치 이름
+      - main
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Backend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./castingline_backend
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clms-backend:latest
-
-      - name: Build and push Frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./castingline_frontend
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clms-frontend:latest
-
-      - name: Build and push Web (Apache)
-        uses: docker/build-push-action@v5
-        with:
-          context: ./apache
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clms-web:latest
-
   deploy:
-    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code (for docker-compose.prod.yml)
-        uses: actions/checkout@v4
-
-      - name: Copy docker-compose.prod.yml to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "docker-compose.prod.yml"
-          target: "~/"
-
       - name: Execute remote ssh commands
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -62,6 +16,23 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            docker compose -f ~/docker-compose.prod.yml pull
-            docker compose -f ~/docker-compose.prod.yml up -d
-            docker image prune -f
+            # 1. 프로젝트 폴더로 이동 및 코드 최신화
+            cd /home/clms
+            git fetch origin
+            git reset --hard origin/main
+
+            # 2. 백엔드 설정 및 빌드 (venv, migrations, static 등)
+            chmod +x deployment/*.sh
+            ./deployment/setup_backend.sh
+
+            # 3. 프론트엔드 빌드 (yarn install, yarn build 등)
+            ./deployment/setup_frontend.sh
+
+            # 4. 서비스 재시작
+            # (Gunicorn 서비스 이름이 clms-backend인 경우)
+            sudo systemctl restart clms-backend
+            
+            # 5. Apache 설정 파일이 바뀌었을 수 있으므로 다시 적용 및 리로드
+            sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
+            sudo systemctl reload apache2
+
