@@ -16,6 +16,22 @@ This directory contains scripts and configuration files to deploy the CLMS appli
     sudo docker-compose down
     ```
 
+0.1. **로컬 PostgreSQL 설치 및 설정**:
+    현재 Ubuntu 서버의 DB를 사용하려면 PostgreSQL이 설치되어 있어야 합니다.
+    ```bash
+    # PostgreSQL 설치
+    sudo apt update
+    sudo apt install -y postgresql postgresql-contrib
+
+    # DB 및 사용자 생성 (예시)
+    sudo -u postgres psql
+    # psql 접속 후 아래 명령 실행:
+    # CREATE DATABASE sqltest;
+    # CREATE USER postgres WITH PASSWORD 'wkahd88**';
+    # GRANT ALL PRIVILEGES ON DATABASE sqltest TO postgres;
+    # \q
+    ```
+
 1.  **Transfer Files**: Copy the entire project to the server (e.g., via `git clone` or `scp`).
     ```bash
     # (Example) 만약 로컬에서 올린다면:

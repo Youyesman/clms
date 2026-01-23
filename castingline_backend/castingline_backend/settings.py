@@ -109,10 +109,10 @@ WSGI_APPLICATION = "castingline_backend.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.postgresql"),
-        "NAME": os.getenv("DB_NAME", "sqltest"),
+        "NAME": os.getenv("DB_NAME", "clms_db"),
         "USER": os.getenv("DB_USER", "postgres"),
         "PASSWORD": os.getenv("DB_PASSWORD", "wkahd88**"),
-        "HOST": os.getenv("DB_HOST", "1.234.83.171"),
+        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
