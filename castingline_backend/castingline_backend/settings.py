@@ -76,10 +76,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
     "http://localhost:3000",
     "http://localhost",
-    "https://simfullo.com",
-    "https://www.simfullo.com",
-    "https://fegsquare.com",
-    "https://www.fegsquare.com",
+    "http://116.125.120.94"
 ]
 
 ROOT_URLCONF = "castingline_backend.urls"
@@ -108,12 +105,12 @@ WSGI_APPLICATION = "castingline_backend.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.postgresql"),
-        "NAME": os.getenv("DB_NAME", "clms_db"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "wkahd88**"),
-        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "clms_db",
+        "USER": "postgres",
+        "PASSWORD": "wkahd88**",
+        "HOST": "116.125.120.94",
+        "PORT": "5432",
     }
 }
 
