@@ -12,16 +12,22 @@ if ! command -v node &> /dev/null; then
     sudo apt-get install -y nodejs
 fi
 
+# Install yarn globally
+if ! command -v yarn &> /dev/null; then
+    echo "Installing yarn..."
+    sudo npm install -g yarn
+fi
+
 # Navigate to frontend directory
 cd castingline_frontend
 
-# Install dependencies
-echo "Installing Node dependencies..."
-npm install
+# Install dependencies using yarn
+echo "Installing Node dependencies with yarn..."
+yarn install
 
 # Build the project
 echo "Building the project..."
-npm run build
+yarn build
 
 echo "Frontend Build Complete!"
 echo "The build artifacts are located in castingline_frontend/build"
