@@ -26,9 +26,9 @@ This directory contains scripts and configuration files to deploy the CLMS appli
     # DB 및 사용자 생성 (예시)
     sudo -u postgres psql
     # psql 접속 후 아래 명령 실행:
-    # CREATE DATABASE sqltest;
+    # CREATE DATABASE clms_db;
     # CREATE USER postgres WITH PASSWORD 'wkahd88**';
-    # GRANT ALL PRIVILEGES ON DATABASE sqltest TO postgres;
+    # GRANT ALL PRIVILEGES ON DATABASE clms_db TO postgres;
     # \q
     ```
 
