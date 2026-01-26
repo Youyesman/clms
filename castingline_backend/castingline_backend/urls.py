@@ -28,4 +28,5 @@ urlpatterns = [
     path("Api/", include("score.urls")),
     path("Api/", include("fund.urls")),
     path("Api/", include("settlement.urls")),
+    path("api/slack/interactive", include("movie.urls_slack")), # Slack Callback
 ]

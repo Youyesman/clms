@@ -161,3 +161,5 @@ MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "xoxb-10363566027987-10382879803137-H0xCgPa50SsbixxffOe408Rm")
+SLACK_CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0ABQ7NFZB2")
