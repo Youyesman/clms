@@ -95,6 +95,22 @@ class MegaboxScheduleLog(models.Model):
     def __str__(self):
         return f"[Megabox] {self.theater_name} ({self.query_date})"
 
+
+class LotteScheduleLog(models.Model):
+    """
+    롯데시네마 API 호출 결과를 원본 그대로 저장하는 로그 모델
+    """
+    query_date = models.CharField(max_length=8)  # YYYYMMDD
+    site_code = models.CharField(max_length=20)  # 극장 코드
+    theater_name = models.CharField(max_length=100)  # 극장명
+    response_json = models.JSONField(null=True, blank=True)  # API 응답 JSON
+    status = models.CharField(max_length=20, default='success')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[Lotte] {self.theater_name} ({self.query_date})"
+
+
 class MovieSchedule(models.Model):
     """
     통합 영화 스케줄 모델 (CGV, 롯데, 메가박스 등 통합)
@@ -398,4 +414,116 @@ class MovieSchedule(models.Model):
         if to_update:
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'raw_log', 'updated_at'])
             
-        return len(to_create) + len(to_update)
+        return len(to_create) + len(to_update), errors
+
+    @classmethod
+    def create_from_lotte_log(cls, log):
+        """
+        LotteScheduleLog 데이터를 파싱하여 MovieSchedule 생성
+        Returns: (created_count + updated_count, error_list)
+        """
+        from datetime import datetime, timedelta
+
+        json_data = log.response_json or {}
+        
+        # 롯데시네마 API 구조 분석 필요 - 실제 API 응답에 따라 수정 필요
+        # 일반적인 극장 API 패턴: Movies 리스트 > PlaySchedules 리스트
+        movies = json_data.get("Movies", [])
+        play_list = json_data.get("PlaySeqs", [])
+        items = json_data.get("Items", [])
+        
+        # 어떤 키가 실제로 사용되는지 확인 후 처리
+        schedule_data = movies or play_list or items or []
+        
+        parsed_items = []
+        target_dates = set()
+        errors = []
+        
+        play_date_str = json_data.get("RepresentationDate") or log.query_date
+        
+        for item in schedule_data:
+            try:
+                movie_title = item.get("MovieNameKR") or item.get("MovieName") or item.get("FilmName", "제목없음")
+                
+                # 롯데 API 시간 필드 추정
+                play_start_time = item.get("StartTime") or item.get("PlayStartTime")
+                play_end_time = item.get("EndTime") or item.get("PlayEndTime")
+                
+                if not play_start_time:
+                    continue
+                
+                # 시간 파싱
+                ymd = play_date_str
+                start_tm_clean = str(play_start_time).replace(':', '')[:4]
+                
+                start_dt_str = f"{ymd}{start_tm_clean}"
+                start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
+                
+                end_dt = None
+                if play_end_time:
+                    end_tm_clean = str(play_end_time).replace(':', '')[:4]
+                    end_dt_str = f"{ymd}{end_tm_clean}"
+                    end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
+                    
+                    if end_dt < start_dt:
+                        end_dt += timedelta(days=1)
+
+                target_dates.add(start_dt.date())
+
+                # 잔여 좌석 및 예매 가능 여부
+                remain_seat = int(item.get("BookingSeatCount", 0)) or int(item.get("SeatCount", 0))
+                is_available = remain_seat > 0 or item.get("BookingYN") == "Y"
+                
+                # 상영관 정보
+                screen_name = item.get("ScreenNameKR") or item.get("ScreenName") or item.get("TheaterName", "미지정")
+                
+                parsed_items.append({
+                    'brand': 'LOTTE',
+                    'theater_name': log.theater_name,
+                    'screen_name': screen_name,
+                    'start_time': start_dt,
+                    'end_time': end_dt,
+                    'movie_title': movie_title,
+                    'is_booking_available': is_available
+                })
+            except Exception as e:
+                errors.append({
+                    'theater': log.theater_name,
+                    'site_code': log.site_code,
+                    'movie': item.get('MovieNameKR', 'Unknown'),
+                    'error': str(e),
+                    'item': str(item)[:200]
+                })
+                continue
+        
+        if not parsed_items:
+            return 0, errors
+            
+        # Bulk Create/Update
+        existing_qs = cls.objects.filter(
+            brand='LOTTE',
+            theater_name=log.theater_name,
+            start_time__date__in=target_dates
+        )
+        existing_map = {(obj.screen_name, obj.start_time): obj for obj in existing_qs}
+        
+        to_create, to_update = [], []
+        
+        for item in parsed_items:
+            key = (item['screen_name'], item['start_time'])
+            if key in existing_map:
+                obj = existing_map[key]
+                obj.is_booking_available = item['is_booking_available']
+                obj.end_time = item['end_time']
+                obj.movie_title = item['movie_title']
+                to_update.append(obj)
+            else:
+                to_create.append(cls(**item))
+                
+        if to_create:
+            cls.objects.bulk_create(to_create)
+        if to_update:
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'updated_at'])
+            
+        return len(to_create) + len(to_update), errors
+
