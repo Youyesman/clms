@@ -1,8 +1,8 @@
 from rest_framework.decorators import api_view
-from .models import Movie
+from movie.models import Movie
 from rest_framework.response import Response
-from .models import *
-from .serializers import *
+from movie.models import *
+from movie.serializers import *
 from rest_framework import viewsets, permissions
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters
@@ -11,7 +11,7 @@ from django.db.models import F
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-
+from movie.management.commands.run_cgv_pipeline import fetch_cgv_schedule_rpa
 
 class DefaultPagination(PageNumberPagination):
     page_size = 20  # 한 페이지에 보여질 항목 수 설정
@@ -99,3 +99,31 @@ def get_public_movies(request):
     ]
 
     return Response(data)
+
+@api_view(["GET", "POST"])
+def fetch_cgv_schedule_view(request):
+    """
+    CGV 스케줄 API를 호출하고 결과를 DB에 저장합니다.
+    파라미터:
+    - coCd: 회사 코드 (기본: A420)
+    - siteNo: 지점 번호 (기본: 0054)
+    - scnYmd: 상영 일자 YYYYMMDD (기본: 20260127)
+    """
+    co_cd = request.GET.get("coCd") or request.data.get("coCd", "A420")
+    site_no = request.GET.get("siteNo") or request.data.get("siteNo", "0054")
+    scn_ymd = request.GET.get("scnYmd") or request.data.get("scnYmd", "20260127")
+
+    try:
+        # RPA 함수 내부에서 DB 저장까지 수행됨
+        data = fetch_cgv_schedule_rpa(co_cd, site_no, scn_ymd)
+        
+        status = "success" if isinstance(data, dict) and "error" not in data else "fail"
+
+        return Response({
+            "message": "Fetch and Save completed (Internal)",
+            "status": status,
+            "data": data
+        })
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
