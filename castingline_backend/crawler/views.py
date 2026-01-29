@@ -76,15 +76,25 @@ def run_crawler_background(history_id, data):
             check_stop_signal()
             print(f"Executing CGV for {date_list}")
             try:
-                logs, cnt = CGVPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+                logs, cnt, failures = CGVPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
-                log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                CGVPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
+                # [USER REQUEST] Slack Report & Disable Transform
+                CGVPipelineService.send_slack_message("SUCCESS", {
+                    "collected": len(logs),
+                    "created": 0,
+                    "failures": failures
+                })
+                
+                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
+                # CGVPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
                 executed_companies.append('CGV')
                 companies_for_export.append('CGV')
             except InterruptedError:
                 raise
             except Exception as e:
+                CGVPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
                 logger.error(f"CGV Failure: {e}") 
 
         if run_lotte:
@@ -106,15 +116,25 @@ def run_crawler_background(history_id, data):
             check_stop_signal()
             print(f"Executing Megabox for {date_list}")
             try:
-                logs, cnt = MegaboxPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+                logs, cnt, failures = MegaboxPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
-                log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                MegaboxPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
+                # [USER REQUEST] Slack Report & Disable Transform
+                MegaboxPipelineService.send_slack_message("SUCCESS", {
+                    "collected": len(logs),
+                    "created": 0,
+                    "failures": failures
+                })
+
+                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
+                # MegaboxPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
                 executed_companies.append('Megabox')
                 companies_for_export.append('MEGABOX')
             except InterruptedError:
                 raise
             except Exception as e:
+                MegaboxPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
                 logger.error(f"Megabox Failure: {e}")
                 
         # 4. Generate Excel

@@ -11,21 +11,26 @@ from playwright.sync_api import sync_playwright
 # Models Import
 from crawler.models import CGVScheduleLog, MovieSchedule
 
+from concurrent.futures import ThreadPoolExecutor
+
 # =============================================================================
 # [PART 1] RPA Logic (Formerly cgv_rpa.py)
 # =============================================================================
 
-def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, stop_signal=None):
+def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None):
     """
     Playwright를 사용하여 CGV 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
     (Optimized: 극장 선택 후 날짜 목록을 순회합니다)
+    
+    :param target_regions: List of region names to process. If None, process all.
     """
     # Date List Normalization
     target_dates = date_list if date_list else ([scn_ymd] if scn_ymd else [datetime.now().strftime("%Y%m%d")])
     
     print(f"[디버그] fetch_cgv_schedule_rpa 호출됨. 대상 날짜 목록: {target_dates}")
     collected_results = []
+    failures = [] # 실패 내역 저장
     total_theater_count = 0  # 전체 극장 수 누적 변수
     
     # Thread Safe 설정
@@ -39,7 +44,8 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
         page = context.new_page()
 
         target_url = "https://cgv.co.kr/cnm/movieBook/cinema"
-        print(f"🚀 이동 중: {target_url}")
+        worker_id = "Global" if not target_regions else f"Worker({target_regions[0]}...)"
+        print(f"[{worker_id}] 🚀 이동 중: {target_url}")
         
         try:
             page.goto(target_url, timeout=30000)
@@ -75,8 +81,23 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                     
                     # 지역 버튼 클릭
                     region_btn = page.locator(f"{region_items_selector}:nth-child({i+1}) > button")
-                    region_name = region_btn.inner_text().split('(')[0].strip()
-                    print(f"\n[{i+1}/{region_count}] 지역: {region_name}")
+                    raw_region_name = region_btn.inner_text().strip()
+                    region_name = raw_region_name.split('(')[0].strip()
+                    
+                    # --- Region Filtering Logic ---
+                    if target_regions:
+                         # 안전한 매칭을 위해 포함 여부 또는 시작 문자열 확인
+                         is_target = False
+                         for tr in target_regions:
+                             if tr in region_name or region_name.startswith(tr):
+                                 is_target = True
+                                 break
+                         
+                         if not is_target:
+                             # print(f"[{worker_id}] Skipping '{region_name}' (Not in target)")
+                             continue
+                    
+                    print(f"\n[{worker_id}] 지역: {region_name}")
                     
                     region_btn.scroll_into_view_if_needed()
                     region_btn.click(force=True)
@@ -241,16 +262,27 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                                 }
                                             )
                                             action = "생성됨" if created else "업데이트됨"
-                                            print(f"      ✅ {action}: {site_code_res} (날짜: {target_ymd})")
+                                            print(f"      ✅ [SUCCESS] {site_code_res} (날짜: {target_ymd}) - {action} (from Cache/Net)")
                                             collected_results.append({"log_id": log.id})
                                         except Exception as e:
-                                            print(f"      ❌ 저장 오류: {e}")
+                                            print(f"      ❌ [FAIL] 저장 오류: {e}")
+                                            failures.append({
+                                                'region': region_name,
+                                                'theater': theater_name,
+                                                'date': target_ymd,
+                                                'reason': f"Save Error: {str(e)[:50]}",
+                                                'worker': worker_id
+                                            })
                                     else:
                                         # 최종 실패 (disabled였거나, 클릭해도 응답 없거나)
-                                        # Disabled는 위에서 로그 찍힘. 여기서는 "응답 없음" 로그만.
-                                        # 단, disabled로 break한 경우 json_data는 None임.
-                                        # 중복 로그 방지를 위해 'is_disabled' 체크 로직 개선 필요하지만, 
-                                        # 일단 간단히 처리.
+                                        print(f"      ❌ [FAIL] 데이터 수집 실패: {target_ymd} (No Data)")
+                                        failures.append({
+                                            'region': region_name,
+                                            'theater': theater_name,
+                                            'date': target_ymd,
+                                            'reason': "No Data (Disabled or Response Timeout)",
+                                            'worker': worker_id
+                                        })
                                         pass 
 
                                     time.sleep(0.1) # 날짜 간 딜레이
@@ -283,7 +315,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                 browser.close()
 
     print(f"   [완료] 총 수집된 로그: {len(collected_results)} / {total_theater_count}")
-    return collected_results, total_theater_count
+    return collected_results, failures, total_theater_count
 
 
 # =============================================================================
@@ -302,7 +334,7 @@ class CGVPipelineService:
     @staticmethod
     def collect_schedule_logs(dates=None, stop_signal=None):
         """
-        [1단계] RPA를 통해 전국 극장 순회 및 로그 저장
+        [1단계] RPA를 통해 전국 극장 순회 및 로그 저장 (Parallel)
         Returns: (collected_logs, total_detected_cnt)
         """
         # Thread Safe
@@ -311,8 +343,46 @@ class CGVPipelineService:
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
-        print(f"--- 파이프라인: {dates} 데이터 수집 중 (Theater-First Loop) ---")
-        return fetch_cgv_schedule_rpa(date_list=dates, stop_signal=stop_signal)
+        # Define Region Groups for Parallel Workers
+        # 4개의 Worker로 분산 (16GB RAM 활용)
+        # Load Balancing: 경기(50+), 서울/인천(40+), 부산/경상(40+), 나머지(50+)
+        REGION_GROUPS = [
+            ["경기"], 
+            ["서울", "인천"],
+            ["부산/대구/경상"],
+            ["대전/충청/세종", "광주/전라/제주", "강원"]
+        ]
+
+        print(f"--- 파이프라인: {dates} 데이터 수집 중 (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
+        
+        collected_logs = []
+        all_failures = []
+        total_detected_cnt = 0
+        
+        with ThreadPoolExecutor(max_workers=len(REGION_GROUPS)) as executor:
+            futures = []
+            for group_idx, region_group in enumerate(REGION_GROUPS):
+                print(f"[Main] Scheduling Worker-{group_idx+1} for regions: {region_group}")
+                futures.append(
+                    executor.submit(
+                        fetch_cgv_schedule_rpa, 
+                        date_list=dates, 
+                        target_regions=region_group,
+                        stop_signal=stop_signal
+                    )
+                )
+            
+            # Wait for all futures
+            for future in futures:
+                try:
+                    res_logs, res_failures, res_cnt = future.result()
+                    collected_logs.extend(res_logs)
+                    all_failures.extend(res_failures)
+                    total_detected_cnt += res_cnt
+                except Exception as e:
+                    print(f"[Main] ❌ One of the workers failed: {e}")
+
+        return collected_logs, total_detected_cnt, all_failures
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
@@ -409,6 +479,20 @@ class CGVPipelineService:
                 }
             ]
         elif message_type == "SUCCESS":
+            # 실패 내역이 있으면 함께 표시
+            failures = data.get('failures', [])
+            fail_text = ""
+            if failures:
+                fail_summary = []
+                for f in failures[:15]: # 최대 15개까지만
+                    reason = f.get('reason', 'Unknown')
+                    fail_summary.append(f"• [{f['theater']}] {f['date']}: {reason}")
+                
+                if len(failures) > 15:
+                    fail_summary.append(f"... 외 {len(failures)-15}건")
+                
+                fail_text = "\n\n⚠️ *수집 실패 극장 리스트:*\n" + "\n".join(fail_summary)
+
             text = f"✅ CGV 스케줄 파이프라인 성공! (수집: {data['collected']}, 생성: {data['created']})"
             blocks = [
                 {
@@ -423,6 +507,12 @@ class CGVPipelineService:
                     ]
                 }
             ]
+            
+            if failures:
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": fail_text}
+                })
         elif message_type == "INFO":
             text = f"ℹ️ Pipeline: {data['message']}"
             blocks = [
@@ -477,10 +567,11 @@ class CGVPipelineService:
         cls.send_slack_message("INFO", {"message": "🚀 CGV 스케줄 데이터 수집을 시작합니다..."})
         
         # 1. Collect
-        logs, total_cnt = cls.collect_schedule_logs(dates=target_dates)
+        logs, total_cnt, collection_failures = cls.collect_schedule_logs(dates=target_dates)
         log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
         
-        cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개\n검증을 수행합니다."})
+        fail_msg = f"\n⚠️ 수집 실패: {len(collection_failures)}건" if collection_failures else ""
+        cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개{fail_msg}\n검증을 수행합니다."})
         
         # 2. Validate
         check_result = cls.check_missing_theaters(logs, total_cnt)
@@ -493,15 +584,17 @@ class CGVPipelineService:
             cls.send_slack_message("WARNING_MISSING", check_result)
         else:
             print(">>> Validation OK. Proceeding to transform...")
-            created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
+            # [USER REQUEST] 데이터 생성 잠시 중단
+            # created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
             
             # Send error report if any
-            if errors:
-                cls.send_slack_message("ERROR", {"errors": errors})
+            # if errors:
+            #     cls.send_slack_message("ERROR", {"errors": errors})
             
             cls.send_slack_message("SUCCESS", {
                 "collected": len(logs),
-                "created": created_cnt
+                "created": 0, # created_cnt,
+                "failures": collection_failures
             })
             
         return len(logs), created_cnt, errors, total_cnt

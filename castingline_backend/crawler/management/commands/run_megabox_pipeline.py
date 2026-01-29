@@ -34,6 +34,7 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
         date_list = [datetime.now().strftime("%Y%m%d")]
 
     collected_results = []
+    failures = [] # 실패 내역
     total_theater_count = 0  
     
     # Thread Safe 설정
@@ -177,9 +178,23 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                             
                                     else:
                                         print(f"[{worker_id}]       ⚠️ Date button not found. Skipping.")
+                                        failures.append({
+                                            'region': region_name,
+                                            'theater': theater_name,
+                                            'date': scn_ymd,
+                                            'reason': "Date Button Not Found",
+                                            'worker': worker_id
+                                        })
                                         
                                 except Exception as e:
                                     print(f"[{worker_id}]       ⚠️ Date Error {scn_ymd}: {e}")
+                                    failures.append({
+                                        'region': region_name,
+                                        'theater': theater_name,
+                                        'date': scn_ymd,
+                                        'reason': f"Error: {str(e)[:50]}",
+                                        'worker': worker_id
+                                    })
                                 
                                 time.sleep(0.1) 
 
@@ -199,7 +214,7 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
             print(f"[{worker_id}] ❌ Playwright Error: {e}")
 
     print(f"[{worker_id}] Finished. Collected: {len(collected_results)}")
-    return collected_results, total_theater_count
+    return collected_results, failures, total_theater_count
 
 
 # =============================================================================
@@ -223,6 +238,7 @@ class MegaboxPipelineService:
         print(f"--- Pipeline: Collecting for dates {dates} (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
         
         collected_logs = []
+        all_failures = []
         total_detected_cnt = 0
         
         with ThreadPoolExecutor(max_workers=len(REGION_GROUPS)) as executor:
@@ -241,13 +257,14 @@ class MegaboxPipelineService:
             # Wait for all futures
             for future in futures:
                 try:
-                    res_logs, res_cnt = future.result()
+                    res_logs, res_failures, res_cnt = future.result()
                     collected_logs.extend(res_logs)
+                    all_failures.extend(res_failures)
                     total_detected_cnt += res_cnt
                 except Exception as e:
                     print(f"[Main] ❌ One of the workers failed: {e}")
         
-        return collected_logs, total_detected_cnt
+        return collected_logs, total_detected_cnt, all_failures
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
@@ -318,6 +335,20 @@ class MegaboxPipelineService:
             ]
             
         elif message_type == "SUCCESS":
+            # 실패 내역이 있으면 함께 표시
+            failures = data.get('failures', [])
+            fail_text = ""
+            if failures:
+                fail_summary = []
+                for f in failures[:15]: # 최대 15개까지만
+                    reason = f.get('reason', 'Unknown')
+                    fail_summary.append(f"• [{f['theater']}] {f['date']}: {reason}")
+                
+                if len(failures) > 15:
+                    fail_summary.append(f"... 외 {len(failures)-15}건")
+                
+                fail_text = "\n\n⚠️ *수집 실패 극장 리스트:*\n" + "\n".join(fail_summary)
+
             text = f"✅ 메가박스 스케줄 파이프라인 성공! (수집: {data['collected']}, 생성: {data['created']})"
             blocks = [
                 {
@@ -332,6 +363,12 @@ class MegaboxPipelineService:
                     ]
                 }
             ]
+            
+            if failures:
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": fail_text}
+                })
             
         elif message_type == "WARNING_MISSING":
             text = f"⚠️ 메가박스 스케줄 수집 누락 경고! ({data['collected_cnt']}/{data['total_cnt']})"
@@ -382,23 +419,31 @@ class MegaboxPipelineService:
         print(">>> Starting Megabox Pipeline")
         cls.send_slack_message("INFO", {"message": "🚀 메가박스 스케줄 수집 시작"})
         
-        logs, total_cnt = cls.collect_schedule_logs(dates=target_dates)
+        logs, total_cnt, collection_failures = cls.collect_schedule_logs(dates=target_dates)
         log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
         
-        cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개\n검증을 수행합니다."})
+        fail_msg = f"\n⚠️ 수집 실패: {len(collection_failures)}건" if collection_failures else ""
+        cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개{fail_msg}\n검증을 수행합니다."})
         
         # Validation Logic needs to be smarter for multi-date, but keeping basic for now
-        check_result = cls.check_missing_theaters(logs, total_cnt)
-        if check_result['is_missing']:
-            cls.send_slack_message("WARNING_MISSING", check_result)
+        # check_result = cls.check_missing_theaters(logs, total_cnt)
+        # if check_result['is_missing']:
+        #     cls.send_slack_message("WARNING_MISSING", check_result)
         
-        created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
+        # [USER REQUEST] 데이터 생성 잠시 중단
+        created_cnt = 0
+        errors = []
+        # created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
         
         # Send error report if any
         if errors:
             cls.send_slack_message("ERROR", {"errors": errors})
         
-        cls.send_slack_message("SUCCESS", {"collected": len(logs), "created": created_cnt})
+        cls.send_slack_message("SUCCESS", {
+            "collected": len(logs), 
+            "created": created_cnt,
+            "failures": collection_failures
+        })
 
 
 # =============================================================================
