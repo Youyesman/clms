@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "rate",
     "fund",
     "settlement",
+    "crawler",
 ]
 
 MIDDLEWARE = [

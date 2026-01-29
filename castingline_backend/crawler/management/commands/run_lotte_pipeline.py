@@ -10,13 +10,13 @@ from django.core.management.base import BaseCommand
 from playwright.sync_api import sync_playwright
 
 # Models Import
-from movie.models import LotteScheduleLog, MovieSchedule
+from crawler.models import LotteScheduleLog, MovieSchedule
 
 # =============================================================================
 # [PART 1] RPA Logic (Lotte Cinema)
 # =============================================================================
 
-def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
+def fetch_lotte_schedule_rpa(scn_ymd="20260127", stop_signal=None):
     """
     Playwright를 사용하여 롯데시네마 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
@@ -81,6 +81,7 @@ def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
                     # 극장 직접 순회
                     for j in range(theater_count):
                         try:
+                            if stop_signal: stop_signal()
                             theater_btn = page.locator(theater_list_sel).nth(j)
                             theater_name = theater_btn.inner_text().strip()
                             theater_code = theater_btn.get_attribute("data-theater-id") or \
@@ -139,6 +140,7 @@ def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
                 
                 for i in range(region_count):
                     try:
+                        if stop_signal: stop_signal()
                         # 지역 버튼 클릭
                         region_btn = page.locator(region_list_sel).nth(i)
                         region_name = region_btn.inner_text().strip()
@@ -163,6 +165,7 @@ def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
                         
                         for j in range(theater_count):
                             try:
+                                if stop_signal: stop_signal()
                                 theater_btn = page.locator(theater_list_sel).nth(j)
                                 theater_name = theater_btn.inner_text().strip()
                                 
@@ -173,19 +176,44 @@ def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
                                 
                                 print(f"      [{j+1}/{theater_count}] Processing: {theater_name} ({theater_code})")
                                 
-                                # API Intercept
+                                # 1. 극장 선택
+                                theater_btn.click(force=True)
+                                time.sleep(1) # Wait for header/date update
+
+                                # 2. 날짜 선택
+                                # Lotte: .time_select .owl-item, .date-list button ...
+                                # HTML 구조 가정: <div class="owl-item"><button data-date="2024-01-29">...</button></div>
+                                target_date_fmt = f"{scn_ymd[:4]}-{scn_ymd[4:6]}-{scn_ymd[6:]}" # YYYY-MM-DD
+                                
                                 try:
-                                    # 롯데시네마 API 엔드포인트 예측 (실제 확인 필요)
-                                    api_pattern = ["Schedule", "GetPlaySchedule", "Cinema", "Ticketing"]
+                                    # data-date 속성을 가진 버튼 찾기 시도
+                                    # 롯데시네마는 owl-carousel을 쓰는 경우가 많음
+                                    date_btn = page.locator(f"button[data-date='{target_date_fmt}']").first
                                     
-                                    with page.expect_response(
-                                        lambda response: any(pattern in response.url for pattern in api_pattern),
-                                        timeout=5000
-                                    ) as response_info:
-                                        theater_btn.click(force=True)
+                                    # 없으면 텍스트(일자) 매칭 시도
+                                    if date_btn.count() == 0:
+                                        target_day = str(int(scn_ymd[6:])) # '29' or '5'
+                                        date_btn = page.locator(f".owl-item button:has-text('{target_day}')").first
                                     
-                                    response = response_info.value
-                                    
+                                    if date_btn.count() > 0:
+                                        print(f"      🗓 Clicking Date: {target_date_fmt}")
+                                        api_pattern = ["Schedule", "GetPlaySchedule", "Cinema", "Ticketing"]
+                                        
+                                        with page.expect_response(
+                                            lambda response: any(pattern in response.url for pattern in api_pattern),
+                                            timeout=5000
+                                        ) as response_info:
+                                            date_btn.click(force=True)
+                                        
+                                        response = response_info.value
+                                    else:
+                                        print(f"      ⚠️ Date button for {target_date_fmt} not found. Skipping.")
+                                        continue
+                                        
+                                except Exception as e:
+                                    print(f"      ⚠️ Date Selection Error: {e}")
+                                    continue
+
                                     if response.status == 200:
                                         try:
                                             json_data = response.json()
@@ -235,7 +263,7 @@ def fetch_lotte_schedule_rpa(scn_ymd="20260127"):
 
 class LottePipelineService:
     @staticmethod
-    def collect_schedule_logs(dates=None):
+    def collect_schedule_logs(dates=None, stop_signal=None):
         os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
@@ -245,9 +273,9 @@ class LottePipelineService:
         
         for date_str in dates:
             print(f"--- Pipeline: Collecting for {date_str} ---")
-            results, count = fetch_lotte_schedule_rpa(scn_ymd=date_str) 
+            results, count = fetch_lotte_schedule_rpa(scn_ymd=date_str, stop_signal=stop_signal) 
             collected_logs.extend(results)
-            total_detected_cnt = count
+            total_detected_cnt += count
             
         return collected_logs, total_detected_cnt
 
@@ -265,7 +293,7 @@ class LottePipelineService:
         }
 
     @staticmethod
-    def transform_logs_to_schedule(log_ids=None):
+    def transform_logs_to_schedule(log_ids=None, target_titles=None):
         if log_ids:
             logs = LotteScheduleLog.objects.filter(id__in=log_ids)
         else:
@@ -278,7 +306,7 @@ class LottePipelineService:
         
         for log in logs:
             try:
-                cnt, errors = MovieSchedule.create_from_lotte_log(log)
+                cnt, errors = MovieSchedule.create_from_lotte_log(log, target_titles=target_titles)
                 total_created += cnt
                 all_errors.extend(errors)
             except Exception as e:
@@ -396,7 +424,7 @@ class LottePipelineService:
         if check_result['is_missing']:
             cls.send_slack_message("WARNING_MISSING", check_result)
         
-        created_cnt, errors = cls.transform_logs_to_schedule(log_ids)
+        created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
         
         # Send error report if any
         if errors:

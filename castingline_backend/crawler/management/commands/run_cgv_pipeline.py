@@ -9,17 +9,22 @@ from django.core.management.base import BaseCommand
 from playwright.sync_api import sync_playwright
 
 # Models Import
-from movie.models import CGVScheduleLog, MovieSchedule
+from crawler.models import CGVScheduleLog, MovieSchedule
 
 # =============================================================================
 # [PART 1] RPA Logic (Formerly cgv_rpa.py)
 # =============================================================================
 
-def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
+def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, stop_signal=None):
     """
     Playwright를 사용하여 CGV 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
+    (Optimized: 극장 선택 후 날짜 목록을 순회합니다)
     """
+    # Date List Normalization
+    target_dates = date_list if date_list else ([scn_ymd] if scn_ymd else [datetime.now().strftime("%Y%m%d")])
+    
+    print(f"[디버그] fetch_cgv_schedule_rpa 호출됨. 대상 날짜 목록: {target_dates}")
     collected_results = []
     total_theater_count = 0  # 전체 극장 수 누적 변수
     
@@ -34,11 +39,11 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
         page = context.new_page()
 
         target_url = "https://cgv.co.kr/cnm/movieBook/cinema"
-        print(f"🚀 Navigating to: {target_url}")
+        print(f"🚀 이동 중: {target_url}")
         
         try:
             page.goto(target_url, timeout=30000)
-            print("⏳ Waiting for page load...")
+            print("⏳ 페이지 로딩 대기 중...")
             
             # Helper: 모달 열기
             def ensure_modal_open():
@@ -52,8 +57,8 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
                     open_btn.click()
                     page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=3000)
                 except Exception as e:
-                    print(f"⚠️ Failed to open modal: {e}")
-
+                    print(f"⚠️ 모달 열기 실패: {e}")
+ 
             # 초기 모달 대기
             ensure_modal_open()
             
@@ -61,16 +66,17 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
             modal_selector = ".cgv-bot-modal.active"
             region_items_selector = f"{modal_selector} .bottom_region__2bZCS > ul > li"
             region_count = page.locator(region_items_selector).count()
-            print(f"📍 Found {region_count} regions.")
+            print(f"📍 {region_count}개의 지역을 찾았습니다.")
             
             for i in range(region_count):
                 try:
+                    if stop_signal: stop_signal()
                     ensure_modal_open()
                     
                     # 지역 버튼 클릭
                     region_btn = page.locator(f"{region_items_selector}:nth-child({i+1}) > button")
                     region_name = region_btn.inner_text().split('(')[0].strip()
-                    print(f"\n[{i+1}/{region_count}] Region: {region_name}")
+                    print(f"\n[{i+1}/{region_count}] 지역: {region_name}")
                     
                     region_btn.scroll_into_view_if_needed()
                     region_btn.click(force=True)
@@ -83,10 +89,11 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
                     theater_items_selector = f"{theater_container_selector} > li"
                     current_region_cnt = page.locator(theater_items_selector).count()
                     total_theater_count += current_region_cnt # 누적
-                    print(f"   ↳ Found {current_region_cnt} theaters (Total: {total_theater_count})")
+                    print(f"   ↳ {current_region_cnt}개의 극장 발견 (누적: {total_theater_count})")
                     
                     for j in range(current_region_cnt):
                         try:
+                            if stop_signal: stop_signal()
                             ensure_modal_open()
                             
                             # 지역 다시 선택 (초기화 방지)
@@ -104,63 +111,178 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd="20260127"):
                             if match:
                                 current_site_no = match.group(1)
                             
-                            print(f"      [{j+1}/{current_region_cnt}] Processing: {theater_name}")
+                            print(f"      [{j+1}/{current_region_cnt}] 처리 중: {theater_name}")
                             
                             theater_btn.scroll_into_view_if_needed()
                             
-                            # API 응답 대기 및 클릭
-                            try:
-                                with page.expect_response(lambda response: "searchMovScnInfo" in response.url, timeout=3000) as response_info:
-                                    theater_btn.click(force=True)
-                                
-                                response = response_info.value
-                                if response.status == 200:
-                                    body_text = response.text()
-                                    try:
-                                        json_data = json.loads(body_text)
-                                        
-                                        # DB 저장
-                                        close_old_connections()
-                                        
-                                        site_code_res = current_site_no
-                                        if json_data.get("data") and len(json_data["data"]) > 0:
-                                            site_code_res = json_data["data"][0].get("siteNo", current_site_no)
-                                            
-                                        log = CGVScheduleLog.objects.create(
-                                            query_date=scn_ymd,
-                                            site_code=site_code_res,
-                                            theater_name=theater_name, 
-                                            response_json=json_data,
-                                            status='success'
-                                        )
-                                        print(f"      ✅ Saved: {site_code_res} (Log ID: {log.id})")
-                                        collected_results.append({"log_id": log.id})
-                                    except:
-                                        print(f"      ❌ JSON Error")
-                                else:
-                                    print(f"      ⚠️ Status: {response.status}")
-                                    
-                            except Exception as e:
-                                 print(f"      ⚠️ API Missing: {e}")
-
-                            time.sleep(0.1) # 부하 조절
+                            # 📥 API 응답 스니핑 (Response Sniffing) 설정
+                            # 한 번의 클릭으로 여러 날짜 데이터가 올 수 있으므로, Listener로 모두 수집합니다.
+                            response_cache = {} 
                             
+                            def on_schedule_response(response):
+                                try:
+                                    if "searchMovScnInfo" in response.url and response.status == 200:
+                                        from urllib.parse import urlparse, parse_qs
+                                        parsed = urlparse(response.url)
+                                        qs = parse_qs(parsed.query)
+                                        if 'scnYmd' in qs:
+                                            ymd = qs['scnYmd'][0]
+                                            # response.json()은 Playwright에서 본문 로딩을 처리해줍니다.
+                                            data = response.json()
+                                            response_cache[ymd] = data
+                                            print(f"      📥 [캐시] 데이터 수신됨: {ymd}")
+                                except Exception as e:
+                                    pass # 리스너 내부 오류는 무시 (메인 로직 방해 방지)
+
+                            page.on("response", on_schedule_response)
+                            
+                            try:
+                                # 1. 극장 선택 (클릭 시 여러 API 호출 발생 가능)
+                                try:
+                                    # 적어도 하나의 응답은 기다림
+                                    with page.expect_response(lambda r: "searchMovScnInfo" in r.url, timeout=3000):
+                                        theater_btn.click(force=True)
+                                except:
+                                    print("      ⚠️ 초기 응답 대기 타임아웃 (백그라운드 수집은 계속됨)")
+                                    pass
+                                
+                                time.sleep(1.0) # 추가 비동기 응답 대기
+
+                                # ===================== [DATE LOOP START] =====================
+                                for target_ymd in target_dates:
+                                    if stop_signal: stop_signal()
+                                    
+                                    target_date_obj = datetime.strptime(target_ymd, "%Y%m%d")
+                                    target_day = f"{target_date_obj.day:02d}" 
+                                    target_day_variant = f"{target_date_obj.month}.{target_date_obj.day}" if target_date_obj.day == 1 else None
+
+                                    # 1단계: 캐시 확인
+                                    json_data = response_cache.get(target_ymd)
+                                    
+                                    if json_data:
+                                        print(f"      ⚡ 캐시된 데이터 즉시 사용 ({target_ymd})")
+                                    else:
+                                        # 2단계: 캐시에 없으면 해당 날짜 버튼 클릭
+                                        # 재시도 로직
+                                        for attempt in range(3):
+                                            try:
+                                                ensure_modal_open()
+                                                
+                                                # 버튼 찾기
+                                                date_btns = page.locator("button:has(span[class*='dayScroll_number'])")
+                                                target_btn = None
+                                                cnt = date_btns.count()
+                                                for k in range(cnt):
+                                                    btn = date_btns.nth(k)
+                                                    span_text = btn.locator("span[class*='dayScroll_number']").inner_text().strip()
+                                                    if span_text == target_day or (target_day_variant and span_text == target_day_variant):
+                                                        target_btn = btn
+                                                        break
+                                                
+                                                if not target_btn:
+                                                    print(f"      ⚠️ 날짜 버튼 없음: {target_day}")
+                                                    break
+                                                
+                                                # 상태 확인 (유저 제보 DOM 기반 강화)
+                                                # DOM: <button ... class="... dayScroll_disabled__t8HIQ" disabled="" title="선택됨">
+                                                is_disabled_attr = target_btn.get_attribute("disabled") is not None
+                                                class_attr = target_btn.get_attribute("class") or ""
+                                                title_attr = target_btn.get_attribute("title") or ""
+                                                
+                                                is_disabled_class = "disabled" in class_attr or "dimmed" in class_attr
+                                                is_active = "dayScroll_itemActive" in class_attr or "선택됨" in title_attr
+                                                
+                                                if is_disabled_attr or is_disabled_class:
+                                                    print(f"      🚫 날짜 비활성화됨: {target_ymd}")
+                                                    break
+                                                
+                                                # 클릭
+                                                if is_active:
+                                                    print(f"      🗓 날짜 {target_ymd} ({target_day}) 이미 활성화됨 (Title: {title_attr}). 클릭 갱신 시도.")
+                                                else:
+                                                    print(f"      🗓 날짜 클릭 시도: {target_ymd} (시도 {attempt+1})")
+                                                
+                                                # 클릭 후 응답을 기다리지만, 데이터는 response_cache에 쌓임
+                                                try:
+                                                    target_btn.scroll_into_view_if_needed() # 가시성 확보
+                                                    with page.expect_response(lambda r: "searchMovScnInfo" in r.url, timeout=5000):
+                                                        # JS Click 사용 (이벤트 핸들러 호환성 향상)
+                                                        target_btn.evaluate("el => el.click()")
+                                                except:
+                                                    pass # 타임아웃 나더라도 캐시 확인이 중요
+                                                
+                                                # 클릭 후 캐시 재확인
+                                                if target_ymd in response_cache:
+                                                    json_data = response_cache[target_ymd]
+                                                    break # 성공
+                                                
+                                                time.sleep(1) # 대기 후 재시도
+                                                
+                                            except Exception as e:
+                                                print(f"      ⚠️ 날짜 클릭 오류: {e}")
+                                                time.sleep(1)
+                                    
+                                    # 3단계: 최종 데이터 저장 처리
+                                    if json_data:
+                                        try:
+                                            close_old_connections()
+                                            
+                                            site_code_res = current_site_no
+                                            if json_data.get("data") and len(json_data["data"]) > 0:
+                                                site_code_res = json_data["data"][0].get("siteNo", current_site_no)
+                                            
+                                            log, created = CGVScheduleLog.objects.update_or_create(
+                                                query_date=target_ymd,
+                                                site_code=site_code_res,
+                                                defaults={
+                                                    'theater_name': theater_name,
+                                                    'response_json': json_data,
+                                                    'status': 'success'
+                                                }
+                                            )
+                                            action = "생성됨" if created else "업데이트됨"
+                                            print(f"      ✅ {action}: {site_code_res} (날짜: {target_ymd})")
+                                            collected_results.append({"log_id": log.id})
+                                        except Exception as e:
+                                            print(f"      ❌ 저장 오류: {e}")
+                                    else:
+                                        # 최종 실패 (disabled였거나, 클릭해도 응답 없거나)
+                                        # Disabled는 위에서 로그 찍힘. 여기서는 "응답 없음" 로그만.
+                                        # 단, disabled로 break한 경우 json_data는 None임.
+                                        # 중복 로그 방지를 위해 'is_disabled' 체크 로직 개선 필요하지만, 
+                                        # 일단 간단히 처리.
+                                        pass 
+
+                                    time.sleep(0.1) # 날짜 간 딜레이
+
+                            finally:
+                                page.remove_listener("response", on_schedule_response)
+
+                            time.sleep(0.1) # 극장 간 딜레이
+                            
+                        except InterruptedError:
+                            raise
                         except Exception as e:
-                            print(f"      ❌ Theater Error: {e}")
+                            print(f"      ❌ 극장 오류: {e}")
                             continue
 
+                except InterruptedError:
+                    raise
                 except Exception as e:
-                    print(f"❌ Region Error: {e}")
+                    print(f"❌ 지역 오류: {e}")
                     continue
 
+        except InterruptedError:
+            print("🛑 사용자에 의해 작업 중단됨")
+            return collected_results, total_theater_count
         except Exception as e:
-            print(f"❌ Playwright Error: {e}")
+            print(f"❌ Playwright 오류: {e}")
             
         finally:
             if 'browser' in locals():
                 browser.close()
 
-    print(f"   [Completion] Total Collected Logs: {len(collected_results)} / {total_theater_count}")
+    print(f"   [완료] 총 수집된 로그: {len(collected_results)} / {total_theater_count}")
     return collected_results, total_theater_count
 
 
@@ -178,7 +300,7 @@ class CGVPipelineService:
     """
 
     @staticmethod
-    def collect_schedule_logs(dates=None):
+    def collect_schedule_logs(dates=None, stop_signal=None):
         """
         [1단계] RPA를 통해 전국 극장 순회 및 로그 저장
         Returns: (collected_logs, total_detected_cnt)
@@ -189,17 +311,8 @@ class CGVPipelineService:
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
-        collected_logs = []
-        total_detected_cnt = 0
-        
-        for date_str in dates:
-            print(f"--- Pipeline: Collecting for {date_str} ---")
-            # Call the internal function
-            results, count = fetch_cgv_schedule_rpa(scn_ymd=date_str) 
-            collected_logs.extend(results)
-            total_detected_cnt = count
-            
-        return collected_logs, total_detected_cnt
+        print(f"--- 파이프라인: {dates} 데이터 수집 중 (Theater-First Loop) ---")
+        return fetch_cgv_schedule_rpa(date_list=dates, stop_signal=stop_signal)
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
@@ -218,7 +331,7 @@ class CGVPipelineService:
         }
 
     @staticmethod
-    def transform_logs_to_schedule(log_ids=None):
+    def transform_logs_to_schedule(log_ids=None, target_titles=None):
         """
         [3단계] 로그 -> 스케줄 변환 (Bulk)
         """
@@ -235,7 +348,7 @@ class CGVPipelineService:
         
         for log in logs:
             try:
-                cnt, errors = MovieSchedule.create_from_cgv_log(log)
+                cnt, errors = MovieSchedule.create_from_cgv_log(log, target_titles=target_titles)
                 total_created += cnt
                 all_errors.extend(errors)
             except Exception as e:
@@ -376,7 +489,7 @@ class CGVPipelineService:
             cls.send_slack_message("WARNING_MISSING", check_result)
         else:
             print(">>> Validation OK. Proceeding to transform...")
-            created_cnt, errors = cls.transform_logs_to_schedule(log_ids)
+            created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
             
             # Send error report if any
             if errors:

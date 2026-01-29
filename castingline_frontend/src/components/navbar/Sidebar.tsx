@@ -2,10 +2,10 @@ import React, { useState } from "react";
 import styled from "styled-components";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { 
-    ChartBar, Calendar, Users, Buildings, FilmSlate, 
+import {
+    ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, Coins, MapPin, Receipt,
-    SealCheck, Bank, Percent, SignOut, UserCircle
+    SealCheck, Bank, Percent, SignOut, UserCircle, Bug
 } from "@phosphor-icons/react";
 import { useRecoilValue, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
@@ -116,7 +116,7 @@ const GroupTitle = styled.div<{ $isExpanded: boolean }>`
     white-space: nowrap;
 `;
 
-const NavItem = styled(NavLink)<{ $isExpanded: boolean }>`
+const NavItem = styled(NavLink) <{ $isExpanded: boolean }>`
     display: flex;
     align-items: center;
     gap: 12px;
@@ -209,14 +209,14 @@ export function Sidebar() {
     const handleLogout = async () => {
         try {
             await AxiosGet("logout");
-        } catch (e) {}
+        } catch (e) { }
         resetAccount();
         localStorage.clear();
         navigate("/login");
     };
 
     return (
-        <SidebarContainer 
+        <SidebarContainer
             $isExpanded={isHovered}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -239,11 +239,11 @@ export function Sidebar() {
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("DASHBOARD")}</GroupTitle>
                     <NavItem to="/score" $isExpanded={isHovered} title={t("스코어 현황")}>
-                        <ChartBar size={24} /> 
+                        <ChartBar size={24} />
                         <span className="label">{t("스코어 현황")}</span>
                     </NavItem>
                     <NavItem to="/time_table" $isExpanded={isHovered} title={t("시간표 조회")}>
-                        <Calendar size={24} /> 
+                        <Calendar size={24} />
                         <span className="label">{t("시간표 조회")}</span>
                     </NavItem>
                 </NavGroup>
@@ -251,35 +251,39 @@ export function Sidebar() {
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("CORE INFO")}</GroupTitle>
                     <NavItem to="/manage/manage_user" $isExpanded={isHovered} title={t("사용자 관리")}>
-                        <Users size={24} /> 
+                        <Users size={24} />
                         <span className="label">{t("사용자 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_client" $isExpanded={isHovered} title={t("거래처 관리")}>
-                        <Buildings size={24} /> 
+                        <Buildings size={24} />
                         <span className="label">{t("거래처 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_movie" $isExpanded={isHovered} title={t("영화 관리")}>
-                        <FilmSlate size={24} /> 
+                        <FilmSlate size={24} />
                         <span className="label">{t("영화 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_theater_map" $isExpanded={isHovered} title={t("극장명 매핑")}>
-                        <MapPin size={24} /> 
+                        <MapPin size={24} />
                         <span className="label">{t("극장명 매핑")}</span>
+                    </NavItem>
+                    <NavItem to="/manage/crawler" $isExpanded={isHovered} title={t("크롤러 관리")}>
+                        <Bug size={24} />
+                        <span className="label">{t("크롤러 관리")}</span>
                     </NavItem>
                 </NavGroup>
 
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("OPERATIONS")}</GroupTitle>
                     <NavItem to="/manage/manage_order" $isExpanded={isHovered} title={t("오더 관리")}>
-                        <ClipboardText size={24} /> 
+                        <ClipboardText size={24} />
                         <span className="label">{t("오더 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_score" $isExpanded={isHovered} title={t("스코어 관리")}>
-                        <TrendUp size={24} /> 
+                        <TrendUp size={24} />
                         <span className="label">{t("스코어 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_fund" $isExpanded={isHovered} title={t("기금 관리")}>
-                        <Bank size={24} /> 
+                        <Bank size={24} />
                         <span className="label">{t("기금 관리")}</span>
                     </NavItem>
                 </NavGroup>
@@ -287,15 +291,15 @@ export function Sidebar() {
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("SETTLEMENT")}</GroupTitle>
                     <NavItem to="/manage/manage_rate" $isExpanded={isHovered} title={t("부율 관리")}>
-                        <Percent size={24} /> 
+                        <Percent size={24} />
                         <span className="label">{t("부율 관리")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_settlement" $isExpanded={isHovered} title={t("부금 정산")}>
-                        <Receipt size={24} /> 
+                        <Receipt size={24} />
                         <span className="label">{t("부금 정산")}</span>
                     </NavItem>
                     <NavItem to="/manage/manage_special_settlement" $isExpanded={isHovered} title={t("지정 부금")}>
-                        <SealCheck size={24} /> 
+                        <SealCheck size={24} />
                         <span className="label">{t("지정 부금")}</span>
                     </NavItem>
                 </NavGroup>

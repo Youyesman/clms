@@ -10,13 +10,13 @@ from django.core.management.base import BaseCommand
 from playwright.sync_api import sync_playwright
 
 # Models Import
-from movie.models import MegaboxScheduleLog, MovieSchedule
+from crawler.models import MegaboxScheduleLog, MovieSchedule
 
 # =============================================================================
 # [PART 1] RPA Logic (Megabox)
 # =============================================================================
 
-def fetch_megabox_schedule_rpa(scn_ymd="20260127"):
+def fetch_megabox_schedule_rpa(scn_ymd="20260127", stop_signal=None):
     """
     Playwright를 사용하여 Megabox 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
@@ -74,6 +74,7 @@ def fetch_megabox_schedule_rpa(scn_ymd="20260127"):
             
             for i in range(region_count):
                 try:
+                    if stop_signal: stop_signal()
                     # 지역 버튼 클릭
                     region_btn = page.locator(f"{region_list_sel}").nth(i)
                     region_name = region_btn.inner_text().split('\n')[0].strip()
@@ -99,51 +100,79 @@ def fetch_megabox_schedule_rpa(scn_ymd="20260127"):
                     
                     for j in range(theater_count):
                         try:
+                            if stop_signal: stop_signal()
                             theater_btn = page.locator(theater_list_sel).nth(j)
                             theater_name = theater_btn.inner_text().strip()
                             brch_no = theater_btn.get_attribute("data-brch-no") or "Unknown"
                             
                             print(f"      [{j+1}/{theater_count}] Processing: {theater_name} ({brch_no})")
                             
-                            # API Intercept 준비
+                            # 1. 극장 선택
+                            theater_btn.click(force=True)
+                            time.sleep(1)
+
+                            # 2. 날짜 선택
+                            # Megabox: .date-list button[date-data='2024.01.29'], .date-area ...
+                            target_date_fmt = f"{scn_ymd[:4]}.{scn_ymd[4:6]}.{scn_ymd[6:]}" # YYYY.MM.DD
+                            
                             try:
-                                with page.expect_response(lambda response: "schedulePage.do" in response.url, timeout=3000) as response_info:
-                                    theater_btn.click(force=True)
+                                # 정확한 속성 기반 찾기
+                                # 메가박스: <button date-data="2024.01.29" ...>
+                                date_btn = page.locator(f"button[date-data='{target_date_fmt}']").first
                                 
-                                response = response_info.value
-                                
-                                if response.status == 200:
-                                    try:
-                                        json_data = response.json()
-                                        
-                                        # DB 저장
-                                        close_old_connections()
-                                        
-                                        log = MegaboxScheduleLog.objects.create(
-                                            query_date=scn_ymd,
-                                            site_code=brch_no,
-                                            theater_name=theater_name,
-                                            response_json=json_data,
-                                            status='success'
-                                        )
-                                        print(f"      ✅ Saved: {brch_no} (Log ID: {log.id})")
-                                        collected_results.append({"log_id": log.id})
-                                        
-                                    except Exception as e:
-                                        # JSON 파싱 실패 등
-                                        print(f"      ❌ Parse Error: {e}")
+                                if date_btn.count() == 0:
+                                    # class="date-list" 안의 버튼 중 텍스트 매칭
+                                    target_day = str(int(scn_ymd[6:]))
+                                    date_btn = page.locator(f".date-list button:has-text('{target_day}')").first
+
+                                if date_btn.count() > 0:
+                                    print(f"      🗓 Clicking Date: {target_date_fmt}")
+                                    with page.expect_response(lambda response: "schedulePage.do" in response.url, timeout=5000) as response_info:
+                                        date_btn.click(force=True)
+                                    
+                                    response = response_info.value
                                 else:
-                                    print(f"      ⚠️ Status: {response.status}")
+                                    print(f"      ⚠️ Date button for {target_date_fmt} not found. Skipping.")
+                                    continue
                                     
                             except Exception as e:
-                                print(f"      ⚠️ API Timeout/Missing: {e}")
+                                print(f"      ⚠️ Date Selection Error: {e}")
+                                continue
+
+                            if 'response' in locals() and response.status == 200:
+                                try:
+                                    json_data = response.json()
+                                    
+                                    # DB 저장
+                                    close_old_connections()
+                                    
+                                    log = MegaboxScheduleLog.objects.create(
+                                        query_date=scn_ymd,
+                                        site_code=brch_no,
+                                        theater_name=theater_name,
+                                        response_json=json_data,
+                                        status='success'
+                                    )
+                                    print(f"      ✅ Saved: {brch_no} (Log ID: {log.id})")
+                                    collected_results.append({"log_id": log.id})
+                                    
+                                except Exception as e:
+                                    # JSON 파싱 실패 등
+                                    print(f"      ❌ Parse Error: {e}")
+                            else:
+                                if 'response' in locals():
+                                    print(f"      ⚠️ Status: {response.status}")
 
                             time.sleep(0.1)
 
+                        except InterruptedError:
+                            raise
                         except Exception as e:
                             print(f"      ❌ Theater Error: {e}")
                             continue
 
+                except InterruptedError:
+                    raise
                 except Exception as e:
                     print(f"❌ Region Error: {e}")
                     continue
@@ -162,7 +191,7 @@ def fetch_megabox_schedule_rpa(scn_ymd="20260127"):
 
 class MegaboxPipelineService:
     @staticmethod
-    def collect_schedule_logs(dates=None):
+    def collect_schedule_logs(dates=None, stop_signal=None):
         os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
@@ -172,9 +201,9 @@ class MegaboxPipelineService:
         
         for date_str in dates:
             print(f"--- Pipeline: Collecting for {date_str} ---")
-            results, count = fetch_megabox_schedule_rpa(scn_ymd=date_str) 
+            results, count = fetch_megabox_schedule_rpa(scn_ymd=date_str, stop_signal=stop_signal) 
             collected_logs.extend(results)
-            total_detected_cnt = count
+            total_detected_cnt += count
             
         return collected_logs, total_detected_cnt
 
@@ -192,7 +221,7 @@ class MegaboxPipelineService:
         }
 
     @staticmethod
-    def transform_logs_to_schedule(log_ids=None):
+    def transform_logs_to_schedule(log_ids=None, target_titles=None):
         if log_ids:
             logs = MegaboxScheduleLog.objects.filter(id__in=log_ids)
         else:
@@ -205,7 +234,7 @@ class MegaboxPipelineService:
         
         for log in logs:
             try:
-                cnt, errors = MovieSchedule.create_from_megabox_log(log)
+                cnt, errors = MovieSchedule.create_from_megabox_log(log, target_titles=target_titles)
                 total_created += cnt
                 all_errors.extend(errors)
             except Exception as e:
@@ -323,7 +352,7 @@ class MegaboxPipelineService:
         if check_result['is_missing']:
             cls.send_slack_message("WARNING_MISSING", check_result)
         
-        created_cnt, errors = cls.transform_logs_to_schedule(log_ids)
+        created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
         
         # Send error report if any
         if errors:

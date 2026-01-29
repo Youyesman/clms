@@ -11,7 +11,7 @@ from django.db.models import F
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from movie.management.commands.run_cgv_pipeline import fetch_cgv_schedule_rpa
+from crawler.management.commands.run_cgv_pipeline import fetch_cgv_schedule_rpa
 
 class DefaultPagination(PageNumberPagination):
     page_size = 20  # 한 페이지에 보여질 항목 수 설정

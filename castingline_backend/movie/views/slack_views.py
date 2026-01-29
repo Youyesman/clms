@@ -3,7 +3,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
 import json
-from movie.management.commands.run_cgv_pipeline import CGVPipelineService
+from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 
 @method_decorator(csrf_exempt, name='dispatch')
 class SlackInteractiveView(View):

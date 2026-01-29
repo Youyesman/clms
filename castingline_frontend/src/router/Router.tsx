@@ -22,6 +22,7 @@ import { ManageSpecialSettlement } from "../domain/settlement/pages/ManageSpecia
 import { ManageUserProfile } from "../domain/auth/pages/ManageUserProfile";
 import { MyProfile } from "../domain/auth/pages/MyProfile";
 import Main from "../domain/main/pages/Main";
+import { CrawlerPage } from "../domain/crawler/pages/CrawlerPage";
 
 const router = createBrowserRouter([
     {
@@ -40,6 +41,10 @@ const router = createBrowserRouter([
                 // ✅ Outlet 방식을 사용하므로 element에 PrivateRouter를 한 번만 선언
                 element: <PrivateRouter />,
                 children: [
+                    {
+                        path: "crawler",
+                        element: <CrawlerPage />,
+                    },
                     {
                         path: "manage_client", // 실제 경로: /manage/manage_client
                         element: <ManageClient />,
