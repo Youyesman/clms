@@ -498,9 +498,15 @@ class CrawlerRunHistory(models.Model):
         ('STOPPED', 'Stopped'),
     )
 
+    TRIGGER_CHOICES = (
+        ('MANUAL', 'Manual'),
+        ('SCHEDULED', 'Scheduled'),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    trigger_type = models.CharField(max_length=20, choices=TRIGGER_CHOICES, default='MANUAL')
     
     # 실행 시 설정 (JSON)
     configuration = models.JSONField(default=dict)

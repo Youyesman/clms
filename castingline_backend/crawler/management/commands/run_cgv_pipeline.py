@@ -468,15 +468,16 @@ class CGVPipelineService:
             print(f"Slack Send Error: {e}")
 
     @classmethod
-    def run_pipeline_stage_1(cls):
+    def run_pipeline_stage_1(cls, target_dates=None):
         """
         메인 파이프라인 실행
+        Returns: (collected_count, created_count, errors)
         """
         print(">>> Starting Pipeline Stage 1")
         cls.send_slack_message("INFO", {"message": "🚀 CGV 스케줄 데이터 수집을 시작합니다..."})
         
         # 1. Collect
-        logs, total_cnt = cls.collect_schedule_logs()
+        logs, total_cnt = cls.collect_schedule_logs(dates=target_dates)
         log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
         
         cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개\n검증을 수행합니다."})
@@ -484,6 +485,9 @@ class CGVPipelineService:
         # 2. Validate
         check_result = cls.check_missing_theaters(logs, total_cnt)
         
+        created_cnt = 0
+        errors = []
+
         if check_result['is_missing']:
             print(">>> Missing theaters found. Sending Slack alert...")
             cls.send_slack_message("WARNING_MISSING", check_result)
@@ -499,6 +503,8 @@ class CGVPipelineService:
                 "collected": len(logs),
                 "created": created_cnt
             })
+            
+        return len(logs), created_cnt, errors, total_cnt
 
     @classmethod
     def run_pipeline_stage_2(cls, action):
@@ -508,7 +514,7 @@ class CGVPipelineService:
         print(f">>> User triggered Stage 2: {action}")
         
         if action == "action_transform_partial":
-            created_cnt = cls.transform_logs_to_schedule()
+            created_cnt, _ = cls.transform_logs_to_schedule()
             
             cls.send_slack_message("SUCCESS", {
                 "collected": "Partial (User Triggered)", 
@@ -529,10 +535,54 @@ class CGVPipelineService:
 class Command(BaseCommand):
     help = 'Executes the Full CGV Pipeline Stage 1 (Collect -> Validate -> Notify)'
 
+    def add_arguments(self, parser):
+        parser.add_argument('--date', type=str, help='Target Date (YYYYMMDD)')
+        parser.add_argument('--manual', action='store_true', help='Set trigger type to MANUAL')
+
     def handle(self, *args, **options):
         self.stdout.write("Initializing CGV Pipeline...")
+        
+        target_date = options.get('date')
+        target_dates = [target_date] if target_date else None
+        is_manual = options.get('manual', False)
+        
+        # History Setup
+        from crawler.models import CrawlerRunHistory
+        from django.utils import timezone
+        import traceback
+        
+        trigger_type = 'MANUAL' if is_manual else 'SCHEDULED'
+        
+        history = CrawlerRunHistory.objects.create(
+            status='RUNNING',
+            trigger_type=trigger_type,
+            configuration={
+                'target_dates': target_dates,
+                'manual_flag': is_manual
+            }
+        )
+        print(f"🚀 [History #{history.id}] Created (Trigger: {trigger_type})")
+
         try:
-            CGVPipelineService.run_pipeline_stage_1()
-            self.stdout.write(self.style.SUCCESS("Pipeline execution finished."))
+            collected, created, errors, total_theaters = CGVPipelineService.run_pipeline_stage_1(target_dates=target_dates)
+            
+            history.status = 'SUCCESS'
+            history.finished_at = timezone.now()
+            history.result_summary = {
+                'collected_logs': collected,
+                'total_theaters': total_theaters,
+                'created_schedules': created,
+                'error_count': len(errors)
+            }
+            history.save()
+            self.stdout.write(self.style.SUCCESS(f"Pipeline finished. Logged to History #{history.id}"))
+            
         except Exception as e:
+            error_msg = str(e)
             self.stdout.write(self.style.ERROR(f"Pipeline failed: {e}"))
+            traceback.print_exc()
+            
+            history.status = 'FAILED'
+            history.finished_at = timezone.now()
+            history.error_message = error_msg
+            history.save()

@@ -42,6 +42,7 @@ interface ICrawlerHistory {
     created_at: string;
     finished_at: string | null;
     status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+    trigger_type: 'MANUAL' | 'SCHEDULED';
     configuration: any;
     result_summary: any;
     error_message: string | null;
@@ -192,6 +193,7 @@ const Th = styled.th`
     text-align: left;
     padding: 12px;
     border-bottom: 1px solid #e2e8f0;
+    white-space: nowrap;
 `;
 
 const Td = styled.td`
@@ -364,11 +366,6 @@ export const CrawlerPage = () => {
     };
 
     const handleDownload = (historyId: number) => {
-        // Axios가 아닌 window.location 또는 a tag로 다운로드 처리 (브라우저 다운로드)
-        // 토큰이 필요하다면 Axios로 blob을 받아서 처리해야 함. 여기서는 기존 AxiosWrapper 로직 참조.
-        // FileResponse를 반환하므로 Blob 처리 필요.
-        // Or simply open in new tab if auth token handling is complex, but let's try blob.
-
         const token = localStorage.getItem("token");
         fetch(`${BASE_URL}/crawler/download/${historyId}`, {
             headers: { 'Authorization': `token ${token}` }
@@ -562,19 +559,31 @@ export const CrawlerPage = () => {
                                 <thead>
                                     <tr>
                                         <Th>Run ID</Th>
-                                        <Th>Create At</Th>
+                                        <Th>Source</Th>
                                         <Th>Status</Th>
-                                        <Th>Companies</Th>
+                                        <Th>Started At</Th>
+                                        <Th>Finished At</Th>
+                                        <Th>Summary</Th>
                                         <Th>Result</Th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {history.map((item) => (
                                         <tr key={item.id}>
-                                            <Td>#{item.id}</Td>
-                                            <Td>{new Date(item.created_at).toLocaleString('ko-KR', {
-                                                month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                                            })}</Td>
+                                            <Td style={{ fontWeight: '600', color: '#64748b' }}>#{item.id}</Td>
+                                            <Td>
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    fontWeight: 'bold',
+                                                    color: item.trigger_type === 'MANUAL' ? '#2563eb' : '#059669',
+                                                    padding: '2px 6px',
+                                                    backgroundColor: item.trigger_type === 'MANUAL' ? '#eff6ff' : '#ecfdf5',
+                                                    borderRadius: '4px',
+                                                    border: `1px solid ${item.trigger_type === 'MANUAL' ? '#bfdbfe' : '#a7f3d0'}`
+                                                }}>
+                                                    {item.trigger_type || 'MANUAL'}
+                                                </span>
+                                            </Td>
                                             <Td>
                                                 <StatusBadge status={item.status}>
                                                     {item.status === 'RUNNING' && <CircleNotch className="spin" size={14} />}
@@ -584,11 +593,40 @@ export const CrawlerPage = () => {
                                                 </StatusBadge>
                                             </Td>
                                             <Td>
-                                                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                                                    {Object.entries(item.configuration.choiceCompany || {})
-                                                        .filter(([_, v]) => v)
-                                                        .map(([k]) => k.toUpperCase())
-                                                        .join(', ')}
+                                                <div style={{ fontSize: '12px' }}>
+                                                    {new Date(item.created_at).toLocaleDateString('ko-KR')}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                                    {new Date(item.created_at).toLocaleTimeString('ko-KR')}
+                                                </div>
+                                            </Td>
+                                            <Td>
+                                                {item.finished_at ? (
+                                                    <>
+                                                        <div style={{ fontSize: '12px' }}>
+                                                            {new Date(item.finished_at).toLocaleDateString('ko-KR')}
+                                                        </div>
+                                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                                            {new Date(item.finished_at).toLocaleTimeString('ko-KR')}
+                                                        </div>
+                                                        <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                                                            (Duration: {Math.floor((new Date(item.finished_at).getTime() - new Date(item.created_at).getTime()) / 1000)}s)
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <span style={{ fontSize: '12px', color: '#cbd5e1' }}>-</span>
+                                                )}
+                                            </Td>
+                                            <Td>
+                                                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                                    {item.result_summary ? (
+                                                        <>
+                                                            <div>Collect: {item.result_summary.collected_logs}</div>
+                                                            <div>Create: {item.result_summary.created_schedules}</div>
+                                                        </>
+                                                    ) : (
+                                                        "-"
+                                                    )}
                                                 </div>
                                             </Td>
                                             <Td>
@@ -619,7 +657,7 @@ export const CrawlerPage = () => {
                                     ))}
                                     {history.length === 0 && (
                                         <tr>
-                                            <Td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                            <Td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
                                                 실행 기록이 없습니다.
                                             </Td>
                                         </tr>
