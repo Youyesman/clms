@@ -101,15 +101,25 @@ def run_crawler_background(history_id, data):
             check_stop_signal()
             print(f"Executing Lotte for {date_list}")
             try:
-                logs, cnt = LottePipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+                logs, cnt, failures = LottePipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
-                log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                LottePipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
+                # [USER REQUEST] Slack Report & Disable Transform
+                LottePipelineService.send_slack_message("SUCCESS", {
+                    "collected": len(logs),
+                    "created": 0,
+                    "failures": failures
+                })
+
+                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
+                # LottePipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
+                
                 executed_companies.append('Lotte')
                 companies_for_export.append('LOTTE') # Map to DB value
             except InterruptedError:
                 raise
             except Exception as e:
+                LottePipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
                 logger.error(f"Lotte Failure: {e}")
 
         if run_mega:
