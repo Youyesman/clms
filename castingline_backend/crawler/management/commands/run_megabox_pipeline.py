@@ -16,15 +16,19 @@ from crawler.models import MegaboxScheduleLog, MovieSchedule
 # [PART 1] RPA Logic (Megabox)
 # =============================================================================
 
+from concurrent.futures import ThreadPoolExecutor
+
 # =============================================================================
 # [PART 1] RPA Logic (Megabox)
 # =============================================================================
 
-def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
+def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=None):
     """
     Playwright를 사용하여 Megabox 페이지에 접속하고, 
     지역 -> 극장 -> [날짜 리스트] 순으로 순회하며 데이터 수집 즉시 DB에 저장합니다.
     (Theater-First Approach)
+    
+    :param target_regions: List of region names to process (e.g., ["서울", "인천"]). If None, process all.
     """
     if date_list is None:
         date_list = [datetime.now().strftime("%Y%m%d")]
@@ -37,35 +41,35 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        # Browser Context isolated for each worker
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         page = context.new_page()
 
         target_url = "https://www.megabox.co.kr/booking/timetable"
-        print(f"🚀 Navigating to: {target_url}")
+        worker_id = "Global" if not target_regions else f"Worker({target_regions[0]}...)"
+        print(f"[{worker_id}] 🚀 Navigating to: {target_url}")
         
         try:
-            print("   Accessible URL...")
+            # print("   Accessible URL...")
             page.goto(target_url, timeout=60000)
             page.wait_for_load_state("domcontentloaded")
             time.sleep(3) # Initial render wait
             
             # 1. '극장별' 탭 클릭
-            theater_tab_sel = "a[href='#masterBrch']"  # 정확한 선택자
-            print(f"   Clicking Theater Tab: {theater_tab_sel}")
+            theater_tab_sel = "a[href='#masterBrch']" 
             
             try:
                 page.wait_for_selector(theater_tab_sel, timeout=10000)
                 page.click(theater_tab_sel, force=True)
                 time.sleep(2)
             except Exception as e:
-                print(f"⚠️ Tab click failed: {e}")
-                page.screenshot(path="megabox_tab_error.png")
+                print(f"[{worker_id}] ⚠️ Tab click failed: {e}")
+                # page.screenshot(path=f"megabox_tab_error_{worker_id}.png")
 
             # 2. 지역 순회
-            region_list_sel = "#masterBrch .tab-list-choice a"  # 정확한 선택자
-            print(f"   Waiting for Region List: {region_list_sel}")
+            region_list_sel = "#masterBrch .tab-list-choice a"
             
             # Retry loop for region list
             for _ in range(3):
@@ -75,36 +79,44 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
                 
             region_count = page.locator(region_list_sel).count()
             if region_count == 0:
-                 print("⚠️ Region list count is 0. Saving screenshot.")
-                 page.screenshot(path="megabox_region_empty.png")
+                 print(f"[{worker_id}] ⚠️ Region list count is 0.")
             
-            print(f"📍 Found {region_count} regions.")
+            # print(f"[{worker_id}] 📍 Found {region_count} regions available on page.")
             
             for i in range(region_count):
                 try:
                     if stop_signal: stop_signal()
                     # 지역 버튼 클릭
                     region_btn = page.locator(f"{region_list_sel}").nth(i)
-                    region_name = region_btn.inner_text().split('\n')[0].strip()
-                    print(f"\n[{i+1}/{region_count}] Region: {region_name}")
+                    raw_region_name = region_btn.inner_text().split('\n')[0].strip()
+                    # Remove count (e.g. "서울(19)" -> "서울")
+                    region_name = re.sub(r'\(\d+\)$', '', raw_region_name).strip()
+                    
+                    # --- Region Filtering Logic ---
+                    if target_regions:
+                        if region_name not in target_regions:
+                             # print(f"[{worker_id}] Skipping '{region_name}' (Not in target)")
+                             continue
+                    
+                    print(f"\n[{worker_id}] Processing Region: {region_name} (Raw: {raw_region_name})")
                     
                     region_btn.scroll_into_view_if_needed()
                     region_btn.click(force=True)
                     time.sleep(1.0) # 리스트 갱신 대기
                     
                     # 3. 극장 순회 - 활성화된 탭의 극장만 선택
-                    theater_list_sel = "#masterBrch .tab-layer-cont.on button"  # 정확한 선택자
+                    theater_list_sel = "#masterBrch .tab-layer-cont.on button"
                     
                     # 해당 지역에 극장이 있는지 확인
                     try:
                         page.wait_for_selector(theater_list_sel, timeout=5000)
                     except:
-                        print(f"   ⚠️ No theaters found in {region_name} or timeout.")
+                        print(f"[{worker_id}] ⚠️ No theaters found in {region_name} or timeout.")
                         continue
                     
                     theater_count = page.locator(theater_list_sel).count()
                     total_theater_count += theater_count
-                    print(f"   ↳ Found {theater_count} theaters (Total: {total_theater_count})")
+                    print(f"[{worker_id}]    Found {theater_count} theaters in {region_name}")
                     
                     for j in range(theater_count):
                         try:
@@ -113,7 +125,7 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
                             theater_name = theater_btn.inner_text().strip()
                             brch_no = theater_btn.get_attribute("data-brch-no") or "Unknown"
                             
-                            print(f"      [{j+1}/{theater_count}] Processing: {theater_name} ({brch_no})")
+                            print(f"[{worker_id}]       Processing: {theater_name} ({brch_no})")
                             
                             # 1. 극장 선택
                             theater_btn.click(force=True)
@@ -131,21 +143,11 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
                                     date_btn = page.locator(f"button[date-data='{target_date_fmt}']").first
                                     
                                     if date_btn.count() == 0:
-                                        # Fallback: 날짜 텍스트로 찾기 (일자만 있는 경우 주의)
-                                        # 메가박스는 일자 텍스트가 버튼 안에 있음.
                                         target_day = str(int(scn_ymd[6:]))
                                         date_btn = page.locator(f".date-list button:has-text('{target_day}')").first
 
                                     if date_btn.count() > 0:
-                                        # 이미 선택된 날짜인지 확인 (class 'on')
                                         is_active = "on" in (date_btn.get_attribute("class") or "")
-                                        
-                                        if is_active:
-                                            # 이미 선택되어 있으면 바로 파싱 (근데 최초 로딩시 기본 오늘날짜일수 있음, 하지만 AJAX가 트리거 안될수도 있으니 클릭 권장 or 그냥 파싱)
-                                            # 메가박스는 클릭시 무조건 호출하는게 안전
-                                            print(f"      🗓 Clicking Date: {target_date_fmt} (Re-click)")
-                                        else:
-                                            print(f"      🗓 Clicking Date: {target_date_fmt}")
                                         
                                         # 클릭 및 응답 대기
                                         with page.expect_response(lambda response: "schedulePage.do" in response.url, timeout=5000) as response_info:
@@ -156,8 +158,6 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
                                         if response.status == 200:
                                             try:
                                                 json_data = response.json()
-                                                
-                                                # DB 저장
                                                 close_old_connections()
                                                 
                                                 log = MegaboxScheduleLog.objects.create(
@@ -167,39 +167,38 @@ def fetch_megabox_schedule_rpa(date_list=None, stop_signal=None):
                                                     response_json=json_data,
                                                     status='success'
                                                 )
-                                                print(f"         ✅ Saved: {scn_ymd} (Log ID: {log.id})")
+                                                # print(f"[{worker_id}]          ✅ Saved: {scn_ymd}")
                                                 collected_results.append({"log_id": log.id})
                                                 
                                             except Exception as e:
-                                                print(f"         ❌ Parse Error {scn_ymd}: {e}")
+                                                print(f"[{worker_id}]          ❌ Parse Error {scn_ymd}: {e}")
                                         else:
-                                            print(f"         ⚠️ Status: {response.status}")
+                                            print(f"[{worker_id}]          ⚠️ Status: {response.status}")
                                             
                                     else:
-                                        print(f"      ⚠️ Date button for {target_date_fmt} not found. Skipping.")
+                                        print(f"[{worker_id}]       ⚠️ Date button not found. Skipping.")
                                         
                                 except Exception as e:
-                                    print(f"      ⚠️ Date Error {scn_ymd}: {e}")
+                                    print(f"[{worker_id}]       ⚠️ Date Error {scn_ymd}: {e}")
                                 
-                                time.sleep(0.1) # 날짜 간 짧은 대기
+                                time.sleep(0.1) 
 
                         except InterruptedError:
                             raise
                         except Exception as e:
-                            print(f"      ❌ Theater Error: {e}")
+                            print(f"[{worker_id}]       ❌ Theater Error: {e}")
                             continue
 
                 except InterruptedError:
                     raise
                 except Exception as e:
-                    print(f"❌ Region Error: {e}")
+                    print(f"[{worker_id}] ❌ Region Error: {e}")
                     continue
 
         except Exception as e:
-            print(f"❌ Playwright Error: {e}")
-            page.screenshot(path="megabox_fatal_error.png")
+            print(f"[{worker_id}] ❌ Playwright Error: {e}")
 
-    print(f"   [Completion] Total Collected Logs: {len(collected_results)} / {total_theater_count}")
+    print(f"[{worker_id}] Finished. Collected: {len(collected_results)}")
     return collected_results, total_theater_count
 
 
@@ -214,9 +213,41 @@ class MegaboxPipelineService:
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
-        print(f"--- Pipeline: Collecting for dates {dates} (Theater-First) ---")
-        # 한 번의 호출로 모든 날짜 처리 (Theater-First)
-        return fetch_megabox_schedule_rpa(date_list=dates, stop_signal=stop_signal)
+        # Region Grouping for Parallel Execution
+        # 각 worker가 담당할 지역 리스트
+        REGION_GROUPS = [
+            ["서울", "인천", "강원", "대전/충청/세종"],  # Worker 1
+            ["경기", "부산/대구/경상", "광주/전라", "제주"]  # Worker 2
+        ]
+
+        print(f"--- Pipeline: Collecting for dates {dates} (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
+        
+        collected_logs = []
+        total_detected_cnt = 0
+        
+        with ThreadPoolExecutor(max_workers=len(REGION_GROUPS)) as executor:
+            futures = []
+            for group_idx, region_group in enumerate(REGION_GROUPS):
+                print(f"[Main] Scheduling Worker-{group_idx+1} for regions: {region_group}")
+                futures.append(
+                    executor.submit(
+                        fetch_megabox_schedule_rpa, 
+                        date_list=dates, 
+                        target_regions=region_group, 
+                        stop_signal=stop_signal
+                    )
+                )
+            
+            # Wait for all futures
+            for future in futures:
+                try:
+                    res_logs, res_cnt = future.result()
+                    collected_logs.extend(res_logs)
+                    total_detected_cnt += res_cnt
+                except Exception as e:
+                    print(f"[Main] ❌ One of the workers failed: {e}")
+        
+        return collected_logs, total_detected_cnt
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
