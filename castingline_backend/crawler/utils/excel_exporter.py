@@ -4,6 +4,7 @@ from django.conf import settings
 from datetime import datetime
 
 from crawler.models import MovieSchedule
+from client.models import Client
 
 def export_schedules_to_excel(start_date_str, end_date_str, companies=None, target_titles=None, failures=None):
     """
@@ -82,6 +83,44 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         except:
             return 0
             
+    # --- Client Region Mapping Logic ---
+    clients = Client.objects.filter(excel_theater_name__isnull=False).values(
+        'theater_kind', 'excel_theater_name', 'theater_name', 'client_name', 'region_code'
+    )
+    
+    region_map = {}
+    
+    def normalize_brand(kind):
+        if not kind: return None
+        k = kind.upper()
+        if 'CGV' in k: return 'CGV'
+        if 'LOTTE' in k or '롯데' in k: return 'LOTTE'
+        if 'MEGA' in k or '메가' in k: return 'MEGABOX'
+        if 'CINEQ' in k or '씨네큐' in k: return 'CINEQ'
+        
+        # Fallback: if user puts "CGV" or "MEGABOX" directly
+        return kind
+
+    for c in clients:
+        brand = normalize_brand(c['theater_kind'])
+        if not brand: continue
+        
+        region = c['region_code']
+        if not region: continue
+        
+        # Mapping strategies: (Brand, Name) -> Region
+        # Priority 1: Excel Theater Name
+        if c['excel_theater_name']:
+            clean_name = c['excel_theater_name'].replace(" ", "")
+            region_map[(brand, clean_name)] = region
+            
+        # Priority 2: Theater Name
+        if c['theater_name']:
+            clean_name = c['theater_name'].replace(" ", "")
+            region_map[(brand, clean_name)] = region
+
+    # -----------------------------------
+
     # 1. Fetch Data
     schedules = queryset.order_by('start_time')
     
@@ -108,6 +147,60 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         # Sort items by time
         items.sort(key=lambda x: x.start_time)
         
+        # Resolve Region
+        # Try match via map
+        mapped_region = "-"  # Default
+        if brand and theater:
+            clean_theater = theater.replace(" ", "")
+            # Try exact match
+            if (brand, clean_theater) in region_map:
+                mapped_region = region_map[(brand, clean_theater)]
+            else:
+                 # Robust Fuzzy Matching
+                 # 1. Strip Brands from Crawler Name
+                 # 2. Compare with Client Name (which might also have brands stripped or not)
+                 
+                 def strip_brand(s):
+                     return s.replace("CGV", "").replace("롯데시네마", "").replace("롯데", "").replace("메가박스", "").replace("씨네큐", "").replace(" ", "")
+                     
+                 crawl_pure = strip_brand(theater)
+                 
+                 for (m_brand, m_name), m_region in region_map.items():
+                     if m_brand != brand: continue
+                     
+                     client_pure = strip_brand(m_name)
+                     
+                     # 1. Exact Match of Pure Names
+                     if crawl_pure == client_pure:
+                         mapped_region = m_region
+                         break
+                     
+                     # 2. Substring Match (Bi-directional)
+                     # e.g. Client="강남CC", Crawler="강남" -> match? maybe risky.
+                     # e.g. Client="강남", Crawler="CGV강남" -> crawl_pure="강남", client_pure="강남" -> Exact match caught above.
+                     # e.g. Client="여수웅천", Crawler="메가박스여수웅천" -> crawl_pure="여수웅천", client_pure="여수웅천" -> Exact match.
+                     
+                     # If exact match failed, try containment if length is sufficient
+                     if len(client_pure) >= 2 and len(crawl_pure) >= 2:
+                         if client_pure in crawl_pure or crawl_pure in client_pure:
+                             mapped_region = m_region
+                             break
+
+        # Theater Name Formatting
+        # User Request: "CGV 강남", "롯데동탄", "메가박스고양스타필드"
+        clean_theater = theater.replace("CGV", "").replace("롯데시네마", "").replace("롯데", "").replace("메가박스", "").replace("씨네큐", "").strip()
+        
+        if brand == 'CGV':
+            display_theater = f"CGV {clean_theater}"
+        elif brand == 'LOTTE':
+            display_theater = f"롯데{clean_theater}"
+        elif brand == 'MEGABOX':
+            display_theater = f"메가박스{clean_theater}"
+        elif brand == 'CINEQ':
+            display_theater = f"씨네큐{clean_theater}"
+        else:
+            display_theater = f"{brand} {clean_theater}"
+        
         # Base Info
         # Tags processing (simple heuristic)
         # Assuming all items in group have same format/type usually
@@ -117,7 +210,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         sub_type = "일반"
         
         # Extract format (IMAX, 4DX, etc)
-        special_formats = ["IMAX", "4DX", "SCREENX", "DOLBY"]
+        special_formats = ["IMAX", "4DX", "SCREENX", "DOLBY", "ATMOS"]
         for t in sample_tags:
             t_upper = str(t).upper()
             if any(f in t_upper for f in special_formats):
@@ -146,15 +239,10 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
             t_seat = safe_int(item.total_seats)
             r_seat = safe_int(item.remaining_seats)
             
-            # If t_seat is 0 (missing data), try to use max of group if available, or just leave as 0
             if t_seat == 0 and total_capacity > 0:
                 t_seat = total_capacity
                 
             item_total_seats_sum += t_seat
-            # Sold = Total - Remaining
-            # If remaining is 0 but we don't know (parser failed), we assume sold all? Or 0?
-            # It's better to trust the numbers. If r_seat is 0, maybe sold out?
-            # User sample has "판매좌석수" as "53", "41", "48".
             sold = max(0, t_seat - r_seat)
             item_sold_seats_sum += sold
             
@@ -162,8 +250,9 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
             max_shows = len(show_times)
             
         row = {
-            '지역': brand,
-            '극장명': theater,
+            '지역': mapped_region, # Mapped Region
+            '브랜드': brand,        # For sorting
+            '극장명': display_theater,
             '포맷': fmt,
             '구분': sub_type,
             '관': screen,
@@ -176,6 +265,28 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         }
         rows.append(row)
         
+    # --- Sorting Logic ---
+    # User Request: 멀티별(Brand) -> 지역별(Region) -> 가나다순(Theater)
+    # Brand Order: Custom preference? Usually alphabet or CGV,Lotte,Mega.
+    # Let's simple string sort for now..
+    # Or define priority: CGV=1, LOTTE=2, MEGABOX=3
+    
+    def brand_priority(b):
+        b = b.upper()
+        if 'CGV' in b: return 1
+        if 'LOTTE' in b: return 2
+        if 'OD' in b: return 2 # Lotte sometimes?
+        if 'MEGA' in b: return 3
+        return 99
+
+    rows.sort(key=lambda x: (
+        brand_priority(x['브랜드']), 
+        x['지역'], 
+        x['극장명'],
+        x['관'] # Additional stable sort
+    ))
+    # ---------------------
+
     # 4. Create DataFrame
     final_data = []
     # Dynamic Columns for Shows
@@ -247,6 +358,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         if isinstance(d, datetime): return d.strftime("%Y-%m-%d")
         return str(d).split(' ')[0]
         
+    # Filename format
     filename = f"excel_{safe_title}__{fmt_date(start_date)}-{fmt_date(end_date)}_({gen_date} [{gen_time}])({day_of_week}).xlsx"
     file_path = os.path.join(save_dir, filename)
     

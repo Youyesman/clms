@@ -541,10 +541,27 @@ class MovieSchedule(models.Model):
                         continue
                 
                 # 시간 파싱
-                start_dt_str = item.get("StartTime") or item.get("PlayDt") # YYYY-MM-DD HH:MM:SS format assumed
+                start_tm_str = item.get("StartTime")
+                play_dt_val = item.get("PlayDt") 
                 end_dt_str = item.get("EndTime") or item.get("EndDt")
                 
+                # StartTime이 없으면 PlayDt가 DateTime일 수도 있음.
+                # 그러나 에러 로그상 "11:45" 같은 값이 들어옴.
+                
+                start_dt_str = start_tm_str or play_dt_val
+                
                 if not start_dt_str: continue
+
+                # 만약 시간만 있다면 (length < 8 등) 날짜 붙여주기
+                if len(start_dt_str) < 10:
+                    # play_date_str 사용 (RepresentationDate or QueryDate)
+                    # 만약 이것도 없으면 item['PlayDt'] 사용 시도
+                    base_date = play_date_str
+                    if not base_date and play_dt_val and len(play_dt_val) >= 10:
+                        base_date = play_dt_val[:10]
+                        
+                    if base_date:
+                        start_dt_str = f"{base_date} {start_dt_str}"
                 
                 # Format check
                 try:
@@ -554,12 +571,28 @@ class MovieSchedule(models.Model):
                         start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M:%S")
                 except:
                      # Lotte often uses YYYY-MM-DD HH:MM
-                     start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M")
+                     try:
+                        start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M")
+                     except:
+                        try: 
+                            # Try YYYYMMDD HH:MM (e.g. 20260202 11:45)
+                            start_dt = datetime.strptime(start_dt_str, "%Y%m%d %H:%M")
+                        except:
+                            # Fallback: maybe just YYYY-MM-DD if time is missing?
+                            try:
+                                start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d")
+                            except:
+                                start_dt = datetime.strptime(start_dt_str, "%Y%m%d")
                 
                 start_dt = timezone.make_aware(start_dt)
                 
                 if end_dt_str:
                     try:
+                        # EndTime도 시간만 있을 수 있음
+                        if len(end_dt_str) < 10:
+                             base_date = start_dt.strftime("%Y-%m-%d")
+                             end_dt_str = f"{base_date} {end_dt_str}"
+                        
                         if "T" in end_dt_str:
                              end_dt = datetime.fromisoformat(end_dt_str)
                         else:
