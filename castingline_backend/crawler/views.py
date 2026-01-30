@@ -591,28 +591,38 @@ class CrawlerScheduleOptionsView(APIView):
 
 class CrawlerScheduleExportView(APIView):
     """
-    특정 날짜와 영화의 스케줄 엑셀 다운로드 API
-    Body: date (YYYYMMDD), movie_title
+    특정 날짜(기간)와 영화의 스케줄 엑셀 다운로드 API
+    Body: start_date (YYYYMMDD), end_date (YYYYMMDD optional), movie_title
+    Fallback: date -> start_date
     """
     def post(self, request):
-        date_str = request.data.get('date')
+        start_date_str = request.data.get('start_date') or request.data.get('date')
+        end_date_str = request.data.get('end_date') or start_date_str
         movie_title = request.data.get('movie_title')
         
-        if not date_str or not movie_title:
-            return Response({"error": "date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not start_date_str or not movie_title:
+            return Response({"error": "start_date/date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
-            target_date = datetime.strptime(date_str, "%Y%m%d").date()
+            start_date = datetime.strptime(start_date_str, "%Y%m%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y%m%d").date()
             
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
             
             qs = MovieSchedule.objects.filter(
-                start_time__date=target_date,
+                start_time__date__gte=start_date,
+                start_time__date__lte=end_date,
                 movie_title=movie_title
             )
             
-            file_path = export_transformed_schedules(qs)
+            # Pass metadata for filename generation
+            file_path = export_transformed_schedules(
+                qs, 
+                movie_title=movie_title, 
+                start_date=start_date, 
+                end_date=end_date
+            )
             
             if not file_path:
                 return Response({"error": "No schedules found for this criteria"}, status=status.HTTP_404_NOT_FOUND)

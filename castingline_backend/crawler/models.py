@@ -69,7 +69,10 @@ class MovieSchedule(models.Model):
     booking_url = models.URLField(max_length=500, null=True, blank=True) # 예매 링크
     
     # [NEW] 메타데이터 태그 (더빙, 자막, 무대인사 등)
+    # [NEW] 메타데이터 태그 (더빙, 자막, 무대인사 등)
     tags = models.JSONField(default=list, blank=True)
+    total_seats = models.IntegerField(null=True, blank=True, default=0)
+    remaining_seats = models.IntegerField(null=True, blank=True, default=0)
     
     # 원본 로그 추적용 (선택)
     raw_log = models.ForeignKey(CGVScheduleLog, on_delete=models.SET_NULL, null=True, blank=True)
@@ -248,8 +251,11 @@ class MovieSchedule(models.Model):
                     'start_time': start_dt,
                     'movie_title': final_title,
                     'tags': extracted_tags,
+                    'tags': extracted_tags,
                     'end_time': end_dt, # Update 대상
                     'is_booking_available': is_available, # Update 대상
+                    'total_seats': int(item.get("stcnt", 0)),
+                    'remaining_seats': int(item.get("frtmpSeatCnt", 0)),
                     'raw_log': log
                 })
                     
@@ -293,7 +299,10 @@ class MovieSchedule(models.Model):
                 obj.is_booking_available = item['is_booking_available']
                 obj.end_time = item['end_time']
                 obj.movie_title = item['movie_title'] # 혹시 제목 바뀌었을 수도 있음
+                obj.movie_title = item['movie_title'] # 혹시 제목 바뀌었을 수도 있음
                 obj.tags = item['tags']
+                obj.total_seats = item['total_seats']
+                obj.remaining_seats = item['remaining_seats']
                 obj.raw_log = log # 최신 로그로 갱신
                 to_update.append(obj)
             else:
@@ -310,7 +319,7 @@ class MovieSchedule(models.Model):
             
         if to_update:
             # 변경될 수 있는 필드만 업데이트
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats'])
             updated_count = len(to_update)
             
         return created_count + updated_count, errors
@@ -417,7 +426,9 @@ class MovieSchedule(models.Model):
                         'end_time': end_dt,
                         'movie_title': final_title,
                         'tags': extracted_tags,
-                        'is_booking_available': is_available
+                        'is_booking_available': is_available,
+                        'total_seats': total_seat,
+                        'remaining_seats': remain_seat
                     })
                 except Exception as e:
                     errors.append({
@@ -460,7 +471,7 @@ class MovieSchedule(models.Model):
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
             
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats'])
             
         return len(to_create) + len(to_update), errors
 
@@ -562,6 +573,7 @@ class MovieSchedule(models.Model):
                 target_dates.add(start_dt.date())
 
                 remain_seat = int(item.get("BookingSeatCount") or item.get("SeatCount") or 0)
+                total_seat = int(item.get("TotalSeatCount") or 0)
                 is_available = remain_seat > 0
                 
                 # 상영관 정보
@@ -586,7 +598,10 @@ class MovieSchedule(models.Model):
                     'end_time': end_dt,
                     'movie_title': final_title,
                     'tags': extracted_tags,
-                    'is_booking_available': is_available
+                    'tags': extracted_tags,
+                    'is_booking_available': is_available,
+                    'total_seats': total_seat,
+                    'remaining_seats': remain_seat
                 })
             except Exception as e:
                 errors.append({
@@ -625,7 +640,7 @@ class MovieSchedule(models.Model):
         if to_create:
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at', 'total_seats', 'remaining_seats'])
             
         return len(to_create) + len(to_update), errors
 
