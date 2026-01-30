@@ -6,19 +6,10 @@ import { CustomButton } from "../../../components/common/CustomButton";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
-import { Plus, X, Trash, Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon } from "@phosphor-icons/react";
+import { GenericTable } from "../../../components/GenericTable";
+import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon } from "@phosphor-icons/react";
 
 // --- Types ---
-interface ICineDeChefFilter {
-    theaterNm: string;
-    refineTheaterNm: string;
-}
-
-interface IMovieSetting {
-    movieName: string;
-    rivalMovieNames: string[];
-}
-
 interface IChoiceCompany {
     cgv: boolean;
     mega: boolean;
@@ -26,15 +17,9 @@ interface IChoiceCompany {
 }
 
 interface ICrawlerConfig {
-    savePath: string;
-    jsonPath: string;
     crawlStartDate: string;
     crawlEndDate: string;
-    onlyExcel: boolean;
     choiceCompany: IChoiceCompany;
-    specialTypeFilters: string[];
-    cgvCineDeChefFilters: ICineDeChefFilter[];
-    movieSettings: IMovieSetting[];
 }
 
 interface ICrawlerHistory {
@@ -53,7 +38,7 @@ interface ICrawlerHistory {
 const PageContainer = styled.div`
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     padding: 20px;
     background-color: #f8fafc;
     min-height: 100vh;
@@ -62,194 +47,123 @@ const PageContainer = styled.div`
 
 const ContentGrid = styled.div`
     display: flex;
+    flex-direction: column;
     gap: 16px;
     width: 100%;
-    align-items: flex-start;
-    
-    @media (max-width: 1200px) {
-        flex-direction: column;
-    }
-`;
-
-const Column = styled.div`
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    min-width: 0;
 `;
 
 const DetailContainer = styled.div`
     width: 100%;
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
-    border-radius: 6px;
+    border-radius: 8px;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
     overflow: hidden;
 `;
 
-const ScrollBody = styled.div`
-    padding: 24px;
+const CompactConfigBar = styled.div`
+    padding: 16px 24px;
     display: flex;
-    flex-direction: column;
-    gap: 32px;
-`;
-
-const Section = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-`;
-
-const SectionHeader = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 2px solid #f1f5f9;
-    padding-bottom: 8px;
-    margin-bottom: 8px;
-`;
-
-const SectionTitle = styled.h3`
-    font-size: 15px;
-    font-weight: 700;
-    color: #334155;
-    margin: 0;
-`;
-
-const FormGrid = styled.div`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    align-items: flex-start;
-`;
-
-const CheckboxGroup = styled.div`
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    height: 38px;
-`;
-
-const Card = styled.div`
-    background-color: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-`;
-
-const TagContainer = styled.div`
-    display: flex;
+    align-items: flex-end;
+    gap: 24px;
     flex-wrap: wrap;
-    gap: 8px;
+    background-color: #fff;
+    border-top: 1px solid #f1f5f9;
 `;
 
-const Tag = styled.div`
-    background-color: #eff6ff;
-    color: #1d4ed8;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 100px;
+const ConfigItem = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+`;
+
+const StyledInputContainer = styled.div`
+    height: 32px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    border: 1px solid #bfdbfe;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    
+    &:focus-within {
+        outline: 1px solid #0f172a;
+        outline-offset: -1px;
+    }
 `;
 
-const TagDelete = styled.button`
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: #60a5fa;
+const StyledLabelBox = styled.div`
+    height: 100%;
+    padding: 0 12px;
+    background: #f1f5f9;
+    border-right: 1px solid #cbd5e1;
     display: flex;
     align-items: center;
-    padding: 0;
-    &:hover { color: #1e40af; }
-`;
-
-const ActionButtonWrapper = styled.div`
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 10px;
-`;
-
-// --- History Table Styled Components ---
-const HistoryTable = styled.table`
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-`;
-
-const Th = styled.th`
-    background-color: #f1f5f9;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
     color: #475569;
-    font-weight: 600;
-    text-align: left;
-    padding: 12px;
-    border-bottom: 1px solid #e2e8f0;
     white-space: nowrap;
 `;
 
-const Td = styled.td`
-    padding: 12px;
-    border-bottom: 1px solid #f1f5f9;
-    color: #334155;
-    vertical-align: middle;
+const StyledContentBox = styled.div`
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    height: 100%;
 `;
 
 const StatusBadge = styled.span<{ status: string }>`
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
     font-weight: 600;
     
     ${({ status }) => {
-        if (status === 'SUCCESS') return `background-color: #dcfce7; color: #166534;`;
-        if (status === 'FAILED') return `background-color: #fee2e2; color: #991b1b;`;
-        if (status === 'RUNNING') return `background-color: #dbeafe; color: #1e40af;`;
-        return `background-color: #f1f5f9; color: #64748b;`;
+        if (status === 'SUCCESS') return `background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;`;
+        if (status === 'FAILED') return `background-color: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;`;
+        if (status === 'RUNNING') return `background-color: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe;`;
+        return `background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;`;
     }}
 `;
 
 // --- Initial State ---
+const getTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+};
+
+const getThreeDaysAfter = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    return d.toISOString().split('T')[0];
+};
+
 const INITIAL_CONFIG: ICrawlerConfig = {
-    savePath: "/Users/janghyuck/Desktop/회사_관련/backend_for_SEND/excel_store",
-    jsonPath: "/Users/janghyuck/Desktop/회사_관련/backend_for_SEND/json_result/result.json",
-    crawlStartDate: new Date().toISOString().split('T')[0],
-    crawlEndDate: new Date().toISOString().split('T')[0],
-    onlyExcel: false,
+    crawlStartDate: getTomorrow(),
+    crawlEndDate: getThreeDaysAfter(),
     choiceCompany: {
         cgv: true,
-        mega: false,
-        lotte: false
-    },
-    specialTypeFilters: ["무대인사"],
-    cgvCineDeChefFilters: [
-        { theaterNm: "용산", refineTheaterNm: "용산아이파크몰" },
-        { theaterNm: "센텀", refineTheaterNm: "센텀시티" },
-        { theaterNm: "압구정", refineTheaterNm: "압구정" }
-    ],
-    movieSettings: [
-        { movieName: "만약에우리", rivalMovieNames: [] }
-    ]
+        mega: true,
+        lotte: true
+    }
 };
 
 export const CrawlerPage = () => {
     const [config, setConfig] = useState<ICrawlerConfig>(INITIAL_CONFIG);
-    const [newSpecialFilter, setNewSpecialFilter] = useState("");
-    const [newCineFilter, setNewCineFilter] = useState({ theaterNm: "", refineTheaterNm: "" });
-    const [newMovieName, setNewMovieName] = useState("");
-
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
+
+    // Pagination State
+    const [page, setPage] = useState(1);
+    const pageSize = 10;
 
     const toast = useToast();
 
@@ -265,7 +179,7 @@ export const CrawlerPage = () => {
 
     useEffect(() => {
         fetchHistory();
-        const interval = setInterval(fetchHistory, 5000); // 5초마다 갱신
+        const interval = setInterval(fetchHistory, 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -281,74 +195,6 @@ export const CrawlerPage = () => {
         }));
     };
 
-    // Special Filters
-    const addSpecialFilter = () => {
-        if (!newSpecialFilter.trim()) return;
-        if (config.specialTypeFilters.includes(newSpecialFilter)) {
-            toast.error("이미 존재하는 필터입니다.");
-            return;
-        }
-        setConfig(prev => ({
-            ...prev,
-            specialTypeFilters: [...prev.specialTypeFilters, newSpecialFilter]
-        }));
-        setNewSpecialFilter("");
-    };
-
-    const removeSpecialFilter = (idx: number) => {
-        setConfig(prev => ({
-            ...prev,
-            specialTypeFilters: prev.specialTypeFilters.filter((_, i) => i !== idx)
-        }));
-    };
-
-    // CineDeChef Filters
-    const addCineFilter = () => {
-        if (!newCineFilter.theaterNm || !newCineFilter.refineTheaterNm) return;
-        setConfig(prev => ({
-            ...prev,
-            cgvCineDeChefFilters: [...prev.cgvCineDeChefFilters, newCineFilter]
-        }));
-        setNewCineFilter({ theaterNm: "", refineTheaterNm: "" });
-    };
-
-    const removeCineFilter = (idx: number) => {
-        setConfig(prev => ({
-            ...prev,
-            cgvCineDeChefFilters: prev.cgvCineDeChefFilters.filter((_, i) => i !== idx)
-        }));
-    };
-
-    // Movie Settings
-    const addMovie = () => {
-        if (!newMovieName.trim()) return;
-        setConfig(prev => ({
-            ...prev,
-            movieSettings: [...prev.movieSettings, { movieName: newMovieName, rivalMovieNames: [] }]
-        }));
-        setNewMovieName("");
-    };
-
-    const removeMovie = (movieIdx: number) => {
-        setConfig(prev => ({
-            ...prev,
-            movieSettings: prev.movieSettings.filter((_, i) => i !== movieIdx)
-        }));
-    };
-
-    const addRivalMovie = (movieIdx: number, rivalName: string) => {
-        if (!rivalName.trim()) return;
-        const newSettings = [...config.movieSettings];
-        newSettings[movieIdx].rivalMovieNames.push(rivalName);
-        setConfig(prev => ({ ...prev, movieSettings: newSettings }));
-    };
-
-    const removeRivalMovie = (movieIdx: number, rivalIdx: number) => {
-        const newSettings = [...config.movieSettings];
-        newSettings[movieIdx].rivalMovieNames = newSettings[movieIdx].rivalMovieNames.filter((_, i) => i !== rivalIdx);
-        setConfig(prev => ({ ...prev, movieSettings: newSettings }));
-    };
-
     const handleRun = async () => {
         try {
             if (!config.crawlStartDate || !config.crawlEndDate) {
@@ -356,8 +202,8 @@ export const CrawlerPage = () => {
                 return;
             }
             await AxiosPost("crawler/run", config);
-            toast.success("크롤러가 백그라운드에서 실행되었습니다.");
-            fetchHistory(); // 즉시 갱신
+            toast.success("크롤러가 실행되었습니다.");
+            fetchHistory();
         } catch (error: any) {
             console.error(error);
             const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
@@ -378,7 +224,7 @@ export const CrawlerPage = () => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `crawler_result_${historyId}.xlsx`;
+                a.download = `crawler_log_${historyId}.xlsx`; // Changed name to crawler_log
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
@@ -391,282 +237,227 @@ export const CrawlerPage = () => {
         try {
             await AxiosPost(`crawler/stop/${historyId}`, {});
             toast.success("중단 요청되었습니다.");
-            fetchHistory(); // 즉시 갱신
+            fetchHistory();
         } catch (error: any) {
             const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
             toast.error(`중단 실패: ${msg}`);
         }
     };
 
+    const formatDateTime = (isoString: string | null) => {
+        if (!isoString) return "-";
+        const d = new Date(isoString);
+        return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+
+    // --- Table Configuration ---
+    const headers = [
+        {
+            key: "id",
+            label: "번호",
+            width: "60px",
+            renderCell: (val: number) => <span style={{ color: '#94a3b8' }}>#{val}</span>
+        },
+        {
+            key: "trigger_type",
+            label: "구분",
+            width: "80px",
+            renderCell: (val: string) => (
+                <span style={{
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    color: val === 'MANUAL' ? '#3b82f6' : '#10b981',
+                }}>
+                    {val === 'MANUAL' ? 'Manual' : 'Schedule'}
+                </span>
+            )
+        },
+        {
+            key: "configuration", // [NEW] Target Companies
+            label: "수집 대상",
+            width: "120px",
+            renderCell: (val: any) => {
+                if (!val || !val.choiceCompany) return "-";
+                const targets: string[] = [];
+                if (val.choiceCompany.cgv) targets.push("CGV");
+                if (val.choiceCompany.lotte) targets.push("Lotte");
+                if (val.choiceCompany.mega) targets.push("Mega");
+                return (
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        {targets.map(t => (
+                            <span key={t} style={{
+                                fontSize: '10px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #e2e8f0',
+                                fontWeight: 600
+                            }}>{t}</span>
+                        ))}
+                    </div>
+                );
+            }
+        },
+        {
+            key: "created_at",
+            label: "시작 시간",
+            renderCell: (val: string) => formatDateTime(val)
+        },
+        {
+            key: "finished_at",
+            label: "종료 시간",
+            renderCell: (val: string | null) => val ? formatDateTime(val) : "-"
+        },
+        {
+            key: "duration", // [NEW] Duration Column
+            label: "소요 시간",
+            width: "80px",
+            renderCell: (_: any, item: ICrawlerHistory) => {
+                if (!item.finished_at) return "-";
+                const diff = (new Date(item.finished_at).getTime() - new Date(item.created_at).getTime()) / 1000;
+                return <span style={{ color: '#64748b', fontSize: '12px' }}>{Math.floor(diff)}초</span>;
+            }
+        },
+        {
+            key: "status", // Result Column (Mapped to Status)
+            label: "결과",
+            width: "80px",
+            renderCell: (val: string) => (
+                <StatusBadge status={val}>
+                    {val === 'RUNNING' && <CircleNotch className="spin" size={12} />}
+                    {val === 'SUCCESS' && <CheckCircle size={12} weight="fill" />}
+                    {val === 'FAILED' && <WarningCircle size={12} weight="fill" />}
+                    {val === 'SUCCESS' ? '성공' : val === 'FAILED' ? '오류' : val === 'RUNNING' ? '진행중' : '대기'}
+                </StatusBadge>
+            )
+        },
+        {
+            key: "logs",
+            label: "로그",
+            width: "100px",
+            renderCell: (_: any, item: ICrawlerHistory) => (
+                item.status === 'SUCCESS' ? (
+                    <button
+                        onClick={() => handleDownload(item.id)}
+                        style={{
+                            background: 'none',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: '#475569',
+                            fontSize: '11px',
+                            fontWeight: 500
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                        <DownloadSimple size={14} />
+                        다운로드
+                    </button>
+                ) : (item.status === 'RUNNING' || item.status === 'PENDING') ? (
+                    <button
+                        onClick={() => handleStop(item.id)}
+                        style={{
+                            background: '#fff1f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: '#e11d48',
+                            fontSize: '11px',
+                            fontWeight: 600
+                        }}
+                    >
+                        <StopCircleIcon size={14} />
+                        중단
+                    </button>
+                ) : item.status === 'FAILED' ? (
+                    <span style={{ fontSize: '11px', color: '#ef4444' }}>{item.error_message?.slice(0, 10)}...</span>
+                ) : "-"
+            )
+        }
+    ];
+
     return (
         <PageContainer>
             <ContentGrid>
-                {/* [좌측] 크롤러 설정 (Configuration) */}
-                <Column>
-                    <DetailContainer>
-                        <CommonListHeader
-                            title="크롤러 설정 (Configuration)"
-                            subtitle="크롤링 날짜 및 대상을 설정합니다."
+                {/* [상단] 실행 설정 */}
+                <DetailContainer>
+                    <CommonListHeader
+                        title="크롤러 실행 (Manual Run)"
+                        subtitle={null}
+                    />
+                    <CompactConfigBar>
+                        <ConfigItem>
+                            <CustomInput
+                                leftLabel="시작일"
+                                inputType="date"
+                                value={config.crawlStartDate}
+                                setValue={(v) => handleConfigChange('crawlStartDate', v)}
+                                style={{ width: '260px' }}
+                            />
+                        </ConfigItem>
+
+                        <ConfigItem>
+                            <CustomInput
+                                leftLabel="종료일"
+                                inputType="date"
+                                value={config.crawlEndDate}
+                                setValue={(v) => handleConfigChange('crawlEndDate', v)}
+                                style={{ width: '260px' }}
+                            />
+                        </ConfigItem>
+
+                        <ConfigItem>
+                            <StyledInputContainer>
+                                <StyledLabelBox>수집 대상</StyledLabelBox>
+                                <StyledContentBox>
+                                    <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
+                                    <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
+                                    <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
+                                </StyledContentBox>
+                            </StyledInputContainer>
+                        </ConfigItem>
+
+                        <div style={{ flex: 1 }}></div>
+
+                        <CustomButton onClick={handleRun} size="sm" style={{ padding: '0 20px', fontSize: '13px', fontWeight: 600 }}>
+                            <Play size={16} weight="fill" style={{ marginRight: '6px' }} /> 크롤링 시작
+                        </CustomButton>
+                    </CompactConfigBar>
+                </DetailContainer>
+
+                {/* [하단] 실행 이력 (GenericTable 사용) */}
+                <div style={{
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
+                }}>
+                    <CommonListHeader
+                        title="실행 이력 (History)"
+                        subtitle={null}
+                    />
+                    <div style={{ height: '500px' }}>
+                        <GenericTable
+                            headers={headers}
+                            data={history.slice((page - 1) * pageSize, page * pageSize)}
+                            page={page}
+                            pageSize={pageSize}
+                            totalCount={history.length}
+                            onPageChange={setPage}
+                            getRowKey={(item: any) => item.id}
                         />
-                        <ScrollBody>
-                            {/* 1. 날짜 및 수집 대상 */}
-                            <Section>
-                                <SectionHeader><SectionTitle>수집 기간 및 대상</SectionTitle></SectionHeader>
-                                <FormGrid>
-                                    <CustomInput
-                                        label="시작일"
-                                        inputType="date"
-                                        value={config.crawlStartDate}
-                                        setValue={(v) => handleConfigChange('crawlStartDate', v)}
-                                    />
-                                    <CustomInput
-                                        label="종료일"
-                                        inputType="date"
-                                        value={config.crawlEndDate}
-                                        setValue={(v) => handleConfigChange('crawlEndDate', v)}
-                                    />
-                                </FormGrid>
-                                <div style={{ display: 'flex', gap: '40px', alignItems: 'center', marginTop: '8px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px' }}>수집 대상 기업</div>
-                                        <CheckboxGroup>
-                                            <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
-                                            <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
-                                            <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
-                                        </CheckboxGroup>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px' }}>옵션</div>
-                                        <CheckboxGroup>
-                                            <CustomCheckbox
-                                                label="엑셀 파일만 저장"
-                                                checked={config.onlyExcel}
-                                                onChange={(v) => handleConfigChange('onlyExcel', v)}
-                                            />
-                                        </CheckboxGroup>
-                                    </div>
-                                </div>
-                            </Section>
-
-                            {/* 2. 영화 설정 */}
-                            <Section>
-                                <SectionHeader><SectionTitle>영화 설정 (Target Movies)</SectionTitle></SectionHeader>
-                                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                                    <CustomInput
-                                        placeholder="추가할 타겟 영화 제목 입력"
-                                        value={newMovieName}
-                                        setValue={setNewMovieName}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') addMovie(); }}
-                                        style={{ maxWidth: '300px' }}
-                                    />
-                                    <CustomButton onClick={addMovie} disabled={!newMovieName} size="md">
-                                        <Plus size={16} weight="bold" /> 영화 추가
-                                    </CustomButton>
-                                </div>
-                                {config.movieSettings.map((movie, mIdx) => (
-                                    <Card key={mIdx}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div style={{ fontWeight: '700', fontSize: '15px', color: '#1e293b' }}>
-                                                🎯 Target: <span style={{ color: '#2563eb' }}>{movie.movieName}</span>
-                                            </div>
-                                            <CustomButton onClick={() => removeMovie(mIdx)} size="sm" style={{ border: 'none' }}>
-                                                <Trash size={14} weight="bold" /> 삭제
-                                            </CustomButton>
-                                        </div>
-                                        <div style={{ marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid #cbd5e1' }}>
-                                            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>관련 검색어 (Rival names)</div>
-                                            <TagContainer>
-                                                {movie.rivalMovieNames.map((rival, rIdx) => (
-                                                    <Tag key={rIdx}>{rival}<TagDelete onClick={() => removeRivalMovie(mIdx, rIdx)}><X size={12} weight="bold" /></TagDelete></Tag>
-                                                ))}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <CustomInput
-                                                        placeholder="검색어 추가 (Enter)"
-                                                        value=""
-                                                        setValue={() => { }}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') {
-                                                                addRivalMovie(mIdx, (e.target as HTMLInputElement).value);
-                                                                (e.target as HTMLInputElement).value = '';
-                                                            }
-                                                        }}
-                                                        size="sm"
-                                                        borderless
-                                                        style={{ background: 'transparent', minWidth: '150px' }}
-                                                    />
-                                                </div>
-                                            </TagContainer>
-                                        </div>
-                                    </Card>
-                                ))}
-                            </Section>
-
-                            {/* 3. 기타 필터 */}
-                            <Section>
-                                <SectionHeader><SectionTitle>필터 설정 (Filters)</SectionTitle></SectionHeader>
-                                <FormGrid>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>특수관 필터</div>
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <CustomInput placeholder="예: 무대인사" value={newSpecialFilter} setValue={setNewSpecialFilter} onKeyDown={(e) => { if (e.key === 'Enter') addSpecialFilter(); }} size="sm" />
-                                            <CustomButton onClick={addSpecialFilter} size="sm"><Plus size={14} /></CustomButton>
-                                        </div>
-                                        <TagContainer>
-                                            {config.specialTypeFilters.map((filter, idx) => (
-                                                <Tag key={idx} style={{ backgroundColor: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}>
-                                                    {filter}<TagDelete onClick={() => removeSpecialFilter(idx)} style={{ color: '#94a3b8' }}><X size={12} weight="bold" /></TagDelete>
-                                                </Tag>
-                                            ))}
-                                        </TagContainer>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>씨네드쉐프 매핑</div>
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <CustomInput placeholder="지점" value={newCineFilter.theaterNm} setValue={(v) => setNewCineFilter(p => ({ ...p, theaterNm: v }))} size="sm" />
-                                            <CustomInput placeholder="매핑" value={newCineFilter.refineTheaterNm} setValue={(v) => setNewCineFilter(p => ({ ...p, refineTheaterNm: v }))} size="sm" />
-                                            <CustomButton onClick={addCineFilter} size="sm"><Plus size={14} /></CustomButton>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '100px', overflowY: 'auto' }}>
-                                            {config.cgvCineDeChefFilters.map((item, idx) => (
-                                                <div key={idx} style={{ fontSize: '12px', display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f8fafc', borderRadius: '4px' }}>
-                                                    <span>{item.theaterNm} → {item.refineTheaterNm}</span>
-                                                    <button onClick={() => removeCineFilter(idx)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444' }}><X size={12} /></button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </FormGrid>
-                            </Section>
-
-                            <ActionButtonWrapper>
-                                <CustomButton onClick={handleRun} size="md" style={{ padding: '0 30px', height: '44px', fontSize: '15px' }}>
-                                    <Play size={18} weight="fill" style={{ marginRight: '6px' }} /> 크롤링 시작
-                                </CustomButton>
-                            </ActionButtonWrapper>
-                        </ScrollBody>
-                    </DetailContainer>
-                </Column>
-
-                {/* [우측] 실행 이력 (History) */}
-                <Column>
-                    <DetailContainer>
-                        <CommonListHeader
-                            title="실행 이력 (History)"
-                            subtitle="최근 크롤러 실행 기록 및 결과입니다."
-                        />
-                        <ScrollBody style={{ padding: 0 }}>
-                            <HistoryTable>
-                                <thead>
-                                    <tr>
-                                        <Th>Run ID</Th>
-                                        <Th>Source</Th>
-                                        <Th>Status</Th>
-                                        <Th>Started At</Th>
-                                        <Th>Finished At</Th>
-                                        <Th>Summary</Th>
-                                        <Th>Result</Th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {history.map((item) => (
-                                        <tr key={item.id}>
-                                            <Td style={{ fontWeight: '600', color: '#64748b' }}>#{item.id}</Td>
-                                            <Td>
-                                                <span style={{
-                                                    fontSize: '11px',
-                                                    fontWeight: 'bold',
-                                                    color: item.trigger_type === 'MANUAL' ? '#2563eb' : '#059669',
-                                                    padding: '2px 6px',
-                                                    backgroundColor: item.trigger_type === 'MANUAL' ? '#eff6ff' : '#ecfdf5',
-                                                    borderRadius: '4px',
-                                                    border: `1px solid ${item.trigger_type === 'MANUAL' ? '#bfdbfe' : '#a7f3d0'}`
-                                                }}>
-                                                    {item.trigger_type || 'MANUAL'}
-                                                </span>
-                                            </Td>
-                                            <Td>
-                                                <StatusBadge status={item.status}>
-                                                    {item.status === 'RUNNING' && <CircleNotch className="spin" size={14} />}
-                                                    {item.status === 'SUCCESS' && <CheckCircle size={14} weight="fill" />}
-                                                    {item.status === 'FAILED' && <WarningCircle size={14} weight="fill" />}
-                                                    {item.status}
-                                                </StatusBadge>
-                                            </Td>
-                                            <Td>
-                                                <div style={{ fontSize: '12px' }}>
-                                                    {new Date(item.created_at).toLocaleDateString('ko-KR')}
-                                                </div>
-                                                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                                    {new Date(item.created_at).toLocaleTimeString('ko-KR')}
-                                                </div>
-                                            </Td>
-                                            <Td>
-                                                {item.finished_at ? (
-                                                    <>
-                                                        <div style={{ fontSize: '12px' }}>
-                                                            {new Date(item.finished_at).toLocaleDateString('ko-KR')}
-                                                        </div>
-                                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                                            {new Date(item.finished_at).toLocaleTimeString('ko-KR')}
-                                                        </div>
-                                                        <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
-                                                            (Duration: {Math.floor((new Date(item.finished_at).getTime() - new Date(item.created_at).getTime()) / 1000)}s)
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <span style={{ fontSize: '12px', color: '#cbd5e1' }}>-</span>
-                                                )}
-                                            </Td>
-                                            <Td>
-                                                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                                    {item.result_summary ? (
-                                                        <>
-                                                            <div>Collect: {item.result_summary.collected_logs}</div>
-                                                            <div>Create: {item.result_summary.created_schedules}</div>
-                                                        </>
-                                                    ) : (
-                                                        "-"
-                                                    )}
-                                                </div>
-                                            </Td>
-                                            <Td>
-                                                {item.status === 'SUCCESS' ? (
-                                                    <CustomButton
-                                                        size="sm"
-                                                        onClick={() => handleDownload(item.id)}
-                                                    >
-                                                        <DownloadSimple size={14} style={{ marginRight: '4px' }} />
-                                                        Excel
-                                                    </CustomButton>
-                                                ) : (item.status === 'RUNNING' || item.status === 'PENDING') ? (
-                                                    <CustomButton
-                                                        size="sm"
-                                                        style={{ backgroundColor: '#fecaca', color: '#dc2626', border: '1px solid #fca5a5' }}
-                                                        onClick={() => handleStop(item.id)}
-                                                    >
-                                                        <StopCircleIcon size={14} style={{ marginRight: '4px' }} />
-                                                        정지
-                                                    </CustomButton>
-                                                ) : item.status === 'FAILED' ? (
-                                                    <span style={{ fontSize: '11px', color: '#ef4444' }}>{item.error_message?.slice(0, 20)}...</span>
-                                                ) : (
-                                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>-</span>
-                                                )}
-                                            </Td>
-                                        </tr>
-                                    ))}
-                                    {history.length === 0 && (
-                                        <tr>
-                                            <Td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                                실행 기록이 없습니다.
-                                            </Td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </HistoryTable>
-                        </ScrollBody>
-                    </DetailContainer>
-                </Column>
+                    </div>
+                </div>
             </ContentGrid>
             <style>{`
                 .spin { animation: spin 1s linear infinite; }
