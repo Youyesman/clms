@@ -99,7 +99,7 @@ class MovieSchedule(models.Model):
         return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(title)).lower()
 
     @classmethod
-    def create_from_cgv_log(cls, log, target_titles=None):
+    def create_from_cgv_log(cls, log, target_titles=None, title_map=None):
         """
         CGVScheduleLog 객체를 받아 파싱하여 MovieSchedule 데이터를 일괄 생성/업데이트합니다.
         (Bulk Operation 적용)
@@ -109,6 +109,7 @@ class MovieSchedule(models.Model):
 
         data_list = log.response_json["data"]
         from datetime import datetime
+        from django.utils import timezone
         
         parsed_items = []
         target_dates = set()
@@ -151,6 +152,7 @@ class MovieSchedule(models.Model):
                 start_tm_clean = str(play_start_time)[:4]
                 start_dt_str = f"{ymd_clean}{start_tm_clean}"
                 start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
+                start_dt = timezone.make_aware(start_dt)
                 
                 target_dates.add(start_dt.date())
 
@@ -159,6 +161,7 @@ class MovieSchedule(models.Model):
                     end_tm_clean = str(play_end_time)[:4]
                     end_dt_str = f"{ymd_clean}{end_tm_clean}"
                     end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
+                    end_dt = timezone.make_aware(end_dt)
                     if end_dt < start_dt:
                         from datetime import timedelta
                         end_dt += timedelta(days=1)
@@ -166,12 +169,21 @@ class MovieSchedule(models.Model):
                 remain_seat = int(item.get("frSeatCnt", 0))
                 is_available = remain_seat > 0
                 
+                # Title Consistency Logic
+                final_title = movie_title
+                if title_map is not None:
+                    norm_title = cls.normalize_title(movie_title)
+                    if norm_title in title_map:
+                        final_title = title_map[norm_title]
+                    else:
+                        title_map[norm_title] = movie_title
+                
                 parsed_items.append({
                     'brand': 'CGV',
                     'theater_name': log.theater_name,
                     'screen_name': screen_name,
                     'start_time': start_dt,
-                    'movie_title': movie_title,
+                    'movie_title': final_title,
                     'end_time': end_dt, # Update 대상
                     'is_booking_available': is_available, # Update 대상
                     'raw_log': log
@@ -242,12 +254,13 @@ class MovieSchedule(models.Model):
         return f"[{self.brand}] {self.theater_name} - {self.movie_title} ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
 
     @classmethod
-    def create_from_megabox_log(cls, log, target_titles=None):
+    def create_from_megabox_log(cls, log, target_titles=None, title_map=None):
         """
         MegaboxScheduleLog 데이터를 파싱하여 MovieSchedule 생성
         Returns: (created_count + updated_count, error_list)
         """
         from datetime import datetime, timedelta
+        from django.utils import timezone
 
         json_data = log.response_json or {}
         mega_map = json_data.get("megaMap", {})
@@ -299,6 +312,9 @@ class MovieSchedule(models.Model):
                     start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
                     end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
                     
+                    start_dt = timezone.make_aware(start_dt)
+                    end_dt = timezone.make_aware(end_dt)
+                    
                     if end_dt < start_dt:
                         end_dt += timedelta(days=1)
 
@@ -310,13 +326,22 @@ class MovieSchedule(models.Model):
                     
                     screen_nm = item.get("theabExpoNm") or item.get("theabEngNm", "관정보없음")
                     
+                    # Title Consistency Logic
+                    final_title = movie_title
+                    if title_map is not None:
+                        norm_title = cls.normalize_title(movie_title)
+                        if norm_title in title_map:
+                            final_title = title_map[norm_title]
+                        else:
+                            title_map[norm_title] = movie_title
+                    
                     parsed_items.append({
                         'brand': 'MEGABOX',
                         'theater_name': log.theater_name,
                         'screen_name': screen_nm,
                         'start_time': start_dt,
                         'end_time': end_dt,
-                        'movie_title': movie_title,
+                        'movie_title': final_title,
                         'is_booking_available': is_available
                     })
                 except Exception as e:
@@ -365,12 +390,13 @@ class MovieSchedule(models.Model):
         return len(to_create) + len(to_update), errors
 
     @classmethod
-    def create_from_lotte_log(cls, log, target_titles=None):
+    def create_from_lotte_log(cls, log, target_titles=None, title_map=None):
         """
         LotteScheduleLog 데이터를 파싱하여 MovieSchedule 생성
         Returns: (created_count + updated_count, error_list)
         """
         from datetime import datetime, timedelta
+        from django.utils import timezone
 
         json_data = log.response_json or {}
         
@@ -391,6 +417,7 @@ class MovieSchedule(models.Model):
         
         for item in schedule_data:
             try:
+                # 롯데는 필드명이 다양함. MovieNameKR, ScreenNameKR 등
                 movie_title = item.get("MovieNameKR") or item.get("MovieName") or item.get("FilmName", "제목없음")
                 
                 # [Filtering Logic]
@@ -404,38 +431,53 @@ class MovieSchedule(models.Model):
                                 break
                     if not is_target:
                         continue
-
-                # 롯데 API 시간 필드 추정
-                play_start_time = item.get("StartTime") or item.get("PlayStartTime")
-                play_end_time = item.get("EndTime") or item.get("PlayEndTime")
-                
-                if not play_start_time:
-                    continue
                 
                 # 시간 파싱
-                ymd = play_date_str
-                start_tm_clean = str(play_start_time).replace(':', '')[:4]
+                start_dt_str = item.get("StartTime") or item.get("PlayDt") # YYYY-MM-DD HH:MM:SS format assumed
+                end_dt_str = item.get("EndTime") or item.get("EndDt")
                 
-                start_dt_str = f"{ymd}{start_tm_clean}"
-                start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
+                if not start_dt_str: continue
                 
-                end_dt = None
-                if play_end_time:
-                    end_tm_clean = str(play_end_time).replace(':', '')[:4]
-                    end_dt_str = f"{ymd}{end_tm_clean}"
-                    end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
-                    
-                    if end_dt < start_dt:
-                        end_dt += timedelta(days=1)
-
+                # Format check
+                try:
+                    if "T" in start_dt_str:
+                        start_dt = datetime.fromisoformat(start_dt_str)
+                    else:
+                        start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                     # Lotte often uses YYYY-MM-DD HH:MM
+                     start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M")
+                
+                start_dt = timezone.make_aware(start_dt)
+                
+                if end_dt_str:
+                    try:
+                        if "T" in end_dt_str:
+                             end_dt = datetime.fromisoformat(end_dt_str)
+                        else:
+                             end_dt = datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M:%S")
+                    except:
+                         end_dt = datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M")
+                    end_dt = timezone.make_aware(end_dt)
+                else:
+                    end_dt = start_dt + timedelta(hours=2) # Default duration
+                
                 target_dates.add(start_dt.date())
 
-                # 잔여 좌석 및 예매 가능 여부
-                remain_seat = int(item.get("BookingSeatCount", 0)) or int(item.get("SeatCount", 0))
-                is_available = remain_seat > 0 or item.get("BookingYN") == "Y"
+                remain_seat = int(item.get("BookingSeatCount") or item.get("SeatCount") or 0)
+                is_available = remain_seat > 0
                 
                 # 상영관 정보
                 screen_name = item.get("ScreenNameKR") or item.get("ScreenName") or item.get("TheaterName", "미지정")
+                
+                # Title Consistency Logic
+                final_title = movie_title
+                if title_map is not None:
+                    norm_title = cls.normalize_title(movie_title)
+                    if norm_title in title_map:
+                        final_title = title_map[norm_title]
+                    else:
+                        title_map[norm_title] = movie_title
                 
                 parsed_items.append({
                     'brand': 'LOTTE',
@@ -443,7 +485,7 @@ class MovieSchedule(models.Model):
                     'screen_name': screen_name,
                     'start_time': start_dt,
                     'end_time': end_dt,
-                    'movie_title': movie_title,
+                    'movie_title': final_title,
                     'is_booking_available': is_available
                 })
             except Exception as e:
@@ -504,6 +546,7 @@ class CrawlerRunHistory(models.Model):
     TRIGGER_CHOICES = (
         ('MANUAL', 'Manual'),
         ('SCHEDULED', 'Scheduled'),
+        ('TRANSFORM', 'Transform'),
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

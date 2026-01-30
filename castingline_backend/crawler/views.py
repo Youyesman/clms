@@ -274,6 +274,7 @@ class CrawlerHistoryView(APIView):
                 "created_at": h.created_at,
                 "finished_at": h.finished_at,
                 "status": h.status,
+                "trigger_type": h.trigger_type,
                 "configuration": h.configuration,
                 "result_summary": h.result_summary,
                 "error_message": h.error_message,
@@ -296,3 +297,207 @@ class CrawlerDownloadView(APIView):
             
         except CrawlerRunHistory.DoesNotExist:
             return Response({"error": "History not found"}, status=status.HTTP_404_NOT_FOUND)
+
+def run_transform_background(new_history_id, source_history_id):
+    """
+    백그라운드 스케줄 변환 작업
+    """
+    try:
+        new_history = CrawlerRunHistory.objects.get(id=new_history_id)
+        source_history = CrawlerRunHistory.objects.get(id=source_history_id)
+        
+        new_history.status = 'RUNNING'
+        new_history.save()
+        
+        data = source_history.configuration
+        
+        # 1. Parse Dates and Companies
+        start_date_str = data.get('crawlStartDate')
+        end_date_str = data.get('crawlEndDate')
+        
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+        
+        date_list = []
+        curr = start_date
+        while curr <= end_date:
+            date_list.append(curr.strftime("%Y%m%d"))
+            curr += timedelta(days=1)
+            
+        choice_company = data.get('choiceCompany', {})
+        run_cgv = choice_company.get('cgv', False)
+        run_lotte = choice_company.get('lotte', False)
+        run_mega = choice_company.get('mega', False)
+        
+        results = {}
+        total_created = 0
+        
+        # 2. CGV Transformation
+        if run_cgv:
+            from crawler.models import CGVScheduleLog
+            log_ids = CGVScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
+            if log_ids:
+                cnt, errors = CGVPipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                results['CGV'] = {"created": cnt, "errors": len(errors)}
+                total_created += cnt
+            else:
+                results['CGV'] = {"created": 0, "message": "No logs found"}
+
+        # 3. Lotte Transformation
+        if run_lotte:
+            from crawler.models import LotteScheduleLog
+            # [FIX] query_date for Lotte
+            log_ids = LotteScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
+            if log_ids:
+                cnt, errors = LottePipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                results['Lotte'] = {"created": cnt, "errors": len(errors)}
+                total_created += cnt
+            else:
+                results['Lotte'] = {"created": 0, "message": "No logs found"}
+
+        # 4. Megabox Transformation
+        if run_mega:
+            from crawler.models import MegaboxScheduleLog
+            # [FIX] query_date for Megabox
+            log_ids = MegaboxScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
+            if log_ids:
+                cnt, errors = MegaboxPipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                results['Megabox'] = {"created": cnt, "errors": len(errors)}
+                total_created += cnt
+            else:
+                results['Megabox'] = {"created": 0, "message": "No logs found"}
+                
+        # 5. Export to Excel
+        from crawler.models import MovieSchedule
+        from crawler.utils.excel_exporter import export_transformed_schedules
+        
+        target_brands = []
+        if run_cgv: target_brands.append('CGV')
+        if run_lotte: target_brands.append('Lotte')
+        if run_mega: target_brands.append('Megabox')
+        
+        qs = MovieSchedule.objects.filter(
+            start_time__date__gte=start_date,
+            start_time__date__lte=end_date,
+            brand__in=target_brands
+        )
+        
+        file_path = export_transformed_schedules(qs)
+        
+        new_history.status = 'SUCCESS'
+        new_history.finished_at = timezone.now()
+        new_history.result_summary = {
+            "source_history_id": source_history_id,
+            "transform_stats": results,
+            "total_created": total_created
+        }
+        new_history.excel_file_path = file_path
+        new_history.save()
+        
+    except Exception as e:
+        logger.error(f"Background Transform Failed: {e}")
+        new_history = CrawlerRunHistory.objects.get(id=new_history_id)
+        new_history.status = 'FAILED'
+        new_history.finished_at = timezone.now()
+        new_history.error_message = str(e)
+        new_history.save()
+
+class CrawlerTransformView(APIView):
+    """
+    [New] 크롤링된 로그 데이터를 실제 스케줄(MovieSchedule) 데이터로 변환 (Async)
+    """
+    def post(self, request, history_id):
+        try:
+            # Source History 존재 확인
+            source_history = CrawlerRunHistory.objects.get(id=history_id)
+            
+            # Create New History for this Task
+            new_history = CrawlerRunHistory.objects.create(
+                status='PENDING',
+                trigger_type='TRANSFORM',
+                configuration={
+                    "source_history_id": history_id,
+                    "original_config": source_history.configuration
+                }
+            )
+            
+            # Start Thread
+            thread = threading.Thread(target=run_transform_background, args=(new_history.id, history_id))
+            thread.daemon = True
+            thread.start()
+            
+            return Response({
+                "message": "Transformation started in background",
+                "history_id": new_history.id,
+                "status": "PENDING"
+            }, status=status.HTTP_200_OK)
+            
+        except CrawlerRunHistory.DoesNotExist:
+            return Response({"error": "Source history not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Transform Start Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerScheduleOptionsView(APIView):
+    """
+    특정 날짜의 스케줄이 있는 영화 목록 조회 API
+    Param: date (YYYYMMDD)
+    """
+    def get(self, request):
+        date_str = request.query_params.get('date')
+        if not date_str:
+            return Response({"error": "Date parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            target_date = datetime.strptime(date_str, "%Y%m%d").date()
+            
+            from crawler.models import MovieSchedule
+            movies = MovieSchedule.objects.filter(
+                start_time__date=target_date
+            ).values_list('movie_title', flat=True).distinct().order_by('movie_title')
+            
+            return Response({"movies": list(movies)}, status=status.HTTP_200_OK)
+            
+        except ValueError:
+            return Response({"error": "Invalid date format. Use YYYYMMDD"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Schedule Options Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerScheduleExportView(APIView):
+    """
+    특정 날짜와 영화의 스케줄 엑셀 다운로드 API
+    Body: date (YYYYMMDD), movie_title
+    """
+    def post(self, request):
+        date_str = request.data.get('date')
+        movie_title = request.data.get('movie_title')
+        
+        if not date_str or not movie_title:
+            return Response({"error": "date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            target_date = datetime.strptime(date_str, "%Y%m%d").date()
+            
+            from crawler.models import MovieSchedule
+            from crawler.utils.excel_exporter import export_transformed_schedules
+            
+            qs = MovieSchedule.objects.filter(
+                start_time__date=target_date,
+                movie_title=movie_title
+            )
+            
+            file_path = export_transformed_schedules(qs)
+            
+            if not file_path:
+                return Response({"error": "No schedules found for this criteria"}, status=status.HTTP_404_NOT_FOUND)
+                
+            return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=os.path.basename(file_path))
+            
+        except ValueError:
+            return Response({"error": "Invalid date format"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Schedule Export Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

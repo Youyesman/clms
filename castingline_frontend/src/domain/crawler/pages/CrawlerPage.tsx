@@ -7,7 +7,8 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
-import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon } from "@phosphor-icons/react";
+import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls } from "@phosphor-icons/react";
+import { ScheduleExportModal } from "./ScheduleExportModal";
 
 // --- Types ---
 interface IChoiceCompany {
@@ -22,12 +23,12 @@ interface ICrawlerConfig {
     choiceCompany: IChoiceCompany;
 }
 
-interface ICrawlerHistory {
+export interface ICrawlerHistory {
     id: number;
     created_at: string;
     finished_at: string | null;
     status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
-    trigger_type: 'MANUAL' | 'SCHEDULED';
+    trigger_type: 'MANUAL' | 'SCHEDULED' | 'TRANSFORM';
     configuration: any;
     result_summary: any;
     error_message: string | null;
@@ -161,6 +162,10 @@ export const CrawlerPage = () => {
     const [config, setConfig] = useState<ICrawlerConfig>(INITIAL_CONFIG);
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
 
+    // Export Modal State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportTargetHistory, setExportTargetHistory] = useState<ICrawlerHistory | null>(null);
+
     // Pagination State
     const [page, setPage] = useState(1);
     const pageSize = 10;
@@ -250,6 +255,29 @@ export const CrawlerPage = () => {
         return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     };
 
+    const handleTransform = async (historyId: number) => {
+        if (!window.confirm("선택한 이력의 데이터를 기반으로 스케줄을 생성하시겠습니까?\n(기존 데이터가 있다면 덮어쓰거나 무시될 수 있습니다.)")) return;
+        try {
+            await AxiosPost(`crawler/transform/${historyId}`, {});
+            toast.success("스케줄 생성 작업이 시작되었습니다.\n(실행 이력에서 진행 상태를 확인할 수 있습니다.)");
+            fetchHistory(); // Refresh to potentially show status update if we tracked it (we don't sync status for transform yet, but good practice)
+        } catch (error: any) {
+            const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
+            toast.error(`스케줄 생성 실패: ${msg}`);
+        }
+    };
+
+    const handleOpenExportModal = (item: ICrawlerHistory) => {
+        setExportTargetHistory(item);
+        setIsExportModalOpen(true);
+    };
+
+    const formatDuration = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+    };
+
     // --- Table Configuration ---
     const headers = [
         {
@@ -260,17 +288,37 @@ export const CrawlerPage = () => {
         },
         {
             key: "trigger_type",
-            label: "구분",
+            label: "실행",
+            width: "60px",
+            renderCell: (val: string) => {
+                const isAuto = val === 'SCHEDULED';
+                return (
+                    <span style={{
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        color: isAuto ? '#f59e0b' : '#3b82f6', // Orange for Auto, Blue for Manual
+                    }}>
+                        {isAuto ? '자동' : '수동'}
+                    </span>
+                );
+            }
+        },
+        {
+            key: "job_type", // Virtual column for Job Type
+            label: "작업",
             width: "80px",
-            renderCell: (val: string) => (
-                <span style={{
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    color: val === 'MANUAL' ? '#3b82f6' : '#10b981',
-                }}>
-                    {val === 'MANUAL' ? 'Manual' : 'Schedule'}
-                </span>
-            )
+            renderCell: (_: any, item: ICrawlerHistory) => {
+                const isTransform = item.trigger_type === 'TRANSFORM';
+                return (
+                    <span style={{
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        color: isTransform ? '#8b5cf6' : '#10b981', // Purple for Transform, Green for Crawl
+                    }}>
+                        {isTransform ? '스케줄 변환' : '크롤링'}
+                    </span>
+                );
+            }
         },
         {
             key: "configuration", // [NEW] Target Companies
@@ -312,15 +360,15 @@ export const CrawlerPage = () => {
         {
             key: "duration", // [NEW] Duration Column
             label: "소요 시간",
-            width: "80px",
+            width: "100px",
             renderCell: (_: any, item: ICrawlerHistory) => {
                 if (!item.finished_at) return "-";
                 const diff = (new Date(item.finished_at).getTime() - new Date(item.created_at).getTime()) / 1000;
-                return <span style={{ color: '#64748b', fontSize: '12px' }}>{Math.floor(diff)}초</span>;
+                return <span style={{ color: '#64748b', fontSize: '12px' }}>{formatDuration(diff)}</span>;
             }
         },
         {
-            key: "status", // Result Column (Mapped to Status)
+            key: "status",
             label: "결과",
             width: "80px",
             renderCell: (val: string) => (
@@ -334,31 +382,78 @@ export const CrawlerPage = () => {
         },
         {
             key: "logs",
-            label: "로그",
-            width: "100px",
+            label: "로그 / 작업", // Renamed for clarity
+            width: "200px", // Increased width
             renderCell: (_: any, item: ICrawlerHistory) => (
                 item.status === 'SUCCESS' ? (
-                    <button
-                        onClick={() => handleDownload(item.id)}
-                        style={{
-                            background: 'none',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '6px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: '#475569',
-                            fontSize: '11px',
-                            fontWeight: 500
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                        <DownloadSimple size={14} />
-                        다운로드
-                    </button>
+                    item.trigger_type === 'TRANSFORM' ? (
+                        <button
+                            onClick={() => handleOpenExportModal(item)}
+                            style={{
+                                background: '#f0fdf4',
+                                border: '1px solid #bbf7d0',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                color: '#16a34a', // Green
+                                fontSize: '11px',
+                                fontWeight: 600
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#dcfce7'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f0fdf4'}
+                        >
+                            <FileXls size={14} weight="fill" />
+                            엑셀 시간표
+                        </button>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                                onClick={() => handleDownload(item.id)}
+                                style={{
+                                    background: 'none',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#475569',
+                                    fontSize: '11px',
+                                    fontWeight: 500
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                                <DownloadSimple size={14} />
+                                다운로드
+                            </button>
+                            <button
+                                onClick={() => handleTransform(item.id)}
+                                style={{
+                                    background: '#f0f9ff',
+                                    border: '1px solid #bae6fd',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    color: '#0284c7',
+                                    fontSize: '11px',
+                                    fontWeight: 600
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e0f2fe'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                            >
+                                <Play size={14} weight="fill" />
+                                스케줄 생성
+                            </button>
+                        </div>
+                    )
                 ) : (item.status === 'RUNNING' || item.status === 'PENDING') ? (
                     <button
                         onClick={() => handleStop(item.id)}
@@ -463,6 +558,12 @@ export const CrawlerPage = () => {
                 .spin { animation: spin 1s linear infinite; }
                 @keyframes spin { 100% { transform: rotate(360deg); } }
             `}</style>
+
+            <ScheduleExportModal
+                isOpen={isExportModalOpen}
+                onClose={() => setIsExportModalOpen(false)}
+                historyItem={exportTargetHistory}
+            />
         </PageContainer>
     );
 };

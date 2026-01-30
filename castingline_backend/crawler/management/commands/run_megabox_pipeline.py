@@ -538,21 +538,17 @@ class MegaboxPipelineService:
             # Sort dates
             sorted_dates = sorted(date_counts.keys())
             date_breakdown_str = ""
-            
-            # [USER REQUEST] Multi-line format
             if sorted_dates:
                parts = []
                for d in sorted_dates:
-                   try:
-                       dt = datetime.strptime(d, "%Y%m%d")
-                       d_fmt = f"{dt.month}월 {dt.day}일"
-                   except:
-                       d_fmt = d
-                   parts.append(f"• {d_fmt}: {date_counts[d]}개")
-               date_breakdown_str = "\n" + "\n".join(parts)
+                   # Format YYYYMMDD -> MM/DD
+                   if len(d) == 8: d_fmt = f"{d[4:6]}/{d[6:]}"
+                   else: d_fmt = d
+                   parts.append(f"{d_fmt}: {date_counts[d]}개")
+               date_breakdown_str = " (" + ", ".join(parts) + ")"
 
             # Text Summary
-            text = f"📊 [Megabox] 결과: 총 {total_master}개 Master.{date_breakdown_str}\n{missing_msg}{fail_text}"
+            text = f"📊 [Megabox] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료{date_breakdown_str}.{missing_msg}{fail_text}"
 
             blocks = [
                 {
@@ -563,7 +559,7 @@ class MegaboxPipelineService:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
-                        {"type": "mrkdwn", "text": f"*수집된 극장 (날짜별):*{date_breakdown_str}"}
+                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개\n{date_breakdown_str}"}
                     ]
                 }
             ]

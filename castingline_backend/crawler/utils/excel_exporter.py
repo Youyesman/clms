@@ -65,3 +65,34 @@ def export_schedules_to_excel(start_date_str, end_date_str, companies=None, targ
              pass
 
     return file_path
+
+def export_transformed_schedules(queryset):
+    """
+    Exports MovieSchedule QuerySet to Excel.
+    """
+    if not queryset.exists():
+        return None
+        
+    data = list(queryset.values(
+        'brand', 'theater_name', 'screen_name', 'movie_title', 'start_time', 'end_time', 'is_booking_available'
+    ))
+    
+    df = pd.DataFrame(data)
+    
+    # Format Datetimes
+    if 'start_time' in df.columns:
+        df['start_time'] = df['start_time'].astype(str) # Convert to string for Excel compatibility or keep native
+    if 'end_time' in df.columns:
+        df['end_time'] = df['end_time'].astype(str)
+        
+    save_dir = os.path.join(settings.BASE_DIR, 'media', 'crawler_exports')
+    os.makedirs(save_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"schedule_transform_{timestamp}.xlsx"
+    file_path = os.path.join(save_dir, filename)
+    
+    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Schedules', index=False)
+        
+    return file_path
