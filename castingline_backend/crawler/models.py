@@ -68,6 +68,9 @@ class MovieSchedule(models.Model):
     is_booking_available = models.BooleanField(default=True) # 예매 가능 여부
     booking_url = models.URLField(max_length=500, null=True, blank=True) # 예매 링크
     
+    # [NEW] 메타데이터 태그 (더빙, 자막, 무대인사 등)
+    tags = models.JSONField(default=list, blank=True)
+    
     # 원본 로그 추적용 (선택)
     raw_log = models.ForeignKey(CGVScheduleLog, on_delete=models.SET_NULL, null=True, blank=True)
     
@@ -82,6 +85,54 @@ class MovieSchedule(models.Model):
         unique_together = [
             ('brand', 'theater_name', 'screen_name', 'start_time'),
         ]
+
+    @staticmethod
+    def parse_and_normalize_title(raw_title):
+        """
+        영화 제목에서 메타데이터(태그)를 추출하고 순수 제목만 반환합니다.
+        Returns: (clean_title, tags_list)
+        """
+        import re
+        if not raw_title:
+            return "", []
+
+        tags = set()
+        clean_title = raw_title
+        
+        # 0. HTML Entity Decoding & Full-width Parenthesis Normalization
+        clean_title = clean_title.replace("&#40;", "(").replace("&#41;", ")")
+        clean_title = clean_title.replace("（", "(").replace("）", ")")
+
+        # 1. Bracket Tags: [무대인사], [F], [담력챌린지] ...
+        # Pattern: [Anything except brackets]
+        bracket_pattern = r'\[([^\]]+)\]'
+        matches = re.findall(bracket_pattern, clean_title)
+        for m in matches:
+            tags.add(m.strip())
+        # Remove tags from title
+        clean_title = re.sub(bracket_pattern, '', clean_title).strip()
+
+        # 2. Parenthesis Tags (Suffix/Infix): (더빙), (자막), (3D)...
+        # Pattern: (Anything except parenthesis) at the end or middle
+        paren_pattern = r'\(([^)]+)\)'
+        matches = re.findall(paren_pattern, clean_title)
+        
+        # Filter unrelated parenthesis content? 
+        # For now, we assume most parenthesis in movie titles in theater context are metadata
+        # Exception: "Mission: Impossible (1996)" -> Year? 
+        # Considering the user request, things like (더빙), (자막), (3D 4K..) are targets.
+        for m in matches:
+            # Simple heuristic: if it looks like a year (4 digits), probably keep it? 
+            # But user example has "주토피아 2(팝콘 패키지,자막)"
+            # Let's extract all for now.
+            tags.add(m.strip())
+            
+        clean_title = re.sub(paren_pattern, '', clean_title).strip()
+
+        # 3. Cleanup extra spaces
+        clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+        
+        return clean_title, list(tags)
 
     @staticmethod
     def normalize_title(title):
@@ -179,13 +230,16 @@ class MovieSchedule(models.Model):
                 is_available = remain_seat > 0
                 
                 # Title Consistency Logic
-                final_title = movie_title
+                # 1. Parse Metadata
+                clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
+                
+                final_title = clean_title
                 if title_map is not None:
-                    norm_title = cls.normalize_title(movie_title)
+                    norm_title = cls.normalize_title(clean_title)
                     if norm_title in title_map:
                         final_title = title_map[norm_title]
                     else:
-                        title_map[norm_title] = movie_title
+                        title_map[norm_title] = clean_title
                 
                 parsed_items.append({
                     'brand': 'CGV',
@@ -193,6 +247,7 @@ class MovieSchedule(models.Model):
                     'screen_name': screen_name,
                     'start_time': start_dt,
                     'movie_title': final_title,
+                    'tags': extracted_tags,
                     'end_time': end_dt, # Update 대상
                     'is_booking_available': is_available, # Update 대상
                     'raw_log': log
@@ -238,6 +293,7 @@ class MovieSchedule(models.Model):
                 obj.is_booking_available = item['is_booking_available']
                 obj.end_time = item['end_time']
                 obj.movie_title = item['movie_title'] # 혹시 제목 바뀌었을 수도 있음
+                obj.tags = item['tags']
                 obj.raw_log = log # 최신 로그로 갱신
                 to_update.append(obj)
             else:
@@ -254,7 +310,7 @@ class MovieSchedule(models.Model):
             
         if to_update:
             # 변경될 수 있는 필드만 업데이트
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'raw_log', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at'])
             updated_count = len(to_update)
             
         return created_count + updated_count, errors
@@ -343,13 +399,15 @@ class MovieSchedule(models.Model):
                     screen_nm = item.get("theabExpoNm") or item.get("theabEngNm", "관정보없음")
                     
                     # Title Consistency Logic
-                    final_title = movie_title
+                    clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
+                    
+                    final_title = clean_title
                     if title_map is not None:
-                        norm_title = cls.normalize_title(movie_title)
+                        norm_title = cls.normalize_title(clean_title)
                         if norm_title in title_map:
                             final_title = title_map[norm_title]
                         else:
-                            title_map[norm_title] = movie_title
+                            title_map[norm_title] = clean_title
                     
                     parsed_items.append({
                         'brand': 'MEGABOX',
@@ -358,6 +416,7 @@ class MovieSchedule(models.Model):
                         'start_time': start_dt,
                         'end_time': end_dt,
                         'movie_title': final_title,
+                        'tags': extracted_tags,
                         'is_booking_available': is_available
                     })
                 except Exception as e:
@@ -401,7 +460,7 @@ class MovieSchedule(models.Model):
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
             
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'raw_log', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at'])
             
         return len(to_create) + len(to_update), errors
 
@@ -509,13 +568,15 @@ class MovieSchedule(models.Model):
                 screen_name = item.get("ScreenNameKR") or item.get("ScreenName") or item.get("TheaterName", "미지정")
                 
                 # Title Consistency Logic
-                final_title = movie_title
+                clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
+                
+                final_title = clean_title
                 if title_map is not None:
-                    norm_title = cls.normalize_title(movie_title)
+                    norm_title = cls.normalize_title(clean_title)
                     if norm_title in title_map:
                         final_title = title_map[norm_title]
                     else:
-                        title_map[norm_title] = movie_title
+                        title_map[norm_title] = clean_title
                 
                 parsed_items.append({
                     'brand': 'LOTTE',
@@ -524,6 +585,7 @@ class MovieSchedule(models.Model):
                     'start_time': start_dt,
                     'end_time': end_dt,
                     'movie_title': final_title,
+                    'tags': extracted_tags,
                     'is_booking_available': is_available
                 })
             except Exception as e:
@@ -563,7 +625,7 @@ class MovieSchedule(models.Model):
         if to_create:
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at'])
             
         return len(to_create) + len(to_update), errors
 
