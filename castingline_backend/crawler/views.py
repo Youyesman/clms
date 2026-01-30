@@ -610,11 +610,31 @@ class CrawlerScheduleExportView(APIView):
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
             
+            # qs is the initial candidate list based on date
             qs = MovieSchedule.objects.filter(
                 start_time__date__gte=start_date,
-                start_time__date__lte=end_date,
-                movie_title=movie_title
+                start_time__date__lte=end_date
             )
+
+            # --- Flexible Title Filtering ---
+            if movie_title:
+                import re
+                def normalize_string(s):
+                    # Remove all whitespace and special characters (keep alphanumerics and Hangul)
+                    return re.sub(r'[^a-zA-Z0-9가-힣]', '', s)
+
+                clean_target = normalize_string(movie_title)
+                
+                # Filter in Python (since strict DB match requires extensive ORM or RawSQL for regex replace)
+                # Given the dataset size for 3 days isn't massive, this is acceptable.
+                matched_ids = []
+                for schedule in qs:
+                    clean_db_title = normalize_string(schedule.movie_title)
+                    # Check if target is contained in DB title (e.g. Input: "주토피아2" in DB: "주토피아2더빙")
+                    if clean_target in clean_db_title:
+                        matched_ids.append(schedule.id)
+                
+                qs = qs.filter(id__in=matched_ids)
             
             # Pass metadata for filename generation
             file_path = export_transformed_schedules(
