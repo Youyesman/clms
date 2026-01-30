@@ -152,6 +152,45 @@ class MovieSchedule(models.Model):
         # ^는 부정. 즉, 저것들이 아닌 문자는 모두 공백으로 대체 후 제거
         return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(title)).lower()
 
+    @staticmethod
+    def normalize_screen_name(name):
+        """
+        상영관 이름 정규화
+        1. HTML Entity 디코딩
+        2. 괄호 및 메타데이터 제거
+        3. 'N관' 패턴 추출
+        """
+        import re
+        if not name:
+            return ""
+        
+        name = str(name).strip()
+        
+        # 1. HTML Entity Decoding
+        name = name.replace("&#40;", "(").replace("&#41;", ")")
+        name = name.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        
+        # 2. Simple Digit Check
+        if name.isdigit():
+            return f"{name}관"
+            
+        # 3. Extract 'N관' pattern if exists (Priority)
+        # 예: "르 리클라이너 2관", "5관(리클라이너)" -> "2관", "5관"
+        # 단, "1관 2관" 처럼 여러개 있는 경우는 드물지만, 첫번째 것을 취함
+        digit_hall_match = re.search(r'(\d+)\s*관', name)
+        if digit_hall_match:
+            return f"{digit_hall_match.group(1)}관"
+            
+        # 4. Remove Parenthesis/Brackets and clean up
+        # 괄호 안의 내용 제거: (리클라이너), [무대인사]
+        name = re.sub(r'\([^)]*\)', '', name)
+        name = re.sub(r'\[[^\]]*\]', '', name)
+        
+        # 특수문자 정리 (선택적) 또는 공백 정리
+        name = re.sub(r'\s+', ' ', name).strip()
+        
+        return name
+
     @classmethod
     def create_from_cgv_log(cls, log, target_titles=None, title_map=None):
         """
@@ -200,7 +239,7 @@ class MovieSchedule(models.Model):
                     if not is_target:
                         continue
                 
-                screen_name = item.get("scnsNm") 
+                screen_name = cls.normalize_screen_name(item.get("scnsNm"))
                 
                 # 시간 파싱
                 play_ymd = item.get("scnYmd")
@@ -405,7 +444,7 @@ class MovieSchedule(models.Model):
                     total_seat = int(item.get("totSeatCnt", 0))
                     is_available = remain_seat > 0
                     
-                    screen_nm = item.get("theabExpoNm") or item.get("theabEngNm", "관정보없음")
+                    screen_nm = cls.normalize_screen_name(item.get("theabExpoNm") or item.get("theabEngNm", "관정보없음"))
                     
                     # Title Consistency Logic
                     clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
@@ -610,7 +649,7 @@ class MovieSchedule(models.Model):
                 is_available = remain_seat > 0
                 
                 # 상영관 정보
-                screen_name = item.get("ScreenNameKR") or item.get("ScreenName") or item.get("TheaterName", "미지정")
+                screen_name = cls.normalize_screen_name(item.get("ScreenNameKR") or item.get("ScreenName") or item.get("TheaterName", "미지정"))
                 
                 # Title Consistency Logic
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
