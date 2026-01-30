@@ -17,6 +17,65 @@ from concurrent.futures import ThreadPoolExecutor
 # [PART 1] RPA Logic (Formerly cgv_rpa.py)
 # =============================================================================
 
+def scan_cgv_master_list_rpa():
+    """
+    [Step 0] Global Pre-scan
+    수집 시작 전, 전체 극장 리스트를 순회하며 총 개수를 파악합니다.
+    (Master List 확보 목적)
+    """
+    print("[Global_PreScan] 🔍 Starting Master List Scan...")
+    total_count = 0
+    os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        page = context.new_page()
+        
+        try:
+            page.goto("https://cgv.co.kr/cnm/movieBook/cinema", timeout=30000)
+            
+            # Helper: 모달 열기
+            def ensure_modal_open():
+                try:
+                    if page.locator(".cgv-bot-modal.active").count() > 0: return
+                    page.locator("button[class*='editBtn']").first.click()
+                    page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=3000)
+                except: pass
+
+            ensure_modal_open()
+            
+            # Selectors (User Verified)
+            modal_selector = ".cgv-bot-modal.active"
+            region_items_selector = f"{modal_selector} .bottom_region__2bZCS > ul > li"
+            
+            page.wait_for_selector(region_items_selector, state="visible", timeout=5000)
+            region_count = page.locator(region_items_selector).count()
+            
+            for i in range(region_count):
+                ensure_modal_open()
+                # Click Region
+                page.locator(f"{region_items_selector}:nth-child({i+1}) > button").click(force=True)
+                
+                # Wait for Theater List
+                theater_container = f"{modal_selector} .bottom_tabRight__xVGPl .bottom_listCon__8g46z > ul"
+                page.wait_for_selector(theater_container, state="visible", timeout=3000)
+                
+                # Count
+                cnt = page.locator(f"{theater_container} > li").count()
+                total_count += cnt
+                # print(f"   - Region {i+1}: {cnt} theaters")
+                
+            print(f"[Global_PreScan] ✅ Success. Total Detected: {total_count}")
+            
+        except Exception as e:
+            print(f"[Global_PreScan] ❌ Failed: {e}")
+            # 실패 시 0 반환 (메인 로직은 계속 진행)
+        finally:
+            browser.close()
+            
+    return total_count
+
 def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None):
     """
     Playwright를 사용하여 CGV 페이지에 접속하고, 
@@ -331,8 +390,8 @@ class CGVPipelineService:
     4. 알림 (Slack)
     """
 
-    @staticmethod
-    def collect_schedule_logs(dates=None, stop_signal=None):
+    @classmethod
+    def collect_schedule_logs(cls, dates=None, stop_signal=None):
         """
         [1단계] RPA를 통해 전국 극장 순회 및 로그 저장 (Parallel)
         Returns: (collected_logs, total_detected_cnt)
@@ -344,20 +403,31 @@ class CGVPipelineService:
             dates = [datetime.now().strftime("%Y%m%d")]
 
         # Define Region Groups for Parallel Workers
-        # 4개의 Worker로 분산 (16GB RAM 활용)
-        # Load Balancing: 경기(50+), 서울/인천(40+), 부산/경상(40+), 나머지(50+)
+        # 4개의 Worker로 분산 (Balanced Mode)
+        # Group 1: 서울/인천 (약 40개)
+        # Group 2: 경기 (약 52개)
+        # Group 3: 경상권 (부산/울산/대구/경상) (약 40개)
+        # Group 4: 기타 (대전/충청/광주/전라/제주/강원) (약 45개)
         REGION_GROUPS = [
-            ["경기"], 
-            ["서울", "인천"],
-            ["부산/대구/경상"],
-            ["대전/충청/세종", "광주/전라/제주", "강원"]
+            ["서울", "인천"], 
+            ["경기"],
+            ["부산/울산", "경상", "대구"],
+            ["대전/충청", "광주/전라/제주", "강원"]
         ]
 
-        print(f"--- 파이프라인: {dates} 데이터 수집 중 (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
-        
         collected_logs = []
         all_failures = []
-        total_detected_cnt = 0
+        
+        # [Step 0] Global Pre-scan (Sync)
+        # 병렬 수집 시작 전, 마스터 리스트 개수를 먼저 파악합니다.
+        print(f"[Main] 📡 Running Global Pre-scan (Master List Check)...")
+        total_detected_cnt = scan_cgv_master_list_rpa()
+        
+        msg = f"📊 [Pre-scan] 전체 극장 마스터 리스트 확인 완료: {total_detected_cnt}개"
+        print(msg)
+        cls.send_slack_message("INFO", {"message": msg})
+        
+        print(f"--- 파이프라인: {dates} 데이터 수집 중 (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
         
         with ThreadPoolExecutor(max_workers=len(REGION_GROUPS)) as executor:
             futures = []
@@ -378,7 +448,7 @@ class CGVPipelineService:
                     res_logs, res_failures, res_cnt = future.result()
                     collected_logs.extend(res_logs)
                     all_failures.extend(res_failures)
-                    total_detected_cnt += res_cnt
+                    # total_detected_cnt is already set by Pre-scan
                 except Exception as e:
                     print(f"[Main] ❌ One of the workers failed: {e}")
 
@@ -479,39 +549,57 @@ class CGVPipelineService:
                 }
             ]
         elif message_type == "SUCCESS":
-            # 실패 내역이 있으면 함께 표시
+            # 실패 내역 리포팅 추가
             failures = data.get('failures', [])
-            fail_text = ""
+            fail_msg = ""
             if failures:
                 fail_summary = []
-                for f in failures[:15]: # 최대 15개까지만
+                for f in failures[:15]:
                     reason = f.get('reason', 'Unknown')
                     fail_summary.append(f"• [{f['theater']}] {f['date']}: {reason}")
-                
                 if len(failures) > 15:
                     fail_summary.append(f"... 외 {len(failures)-15}건")
-                
-                fail_text = "\n\n⚠️ *수집 실패 극장 리스트:*\n" + "\n".join(fail_summary)
+                fail_msg = "\n\n⚠️ *수집 실패 내역:*\n" + "\n".join(fail_summary)
 
-            text = f"✅ CGV 스케줄 파이프라인 성공! (수집: {data['collected']}, 생성: {data['created']})"
+            # 누락 내역 (Missing)
+            missing_info = data.get('missing_info', {})
+            missing_msg = ""
+            if missing_info.get('is_missing'):
+                missing_list_str = ", ".join(missing_info.get('missing_list', []))
+                missing_msg = f"\n⚠️ *누락 극장 목록:* {missing_list_str}"
+
+            collected_cnt = data.get('collected', 0)
+            created_cnt = data.get('created', 0)
+            # [USER REQUEST] Strict: No default 0
+            total_master = data['total_master']
+            
+            # Text Summary
+            text = f"📊 [CGV/Fixed] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_msg}"
+            
             blocks = [
                 {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*✅ CGV 스케줄 파이프라인 성공!*"}
+                    "type": "section", 
+                    "text": {"type": "mrkdwn", "text": f"*📊 [CGV] 스케줄링 결과*"}
                 },
                 {
                     "type": "section",
                     "fields": [
-                        {"type": "mrkdwn", "text": f"*수집된 로그:*\n{data['collected']}개"},
-                        {"type": "mrkdwn", "text": f"*생성된 스케줄:*\n{data['created']}개"}
+                        {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
+                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
                     ]
                 }
             ]
-            
+
+            if missing_info.get('is_missing'):
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*⚠️ 누락 극장 목록 ({missing_info['missing_cnt']}개):*\n{', '.join(missing_info['missing_list'])}"}
+                })
+
             if failures:
                 blocks.append({
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": fail_text}
+                    "text": {"type": "mrkdwn", "text": f"*⚠️ 수집 실패 상세 (Top 15)*\n" + "\n".join(fail_summary)}
                 })
         elif message_type == "INFO":
             text = f"ℹ️ Pipeline: {data['message']}"
@@ -563,8 +651,8 @@ class CGVPipelineService:
         메인 파이프라인 실행
         Returns: (collected_count, created_count, errors)
         """
-        print(">>> Starting Pipeline Stage 1")
-        cls.send_slack_message("INFO", {"message": "🚀 CGV 스케줄 데이터 수집을 시작합니다..."})
+        print(f">>> Starting Pipeline Stage 1 (Target: {target_dates})")
+        cls.send_slack_message("INFO", {"message": "🚀 CGV 스케줄 데이터 수집을 시작합니다... (Logic Updated)"})
         
         # 1. Collect
         logs, total_cnt, collection_failures = cls.collect_schedule_logs(dates=target_dates)
@@ -580,22 +668,27 @@ class CGVPipelineService:
         errors = []
 
         if check_result['is_missing']:
-            print(">>> Missing theaters found. Sending Slack alert...")
-            cls.send_slack_message("WARNING_MISSING", check_result)
+            print(">>> Missing theaters found.")
         else:
             print(">>> Validation OK. Proceeding to transform...")
-            # [USER REQUEST] 데이터 생성 잠시 중단
-            # created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
-            
-            # Send error report if any
-            # if errors:
-            #     cls.send_slack_message("ERROR", {"errors": errors})
-            
-            cls.send_slack_message("SUCCESS", {
-                "collected": len(logs),
-                "created": 0, # created_cnt,
-                "failures": collection_failures
-            })
+
+        # [USER REQUEST] 데이터 생성 잠시 중단
+        # created_cnt, errors = cls.transform_logs_to_schedule(log_ids, target_titles=None)
+        
+        # Send error report if any
+        # if errors:
+        #     cls.send_slack_message("ERROR", {"errors": errors})
+        
+        # [DEBUG] Trace total_cnt value
+        print(f">>> [DEBUG] Pre-slack Check: collected={len(logs)}, total_cnt={total_cnt}")
+
+        cls.send_slack_message("SUCCESS", {
+            "collected": len(logs),
+            "created": 0, # created_cnt,
+            "failures": collection_failures,
+            "missing_info": check_result,
+            "total_master": total_cnt
+        })
             
         return len(logs), created_cnt, errors, total_cnt
 

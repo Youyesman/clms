@@ -17,7 +17,7 @@ from crawler.models import LotteScheduleLog, MovieSchedule
 # [PART 1] RPA Logic (Lotte Cinema)
 # =============================================================================
 
-def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_signal=None):
+def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_signal=None, crawler_run=None):
     """
     Worker Function: Assigned Regions에 해당하는 극장만 순회하며 데이터 수집
     """
@@ -380,7 +380,8 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                                 theater_name=theater_name,
                                                 site_code=site_code, 
                                                 response_json=collected_data,
-                                                status='success'
+                                                status='success',
+                                                crawler_run=crawler_run
                                             )
                                             print(f"[{worker_id}]      ✅ Saved {theater_name} ({target_ymd})")
                                             collected_results.append({'log_id': 'saved'}) 
@@ -466,15 +467,81 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
 # [PART 2] Pipeline Service
 # =============================================================================
 
+# =============================================================================
+# [PART 1.5] Lotte Global Pre-scan
+# =============================================================================
+
+def scan_lotte_master_list_rpa():
+    """
+    [Step 0] Global Pre-scan
+    수집 시작 전, 전체 극장 리스트를 순회하며 총 개수를 파악합니다.
+    """
+    print("[Global_PreScan] 🔍 Starting Lotte Master List Scan...")
+    total_count = 0
+    os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        page = context.new_page()
+        
+        try:
+            page.goto("https://www.lottecinema.co.kr/NLCHS/Ticketing/Schedule", timeout=60000)
+            page.wait_for_selector(".cinema_select_wrap", timeout=10000)
+            
+            # Region List
+            region_items = page.locator(".cinema_select_wrap .depth1")
+            region_count = region_items.count()
+            
+            print(f"[Global_PreScan] Found {region_count} regions.")
+            
+            for i in range(region_count):
+                region_li = region_items.nth(i)
+                region_anchor = region_li.locator("xpath=./a")
+                
+                # Check for "My Cinema" or similar
+                region_name = region_anchor.inner_text().strip()
+                if "MY" in region_name: continue
+
+                # Click Region if not active
+                if "active" not in (region_li.get_attribute("class") or ""):
+                    region_anchor.click(force=True)
+                    time.sleep(0.5)
+                
+                # Count Theaters
+                theater_list = region_li.locator(".depth2 li")
+                cnt = theater_list.count()
+                total_count += cnt
+                # print(f"   - {region_name}: {cnt} theaters")
+                
+            print(f"[Global_PreScan] ✅ Lotte Scan Success. Total: {total_count}")
+            
+        except Exception as e:
+            print(f"[Global_PreScan] ❌ Lotte Scan Failed: {e}")
+        finally:
+            browser.close()
+            
+    return total_count
+
+
 class LottePipelineService:
     @staticmethod
-    def collect_schedule_logs(dates=None, stop_signal=None):
+    def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
         """
         병렬 처리로 롯데시네마 스케줄 수집
         """
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
             
+        # [Step 0] Global Pre-scan (Sync)
+        # 병렬 수집 시작 전, 마스터 리스트 개수를 먼저 파악합니다.
+        print(f"[Main] 📡 Running Lotte Global Pre-scan...")
+        total_detected_cnt = scan_lotte_master_list_rpa()
+        
+        msg = f"📊 [Pre-scan] 롯데시네마 전체 극장 마스터 리스트 확인 완료: {total_detected_cnt}개"
+        print(msg)
+        LottePipelineService.send_slack_message("INFO", {"message": msg})
+        
         print(f"--- [Lotte] Pipeline Start. Dates: {dates} ---")
         
         # Worker Config
@@ -493,14 +560,14 @@ class LottePipelineService:
         
         collected_logs = []
         all_failures = []
-        total_count = 0
+        # total_detected_cnt is from Pre-scan
         
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
             for idx, group in enumerate(worker_groups):
                 worker_id = f"Worker-{idx+1}"
                 futures.append(
-                    executor.submit(fetch_lotte_schedule_worker, worker_id, group, dates, stop_signal)
+                    executor.submit(fetch_lotte_schedule_worker, worker_id, group, dates, stop_signal, crawler_run)
                 )
                 
             for future in as_completed(futures):
@@ -508,7 +575,7 @@ class LottePipelineService:
                     res_logs, res_failures, res_cnt = future.result()
                     collected_logs.extend(res_logs)
                     all_failures.extend(res_failures)
-                    total_count += res_cnt
+                    # total_detected_cnt is fixed from Pre-Scan
                 except Exception as e:
                     print(f"[Main] ❌ A worker failed: {e}")
                     all_failures.append({
@@ -519,7 +586,42 @@ class LottePipelineService:
                         'worker': 'Main'
                     })
                     
-        return collected_logs, total_count, all_failures
+        return collected_logs, total_detected_cnt, all_failures
+
+    @classmethod
+    def check_missing_theaters(cls, logs, crawler_run=None, total_expected=0):
+        from crawler.theaters import LOTTE_AUDITED_THEATERS
+        
+        # Collected Set
+        if crawler_run:
+            collected_qs = LotteScheduleLog.objects.filter(crawler_run=crawler_run).values_list('theater_name', flat=True).distinct()
+            collected_set = set(collected_qs)
+        else:
+            collected_set = set(l['theater_name'] for l in logs if isinstance(l, dict) and 'theater_name' in l)
+
+        # Use total_expected from Pre-scan as the authority for "Total Count"
+        # Since we don't have a dynamic list of names from pre-scan (only count), 
+        # we can only compare counts or use the static AUDITED list for name checking.
+        
+        # Hybrid Approach: 
+        # 1. Total Count = Pre-scan result
+        # 2. Missing List = Based on Audited List (Static) -> This might be inaccurate if pre-scan found more than audited.
+        
+        # For reporting purposes, user wants "Master Count" (from pre-scan) vs "Collected Count".
+        
+        missing_count = max(0, total_expected - len(collected_set))
+        
+        missing_list = []
+        # Optional: Check against static list for specific names if useful
+        # missing_from_static = set(LOTTE_AUDITED_THEATERS) - collected_set
+        
+        return {
+            'is_missing': missing_count > 0,
+            'total_cnt': total_expected,
+            'collected_cnt': len(collected_set),
+            'missing_cnt': missing_count,
+            'missing_list': [] # specific names difficult without full dynamic list
+        }
 
     @classmethod
     def send_slack_message(cls, message_type, data):
@@ -527,14 +629,20 @@ class LottePipelineService:
         channel = getattr(settings, 'SLACK_CHANNEL_ID', '')
         
         if not token or not channel:
+            print(f"[Slack LOG] {message_type}: {data}")
             return
         
         text = ""
         blocks = []
 
         if message_type == "INFO":
-            text = f"ℹ️ [Lotte] {data['message']}"
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+            text = f"ℹ️ Pipeline: {data['message']}"
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*ℹ️ [Lotte] Status*\n{data['message']}"}
+                }
+            ]
             
         elif message_type == "SUCCESS":
             # 실패 내역 리포팅 추가
@@ -549,26 +657,45 @@ class LottePipelineService:
                     fail_summary.append(f"... 외 {len(failures)-15}건")
                 fail_msg = "\n\n⚠️ *수집 실패 내역:*\n" + "\n".join(fail_summary)
 
+            # 누락 내역 (Missing)
+            missing_info = data.get('missing_info', {})
+            missing_msg = ""
+            if missing_info.get('is_missing'):
+                missing_list_str = ", ".join(missing_info.get('missing_list', []))
+                missing_msg = f"\n⚠️ *누락 극장 목록:* {missing_list_str}"
+
             collected_cnt = data.get('collected', 0)
-            text = f"✅ [Lotte] 수집 완료. (성공: {collected_cnt}건){fail_msg}"
+            created_cnt = data.get('created', 0)
+            # [USER REQUEST] Strict: No default 0
+            total_master = data['total_master']
+            
+            # Text Summary
+            text = f"📊 [Lotte] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_msg}"
             
             blocks = [
                 {
                     "type": "section", 
-                    "text": {"type": "mrkdwn", "text": f"*✅ 롯데시네마 크롤링 완료*"}
+                    "text": {"type": "mrkdwn", "text": f"*📊 [Lotte] 스케줄링 결과*"}
                 },
                 {
                     "type": "section",
                     "fields": [
-                        {"type": "mrkdwn", "text": f"*수집 성공 Logs:*\n{collected_cnt}건"},
-                        {"type": "mrkdwn", "text": f"*실패:*\n{len(failures)}건"}
+                        {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
+                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
                     ]
                 }
             ]
+
+            if missing_info.get('is_missing'):
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*⚠️ 누락 극장 목록 ({missing_info['missing_cnt']}개):*\n{', '.join(missing_info['missing_list'])}"}
+                })
+
             if failures:
                 blocks.append({
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*⚠️ 실패 상세 (Top 15)*\n" + "\n".join(fail_summary)}
+                    "text": {"type": "mrkdwn", "text": f"*⚠️ 수집 실패 상세 (Top 15)*\n" + "\n".join(fail_summary)}
                 })
                 
         elif message_type == "ERROR":
@@ -597,13 +724,51 @@ class LottePipelineService:
         cls.send_slack_message("INFO", {"message": "🚀 롯데시네마 스케줄 수집 시작"})
         
         target_dates = dates if dates else [datetime.now().strftime("%Y%m%d")]
-        logs, total_cnt, failures = cls.collect_schedule_logs(dates=target_dates)
         
-        cls.send_slack_message("SUCCESS", {
-            "collected": len(logs),
-            "created": 0,
-            "failures": failures
-        })
+        # History Creation
+        from crawler.models import CrawlerRunHistory
+        from django.utils import timezone
+        
+        run_history = CrawlerRunHistory.objects.create(
+            status='RUNNING',
+            trigger_type='MANUAL', # default for now via CLI
+            configuration={'target_dates': target_dates, 'brand': 'LOTTE'}
+        )
+        print(f"🚀 [Lotte] CrawlerRun #{run_history.id} Created")
+
+        try:
+            logs, total_cnt, failures = cls.collect_schedule_logs(dates=target_dates, crawler_run=run_history)
+            
+            # Missing Check
+            missing_res = cls.check_missing_theaters(logs, crawler_run=run_history, total_expected=total_cnt)
+            if missing_res['is_missing']:
+                print(f"⚠️ Missing Theaters: {missing_res['missing_cnt']} ea")
+                # cls.send_slack_message("WARNING_MISSING", missing_res)
+            
+            cls.send_slack_message("SUCCESS", {
+                "collected": len(logs),
+                "created": 0,
+                "failures": failures,
+                "missing_info": missing_res,
+                "total_master": total_cnt
+            })
+            
+            run_history.status = 'SUCCESS'
+            run_history.finished_at = timezone.now()
+            run_history.result_summary = {
+                'collected_logs': len(logs),
+                'failures': len(failures),
+                'missing_cnt': missing_res['missing_cnt']
+            }
+            run_history.save()
+            
+        except Exception as e:
+            print(f"❌ [Lotte] Pipeline Fatal Error: {e}")
+            run_history.status = 'FAILED'
+            run_history.error_message = str(e)
+            run_history.finished_at = timezone.now()
+            run_history.save()
+            cls.send_slack_message("ERROR", {"errors": [{'error': str(e)}]})
 
 
 class Command(BaseCommand):

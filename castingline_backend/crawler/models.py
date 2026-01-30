@@ -11,6 +11,7 @@ class CGVScheduleLog(models.Model):
     theater_name = models.CharField(max_length=100, blank=True) # 예: 강남
     response_json = models.JSONField(null=True, blank=True)
     status = models.CharField(max_length=20, default="success")
+    crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='cgv_logs')
 
     def __str__(self):
         return f"CGV Schedule Log - {self.query_date} ({self.theater_name} / {self.site_code})"
@@ -22,6 +23,7 @@ class MegaboxScheduleLog(models.Model):
     theater_name = models.CharField(max_length=50) # 극장명
     response_json = models.JSONField(default=dict) # 응답 전체 (megaMap 포함)
     status = models.CharField(max_length=20, default='pending')
+    crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='megabox_logs')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -37,6 +39,7 @@ class LotteScheduleLog(models.Model):
     theater_name = models.CharField(max_length=100)  # 극장명
     response_json = models.JSONField(null=True, blank=True)  # API 응답 JSON
     status = models.CharField(max_length=20, default='success')
+    crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='lotte_logs')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

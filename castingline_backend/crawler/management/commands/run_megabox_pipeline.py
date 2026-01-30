@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 # [PART 1] RPA Logic (Megabox)
 # =============================================================================
 
-def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=None):
+def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=None, crawler_run=None):
     """
     Playwright를 사용하여 Megabox 페이지에 접속하고, 
     지역 -> 극장 -> [날짜 리스트] 순으로 순회하며 데이터 수집 즉시 DB에 저장합니다.
@@ -166,7 +166,8 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                                     site_code=brch_no,
                                                     theater_name=theater_name,
                                                     response_json=json_data,
-                                                    status='success'
+                                                    status='success',
+                                                    crawler_run=crawler_run
                                                 )
                                                 # print(f"[{worker_id}]          ✅ Saved: {scn_ymd}")
                                                 collected_results.append({"log_id": log.id})
@@ -218,28 +219,96 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
 
 
 # =============================================================================
+# [PART 1.5] Megabox Global Pre-scan
+# =============================================================================
+
+def scan_megabox_master_list_rpa():
+    """
+    [Step 0] Global Pre-scan
+    수집 시작 전, 전체 극장 리스트를 순회하며 총 개수를 파악합니다.
+    """
+    print("[Global_PreScan] 🔍 Starting Megabox Master List Scan...")
+    total_count = 0
+    os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        page = context.new_page()
+        
+        try:
+            page.goto("https://www.megabox.co.kr/booking/timetable", timeout=60000)
+            
+            # Click Theater Tab
+            page.click("a[href='#masterBrch']", force=True)
+            page.wait_for_selector("#masterBrch .tab-list-choice a", timeout=10000)
+            
+            # Region List
+            region_items = page.locator("#masterBrch .tab-list-choice a")
+            region_count = region_items.count()
+            
+            print(f"[Global_PreScan] Found {region_count} regions.")
+            
+            for i in range(region_count):
+                region_btn = region_items.nth(i)
+                region_btn.scroll_into_view_if_needed()
+                region_btn.click(force=True)
+                
+                # Wait for Theater List to appear in the active tab
+                page.wait_for_selector("#masterBrch .tab-layer-cont.on button", timeout=3000)
+                
+                # Count Theaters
+                theater_list = page.locator("#masterBrch .tab-layer-cont.on button")
+                cnt = theater_list.count()
+                total_count += cnt
+                
+            print(f"[Global_PreScan] ✅ Megabox Scan Success. Total: {total_count}")
+            
+        except Exception as e:
+            print(f"[Global_PreScan] ❌ Megabox Scan Failed: {e}")
+        finally:
+            browser.close()
+            
+    return total_count
+
+
+# =============================================================================
 # [PART 2] Pipeline Service Logic (Megabox)
 # =============================================================================
 
 class MegaboxPipelineService:
     @staticmethod
-    def collect_schedule_logs(dates=None, stop_signal=None):
+    def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
         os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
+        # [Step 0] Global Pre-scan (Sync)
+        print(f"[Main] 📡 Running Megabox Global Pre-scan...")
+        total_detected_cnt = scan_megabox_master_list_rpa()
+        
+        msg = f"📊 [Pre-scan] 메가박스 전체 극장 마스터 리스트 확인 완료: {total_detected_cnt}개"
+        print(msg)
+        MegaboxPipelineService.send_slack_message("INFO", {"message": msg})
+
         # Region Grouping for Parallel Execution
-        # 각 worker가 담당할 지역 리스트
+        # 4개의 Worker로 분산 (Balanced Mode)
+        # Group 1: 서울
+        # Group 2: 경기/인천
+        # Group 3: 영남권 (부산/대구/경상)
+        # Group 4: 그 외 (충청/호남/강원/제주)
         REGION_GROUPS = [
-            ["서울", "인천", "강원", "대전/충청/세종"],  # Worker 1
-            ["경기", "부산/대구/경상", "광주/전라", "제주"]  # Worker 2
+            ["서울"], 
+            ["경기", "인천"],
+            ["부산/대구/경상"],
+            ["대전/충청/세종", "광주/전라", "강원", "제주"]
         ]
 
         print(f"--- Pipeline: Collecting for dates {dates} (Parallel Execution with {len(REGION_GROUPS)} Workers) ---")
         
         collected_logs = []
         all_failures = []
-        total_detected_cnt = 0
+        # total_detected_cnt is already set by Pre-scan
         
         with ThreadPoolExecutor(max_workers=len(REGION_GROUPS)) as executor:
             futures = []
@@ -250,7 +319,8 @@ class MegaboxPipelineService:
                         fetch_megabox_schedule_rpa, 
                         date_list=dates, 
                         target_regions=region_group, 
-                        stop_signal=stop_signal
+                        stop_signal=stop_signal,
+                        crawler_run=crawler_run
                     )
                 )
             
@@ -260,7 +330,7 @@ class MegaboxPipelineService:
                     res_logs, res_failures, res_cnt = future.result()
                     collected_logs.extend(res_logs)
                     all_failures.extend(res_failures)
-                    total_detected_cnt += res_cnt
+                    # total_detected_cnt is from Pre-Scan
                 except Exception as e:
                     print(f"[Main] ❌ One of the workers failed: {e}")
         
@@ -269,13 +339,9 @@ class MegaboxPipelineService:
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
         collected_cnt = len(logs)
-        # 단순 수집 카운트 비교 (날짜별 * 극장수 고려 필요하나 일단 단순 비교)
-        # 로그 수 = 극장 수 * 날짜 수 여야 함. 
-        # total_expected는 '발견된 극장 수' 이므로, 날짜 수를 모르면 정확한 비교 불가.
-        # 여기선 '최소한 극장 수보다는 많아야 한다' 정도로 체크하거나, 스킵.
-        
-        missing_count = total_expected - collected_cnt # This logic might need adjustment for multi-date
-        is_missing = False # Disable missing check strictly for now as logic changed
+        # 단순 수집 카운트 비교
+        missing_count = total_expected - collected_cnt 
+        is_missing = missing_count > 0
         
         return {
             'is_missing': is_missing,
@@ -349,21 +415,41 @@ class MegaboxPipelineService:
                 
                 fail_text = "\n\n⚠️ *수집 실패 극장 리스트:*\n" + "\n".join(fail_summary)
 
-            text = f"✅ 메가박스 스케줄 파이프라인 성공! (수집: {data['collected']}, 생성: {data['created']})"
+            # 누락 내역 (Missing)
+            missing_info = data.get('missing_info', {})
+            missing_msg = ""
+            if missing_info.get('is_missing'):
+                missing_list_str = ", ".join(missing_info.get('missing_list', []))
+                missing_msg = f"\n⚠️ *누락 극장 목록:* {missing_list_str}"
+
+            collected_cnt = data.get('collected', 0)
+            created_cnt = data.get('created', 0)
+            # [USER REQUEST] Strict: No default 0
+            total_master = data['total_master']
+            
+            # Text Summary
+            text = f"📊 [Megabox] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_text}"
+
             blocks = [
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*✅ 메가박스 스케줄 파이프라인 성공!*"}
+                    "text": {"type": "mrkdwn", "text": f"*📊 [Megabox] 스케줄링 결과*"}
                 },
                 {
                     "type": "section",
                     "fields": [
-                        {"type": "mrkdwn", "text": f"*수집된 로그:*\n{data['collected']}개"},
-                        {"type": "mrkdwn", "text": f"*생성된 스케줄:*\n{data['created']}개"}
+                        {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
+                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
                     ]
                 }
             ]
             
+            if missing_info.get('is_missing'):
+                blocks.append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*⚠️ 누락 극장 목록 ({missing_info['missing_cnt']}개):*\n{', '.join(missing_info['missing_list'])}"}
+                })
+
             if failures:
                 blocks.append({
                     "type": "section",
@@ -415,20 +501,21 @@ class MegaboxPipelineService:
             print(f"Slack Send Error: {e}")
 
     @classmethod
-    def run_pipeline(cls, target_dates=None):
+    def run_pipeline(cls, target_dates=None, crawler_run=None):
         print(">>> Starting Megabox Pipeline")
-        cls.send_slack_message("INFO", {"message": "🚀 메가박스 스케줄 수집 시작"})
+        cls.send_slack_message("INFO", {"message": f"🚀 메가박스 스케줄 수집 시작 (RunID: {crawler_run.id if crawler_run else 'None'})"})
         
-        logs, total_cnt, collection_failures = cls.collect_schedule_logs(dates=target_dates)
+        logs, total_cnt, collection_failures = cls.collect_schedule_logs(dates=target_dates, crawler_run=crawler_run)
         log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
         
         fail_msg = f"\n⚠️ 수집 실패: {len(collection_failures)}건" if collection_failures else ""
         cls.send_slack_message("INFO", {"message": f"📊 데이터 수집 완료.\n- 수집된 로그: {len(logs)}개\n- 발견된 극장: {total_cnt}개{fail_msg}\n검증을 수행합니다."})
         
         # Validation Logic needs to be smarter for multi-date, but keeping basic for now
-        # check_result = cls.check_missing_theaters(logs, total_cnt)
-        # if check_result['is_missing']:
-        #     cls.send_slack_message("WARNING_MISSING", check_result)
+        check_result = cls.check_missing_theaters(logs, total_cnt)
+        if check_result['is_missing']:
+            # cls.send_slack_message("WARNING_MISSING", check_result)
+            pass 
         
         # [USER REQUEST] 데이터 생성 잠시 중단
         created_cnt = 0
@@ -442,8 +529,20 @@ class MegaboxPipelineService:
         cls.send_slack_message("SUCCESS", {
             "collected": len(logs), 
             "created": created_cnt,
-            "failures": collection_failures
+            "failures": collection_failures,
+            "missing_info": check_result,
+            "total_master": total_cnt
         })
+        
+        # [NEW] Status Update for History
+        if crawler_run:
+            crawler_run.status = 'SUCCESS'
+            crawler_run.finished_at = datetime.now()
+            crawler_run.result_summary = {
+                'collected_logs': len(logs),
+                'failures': len(collection_failures)
+            }
+            crawler_run.save()
 
 
 # =============================================================================
@@ -476,10 +575,28 @@ class Command(BaseCommand):
 
         from datetime import timedelta # Need import
         
+        # History Creation
+        from crawler.models import CrawlerRunHistory
+        from django.utils import timezone
+        
         try:
-            MegaboxPipelineService.run_pipeline(target_dates=target_dates)
-            self.stdout.write(self.style.SUCCESS("Pipeline execution finished."))
+            history = CrawlerRunHistory.objects.create(
+                status='RUNNING',
+                trigger_type='MANUAL',
+                configuration={'target_dates': target_dates, 'brand': 'MEGABOX'}
+            )
+            print(f"🚀 [Megabox] CrawlerRun #{history.id} Created")
+
+            try:
+                MegaboxPipelineService.run_pipeline(target_dates=target_dates, crawler_run=history)
+                self.stdout.write(self.style.SUCCESS("Pipeline execution finished."))
+            except Exception as e:
+                history.status = 'FAILED'
+                history.error_message = str(e)
+                history.finished_at = timezone.now()
+                history.save()
+                self.stdout.write(self.style.ERROR(f"Pipeline failed: {e}"))
+                import traceback
+                traceback.print_exc()
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Pipeline failed: {e}"))
-            import traceback
-            traceback.print_exc()
+            self.stdout.write(self.style.ERROR(f"Pipeline Initialization failed: {e}"))

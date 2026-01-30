@@ -83,7 +83,8 @@ def run_crawler_background(history_id, data):
                 CGVPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
-                    "failures": failures
+                    "failures": failures,
+                    "total_master": cnt
                 })
                 
                 # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
@@ -108,7 +109,8 @@ def run_crawler_background(history_id, data):
                 LottePipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
-                    "failures": failures
+                    "failures": failures,
+                    "total_master": cnt
                 })
 
                 # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
@@ -133,7 +135,8 @@ def run_crawler_background(history_id, data):
                 MegaboxPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
-                    "failures": failures
+                    "failures": failures,
+                    "total_master": cnt
                 })
 
                 # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
