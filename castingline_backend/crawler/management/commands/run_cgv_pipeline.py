@@ -76,7 +76,7 @@ def scan_cgv_master_list_rpa():
             
     return total_count
 
-def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None, retry_targets=None):
+def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None, retry_targets=None, crawler_run=None):
     """
     Playwright를 사용하여 CGV 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
@@ -337,7 +337,8 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                                 defaults={
                                                     'theater_name': theater_name,
                                                     'response_json': json_data,
-                                                    'status': 'success'
+                                                    'status': 'success',
+                                                    'crawler_run': crawler_run
                                                 }
                                             )
                                             action = "생성됨" if created else "업데이트됨"
@@ -412,7 +413,7 @@ class CGVPipelineService:
     """
 
     @classmethod
-    def collect_schedule_logs(cls, dates=None, stop_signal=None):
+    def collect_schedule_logs(cls, dates=None, stop_signal=None, crawler_run=None):
         """
         [1단계] RPA를 통해 전국 극장 순회 및 로그 저장 (Parallel)
         Returns: (collected_logs, total_detected_cnt)
@@ -459,7 +460,8 @@ class CGVPipelineService:
                         fetch_cgv_schedule_rpa, 
                         date_list=dates, 
                         target_regions=region_group,
-                        stop_signal=stop_signal
+                        stop_signal=stop_signal,
+                        crawler_run=crawler_run
                     )
                 )
             
@@ -502,7 +504,8 @@ class CGVPipelineService:
                     date_list=None, # retry_targets 내부 날짜 사용
                     target_regions=None,
                     retry_targets=retry_map,
-                    stop_signal=stop_signal
+                    stop_signal=stop_signal,
+                    crawler_run=crawler_run
                 )
                 
                 print(f"[Retry] ✅ Retry Finished. Recovered: {len(logs_retry)} items.")
