@@ -7,7 +7,7 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
-import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls } from "@phosphor-icons/react";
+import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls, Gear, Lightning } from "@phosphor-icons/react";
 import { ScheduleExportModal } from "./ScheduleExportModal";
 
 // --- Types ---
@@ -135,6 +135,42 @@ const StatusBadge = styled.span<{ status: string }>`
     }}
 `;
 
+// --- Settings Modal ---
+const SettingsModalOverlay = styled.div`
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+`;
+
+const SettingsModalContent = styled.div`
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+    width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+`;
+
+const ModalHeader = styled.h3`
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0;
+`;
+
+const ModalActions = styled.div`
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+`;
+
 // --- Initial State ---
 const getTomorrow = () => {
     const d = new Date();
@@ -165,6 +201,21 @@ export const CrawlerPage = () => {
     // Export Modal State
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [exportTargetHistory, setExportTargetHistory] = useState<ICrawlerHistory | null>(null);
+
+    // Quick Download Settings State
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [quickMovieTitle, setQuickMovieTitle] = useState("");
+
+    useEffect(() => {
+        const saved = localStorage.getItem("quickDownloadMovieTitle");
+        if (saved) setQuickMovieTitle(saved);
+    }, []);
+
+    const saveSettings = () => {
+        localStorage.setItem("quickDownloadMovieTitle", quickMovieTitle);
+        setIsSettingsOpen(false);
+        toast.success("설정이 저장되었습니다.");
+    };
 
     // Pagination State
     const [page, setPage] = useState(1);
@@ -277,6 +328,55 @@ export const CrawlerPage = () => {
     const handleOpenExportModal = (item: ICrawlerHistory) => {
         setExportTargetHistory(item);
         setIsExportModalOpen(true);
+    };
+
+    const handleQuickDownload = async () => {
+        if (!quickMovieTitle) {
+            toast.error("설정에서 영화 제목을 먼저 입력해주세요.");
+            setIsSettingsOpen(true);
+            return;
+        }
+
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        const startDate = d.toISOString().split('T')[0];
+
+        const d2 = new Date();
+        d2.setDate(d2.getDate() + 3); // Tomorrow + 2 days = 3 days total range (Start is +1, End is +3) -> +1, +2, +3
+        const endDate = d2.toISOString().split('T')[0];
+
+        try {
+            toast.success("엑셀 생성을 요청했습니다. 잠시만 기다려주세요...");
+            const response = await AxiosPost("crawler/schedules/export", {
+                start_date: startDate,
+                end_date: endDate,
+                movie_title: quickMovieTitle
+            }, {
+                responseType: 'blob'
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+
+            // Extract filename if possible, else default
+            const contentDisposition = response.headers['content-disposition'];
+            let filename = `schedule_quick_${startDate}.xlsx`;
+            if (contentDisposition) {
+                const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (fileNameMatch && fileNameMatch.length === 2)
+                    filename = fileNameMatch[1];
+            }
+
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+        } catch (error: any) {
+            console.error(error);
+            toast.error("다운로드 실패: " + (error.response?.data?.error || "데이터가 없거나 오류가 발생했습니다."));
+        }
     };
 
     const formatDuration = (seconds: number) => {
@@ -554,6 +654,29 @@ export const CrawlerPage = () => {
 
                         <div style={{ flex: 1 }}></div>
 
+                        {/* Quick Download & Settings */}
+                        <CustomButton
+                            onClick={() => setIsSettingsOpen(true)}
+                            size="sm"
+                            color="gray"
+                            style={{ padding: '0 10px' }}
+                            title="빠른 다운로드 설정"
+                        >
+                            <Gear size={16} />
+                        </CustomButton>
+
+                        <CustomButton
+                            onClick={handleQuickDownload}
+                            size="sm"
+                            color="blue"
+                            style={{ padding: '0 12px', minWidth: '160px' }}
+                        >
+                            <Lightning size={16} weight="fill" style={{ marginRight: '4px' }} />
+                            빠른 다운로드 (3일)
+                        </CustomButton>
+
+                        <div style={{ width: '1px', height: '20px', background: '#e2e8f0', margin: '0 8px' }}></div>
+
                         <CustomButton onClick={handleRun} size="sm" style={{ padding: '0 20px', fontSize: '13px', fontWeight: 600 }}>
                             <Play size={16} weight="fill" style={{ marginRight: '6px' }} /> 크롤링 시작
                         </CustomButton>
@@ -594,6 +717,27 @@ export const CrawlerPage = () => {
                 onClose={() => setIsExportModalOpen(false)}
                 historyItem={exportTargetHistory}
             />
+
+            {isSettingsOpen && (
+                <SettingsModalOverlay onClick={() => setIsSettingsOpen(false)}>
+                    <SettingsModalContent onClick={e => e.stopPropagation()}>
+                        <ModalHeader>빠른 다운로드 설정</ModalHeader>
+                        <CustomInput
+                            leftLabel="영화 제목"
+                            placeholder="예: 주토피아"
+                            value={quickMovieTitle}
+                            setValue={setQuickMovieTitle}
+                        />
+                        <div style={{ fontSize: '13px', color: '#64748b' }}>
+                            * '빠른 다운로드' 버튼 클릭 시, <strong>내일 ~ 글피 (3일간)</strong>의 스케줄을 이 제목으로 조회하여 즉시 엑셀로 다운로드합니다.
+                        </div>
+                        <ModalActions>
+                            <CustomButton onClick={() => setIsSettingsOpen(false)} color="gray" size="sm">취소</CustomButton>
+                            <CustomButton onClick={saveSettings} size="sm" color="blue">저장</CustomButton>
+                        </ModalActions>
+                    </SettingsModalContent>
+                </SettingsModalOverlay>
+            )}
         </PageContainer >
     );
 };

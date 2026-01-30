@@ -604,8 +604,8 @@ class CrawlerScheduleExportView(APIView):
             return Response({"error": "start_date/date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
-            start_date = datetime.strptime(start_date_str, "%Y%m%d").date()
-            end_date = datetime.strptime(end_date_str, "%Y%m%d").date()
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
             
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
