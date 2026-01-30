@@ -398,43 +398,106 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
                  # Create empty DF with headers if needed, or skip
                  continue
                  
-            df.to_excel(writer, sheet_name=sheet_title, index=False)
+            if df is None or df.empty:
+                 # Create empty DF with headers if needed, or skip
+                 continue
+            
+            # Write data starting from Row 3 (Index 2)
+            # Row 1: Title, Row 2: Info, Row 3: Headers
+            df.to_excel(writer, sheet_name=sheet_title, index=False, startrow=2)
             
             worksheet = writer.sheets[sheet_title]
             
-            # Styles
-            # Yellow header
+            # --- Styles Definitions ---
             yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            black_fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+            
             thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                                  top=Side(style='thin'), bottom=Side(style='thin'))
-            center_align = Alignment(horizontal='center', vertical='center')
-            header_font = Font(bold=True)
             
-            # Apply to Headers (Row 1)
-            for cell in worksheet[1]:
-                cell.fill = yellow_fill
-                cell.font = header_font
-                cell.alignment = center_align
+            center_align = Alignment(horizontal='center', vertical='center')
+            left_align = Alignment(horizontal='left', vertical='center')
+            
+            title_font = Font(name='맑은 고딕', size=14, bold=True, color="0000FF") # Blue, Bold
+            info_font = Font(name='맑은 고딕', size=10, color="FF0000") # Red
+            header_font = Font(name='맑은 고딕', size=10, bold=True, color="000000") # Black
+            white_font = Font(name='맑은 고딕', size=10, bold=True, color="FFFFFF") # White
+            
+            # --- 1. Title Row (Row 1) ---
+            # Merge A1 to Last Column
+            max_col = len(df.columns)
+            worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+            title_cell = worksheet.cell(row=1, column=1)
+            title_cell.value =  movie_title if movie_title else "전체 영화"
+            title_cell.fill = yellow_fill
+            title_cell.font = title_font
+            title_cell.alignment = center_align
+            title_cell.border = thin_border
+            
+            # Apply border to the merged range (OpenPyXL quirk: must apply to all cells in range)
+            for col_idx in range(1, max_col + 1):
+                c = worksheet.cell(row=1, column=col_idx)
+                c.border = thin_border
+                c.fill = yellow_fill # Fill all for seamless look
+
+            # --- 2. Info Row (Row 2) ---
+            # Merge or just left align? Merging is safer for long text.
+            worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
+            info_cell = worksheet.cell(row=2, column=1)
+            
+            # Info Text: "YYYY-MM-DD | (GenDate [GenTime])(Day)"
+            # Target Date (Sheet Date or Range?) -> Sheet Date is best if specific
+            target_date_str = sheet_title
+            
+            # Format: 2026-01-14 | (2026-01-12 [09_31_17])(월)
+            info_text = f"{target_date_str} | ({gen_date} [{gen_time}])({day_of_week})"
+            info_cell.value = info_text
+            info_cell.font = info_font
+            info_cell.alignment = left_align # Left aligned
+            # No border for info row usually, or as per user image? 
+            # User said "여백의 셀 테두리? 그 선은 다 안나오게".
+            # Image shows simple text line. Let's keep it without border or minimal.
+            # Let's apply no border to this row for clean look, or maybe just bottom?
+            # User: "그 여백의 셀 테두리? 그 선은 다 안나오게" -> implies remove default grid.
+            
+            # --- 3. Header Row (Row 3) ---
+            # Columns are at Row 3 now
+            for i, col_name in enumerate(df.columns):
+                cell = worksheet.cell(row=3, column=i+1)
                 cell.border = thin_border
+                cell.alignment = center_align
                 
-            # Apply borders and alignment to all cells
-            for row in worksheet.iter_rows(min_row=2):
+                # Check for special stats columns
+                if col_name in ['총좌석수', '판매좌석수', '잔여좌석']: # '판매좌석수'
+                     cell.fill = black_fill
+                     cell.font = white_font
+                else:
+                     cell.fill = yellow_fill
+                     cell.font = header_font
+
+            # --- 4. Data Rows (Row 4+) ---
+            for row in worksheet.iter_rows(min_row=4, max_col=max_col):
                 for cell in row:
                     cell.border = thin_border
                     cell.alignment = center_align
                     
-            # Auto-width (approximate)
+            # --- 5. Gridlines ---
+            worksheet.sheet_view.showGridLines = False
+
+            # --- 6. Auto-width ---
             for i, column in enumerate(worksheet.columns):
                 max_len = 0
                 col_letter = get_column_letter(i+1)
-                for cell in column:
+                
+                # Calculate based on data rows & header (Row 3+), skipping Title/Info
+                for cell in column[2:]: # simple slicing if possible, else iterate
                     try:
-                        if cell.value:
+                         if cell.value:
                             max_len = max(max_len, len(str(cell.value)))
                     except: pass
                 
-                # Add some padding
+                # Adjust width
                 adj_width = (max_len + 2) * 1.2
-                worksheet.column_dimensions[col_letter].width = min(adj_width, 50) # Cap at 50
+                worksheet.column_dimensions[col_letter].width = min(adj_width, 50)
 
     return file_path
