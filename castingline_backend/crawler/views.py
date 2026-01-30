@@ -62,6 +62,7 @@ def run_crawler_background(history_id, data):
         
         target_titles_list = list(target_titles) if target_titles else None
         
+        all_failures = []
         executed_companies = []
         companies_for_export = []
         
@@ -84,11 +85,12 @@ def run_crawler_background(history_id, data):
                 
                 CGVPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
+                    "collected_list": logs,  # [FIX] Pass logs for date-wise breakdown
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-                return 'CGV'
+                return 'CGV', failures
             except InterruptedError:
                 raise
             except Exception as e:
@@ -106,11 +108,12 @@ def run_crawler_background(history_id, data):
                 
                 LottePipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
+                    "collected_list": logs, # [FIX] Pass logs for date-wise breakdown
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-                return 'Lotte'
+                return 'Lotte', failures
             except InterruptedError:
                 raise
             except Exception as e:
@@ -128,11 +131,12 @@ def run_crawler_background(history_id, data):
                 
                 MegaboxPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
+                    "collected_list": logs, # [FIX] Pass logs for date-wise breakdown
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-                return 'Megabox'
+                return 'Megabox', failures
             except InterruptedError:
                 raise
             except Exception as e:
@@ -151,10 +155,17 @@ def run_crawler_background(history_id, data):
                 try:
                     result = future.result()
                     if result:
-                        executed_companies.append(result)
-                        if result == 'CGV': companies_for_export.append('CGV')
-                        elif result == 'Lotte': companies_for_export.append('LOTTE')
-                        elif result == 'Megabox': companies_for_export.append('MEGABOX')
+                        comp_name, comp_failures = result
+                        executed_companies.append(comp_name)
+                        if comp_failures:
+                            # [USER REQUEST] Inject Brand for Failures Sheet
+                            for f in comp_failures:
+                                f['brand'] = comp_name
+                            all_failures.extend(comp_failures)
+                            
+                        if comp_name == 'CGV': companies_for_export.append('CGV')
+                        elif comp_name == 'Lotte': companies_for_export.append('LOTTE')
+                        elif comp_name == 'Megabox': companies_for_export.append('MEGABOX')
                 except InterruptedError:
                     raise
                 except Exception as e:
@@ -166,7 +177,8 @@ def run_crawler_background(history_id, data):
             start_date_str=start_date_str,
             end_date_str=end_date_str,
             companies=companies_for_export,
-            target_titles=target_titles_list
+            target_titles=target_titles_list,
+            failures=all_failures
         )
         
         history.status = 'SUCCESS'

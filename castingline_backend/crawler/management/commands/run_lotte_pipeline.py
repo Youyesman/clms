@@ -17,11 +17,15 @@ from crawler.models import LotteScheduleLog, MovieSchedule
 # [PART 1] RPA Logic (Lotte Cinema)
 # =============================================================================
 
-def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_signal=None, crawler_run=None):
+def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_signal=None, crawler_run=None, retry_targets=None):
     """
     Worker Function: Assigned Regions에 해당하는 극장만 순회하며 데이터 수집
+    :param retry_targets: {Region: {Theater: [Dates]}} - If set, only process specific targets.
     """
-    print(f"[{worker_id}] 🚀 Worker Started. Target Regions: {assigned_regions}")
+    if retry_targets:
+        print(f"[{worker_id}] 🚀 Retry Worker Started. Targeting specific failures...")
+    else:
+        print(f"[{worker_id}] 🚀 Worker Started. Target Regions: {assigned_regions}")
     
     collected_results = []
     failures = []
@@ -94,6 +98,10 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                 if not is_assigned:
                     continue
 
+                # [Retry Logic] Region Filtering
+                if retry_targets and region_name not in retry_targets:
+                    continue
+
                 print(f"[{worker_id}] 📍 Processing Region: {region_name}")
 
                 try:
@@ -119,6 +127,11 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                         
                         theater_link = theater_items.nth(j)
                         theater_name = theater_link.inner_text().strip()
+                        
+                        # [Retry Logic] Theater Filtering
+                        if retry_targets:
+                            if theater_name not in retry_targets.get(region_name, {}):
+                                continue
                         
                         # 극장 식별자 (Lotte는 href에 파라미터가 있거나, 클릭 시 동작)
                         # data-cinema-id 같은 속성이 있는지 확인, 없으면 이름으로 대체
@@ -215,7 +228,11 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                 print(f"[{worker_id}]      ⚠️ Failed to close popup: {e}")
 
                             # 날짜별 순회
-                            for target_ymd in target_dates:
+                            current_dates = target_dates
+                            if retry_targets:
+                                current_dates = list(retry_targets[region_name].get(theater_name, []))
+
+                            for target_ymd in current_dates:
                                 try:
                                     # 날짜 포맷 변환 (YYYYMMDD -> YYYY-MM-DD or DD)
                                     # 롯데시네마 날짜 선택자는 보통 owl-carousel 안에 있음.
@@ -384,7 +401,7 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                                 crawler_run=crawler_run
                                             )
                                             print(f"[{worker_id}]      ✅ Saved {theater_name} ({target_ymd})")
-                                            collected_results.append({'log_id': 'saved'}) 
+                                            collected_results.append({'log_id': 'saved', 'date': target_ymd}) 
                                             total_theater_count += 1
                                         else:
                                             # FAILED
@@ -567,7 +584,7 @@ class LottePipelineService:
             for idx, group in enumerate(worker_groups):
                 worker_id = f"Worker-{idx+1}"
                 futures.append(
-                    executor.submit(fetch_lotte_schedule_worker, worker_id, group, dates, stop_signal, crawler_run)
+                    executor.submit(fetch_lotte_schedule_worker, worker_id, group, dates, stop_signal, crawler_run, None)
                 )
                 
             for future in as_completed(futures):
@@ -586,7 +603,72 @@ class LottePipelineService:
                         'worker': 'Main'
                     })
                     
-        return collected_logs, total_detected_cnt, all_failures
+        # [Retry Logic]
+        retry_map = {}
+        final_failures = []
+        
+        for f in all_failures:
+            reason = f['reason']
+            # Exclude permanent failures like "Date Button Not Found" (means no schedule usually)
+            if reason != "Date Button Not Found" and "Region list not found" not in reason:
+                r = f['region']
+                t = f['theater']
+                d = f['date']
+                
+                # If date is 'All' or 'Error', we might need to retry all dates or just log it.
+                # For safety, if 'All', we retry all original dates if we can, or just log manual check needed.
+                # Here we handle specific dates. If 'All', we skip or need complex logic.
+                # Assuming 'All' happens on Theater Click Error -> Retry all dates for that theater?
+                # For simplicity, if 'All', we map to all original dates.
+                
+                target_dates_list = dates if d in ['All', 'Error'] else [d]
+                
+                if r not in retry_map: retry_map[r] = {}
+                if t not in retry_map[r]: retry_map[r][t] = set()
+                
+                for td in target_dates_list:
+                    retry_map[r][t].add(td)
+            else:
+                final_failures.append(f)
+                
+        if retry_map:
+            retry_count = sum(len(dates) for r in retry_map.values() for dates in r.values())
+            print(f"\n[Lotte] 🔄 Found {retry_count} items to retry. Starting Retry Phase...")
+            
+            # Single Worker for Retry (Stability)
+            try:
+                # retry_targets requires passing to worker. 
+                # worker expects assigned_regions. We can pass all regions keys as assigned.
+                # But worker filters by assigned_regions first.
+                retry_regions = list(retry_map.keys())
+                
+                logs_retry, failures_retry, _ = fetch_lotte_schedule_worker(
+                    worker_id="RetryWorker",
+                    assigned_regions=retry_regions,
+                    target_dates=dates, # Not used logically if retry_targets is set, but required by arg
+                    crawler_run=crawler_run,
+                    retry_targets=retry_map,
+                    stop_signal=stop_signal
+                )
+                
+                print(f"[Lotte] ✅ Retry Finished. Recovered: {len(logs_retry)} items.")
+                collected_logs.extend(logs_retry)
+                final_failures.extend(failures_retry)
+                
+            except Exception as e:
+                print(f"[Lotte] ❌ Retry Failed: {e}")
+                for r, theaters in retry_map.items():
+                    for t, dates_set in theaters.items():
+                         for d in dates_set:
+                             final_failures.append({
+                                 'region': r, 'theater': t, 'date': d, 
+                                 'reason': f"Retry Execution Failed: {str(e)}", 
+                                 'worker': "RetryWorker"
+                             })
+        else:
+            print("\n[Lotte] No retryable failures found.")
+
+        return collected_logs, total_detected_cnt, final_failures
 
     @classmethod
     def check_missing_theaters(cls, logs, crawler_run=None, total_expected=0):
@@ -665,12 +747,35 @@ class LottePipelineService:
                 missing_msg = f"\n⚠️ *누락 극장 목록:* {missing_list_str}"
 
             collected_cnt = data.get('collected', 0)
+            collected_list = data.get('collected_list', [])
+            
+            # Aggregate by date
+            date_counts = {}
+            for item in collected_list:
+                d_str = item.get('date', 'Unknown')
+                date_counts[d_str] = date_counts.get(d_str, 0) + 1
+            
+            sorted_dates = sorted(date_counts.keys())
+            date_breakdown_str = ""
+            
+            # [USER REQUEST] Multi-line format
+            if sorted_dates:
+               parts = []
+               for d in sorted_dates:
+                   try:
+                       dt = datetime.strptime(d, "%Y%m%d")
+                       d_fmt = f"{dt.month}월 {dt.day}일"
+                   except:
+                       d_fmt = d
+                   parts.append(f"• {d_fmt}: {date_counts[d]}개")
+               date_breakdown_str = "\n" + "\n".join(parts)
+
             created_cnt = data.get('created', 0)
             # [USER REQUEST] Strict: No default 0
             total_master = data['total_master']
             
             # Text Summary
-            text = f"📊 [Lotte] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_msg}"
+            text = f"📊 [Lotte] 결과: 총 {total_master}개 Master.{date_breakdown_str}\n{missing_msg}{fail_msg}"
             
             blocks = [
                 {
@@ -681,7 +786,7 @@ class LottePipelineService:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
-                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
+                        {"type": "mrkdwn", "text": f"*수집된 극장 (날짜별):*{date_breakdown_str}"}
                     ]
                 }
             ]
@@ -747,6 +852,7 @@ class LottePipelineService:
             
             cls.send_slack_message("SUCCESS", {
                 "collected": len(logs),
+                "collected_list": logs,  # Pass logs for date breakdown
                 "created": 0,
                 "failures": failures,
                 "missing_info": missing_res,

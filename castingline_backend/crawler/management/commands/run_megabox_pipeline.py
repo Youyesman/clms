@@ -22,16 +22,20 @@ from concurrent.futures import ThreadPoolExecutor
 # [PART 1] RPA Logic (Megabox)
 # =============================================================================
 
-def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=None, crawler_run=None):
+def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=None, crawler_run=None, retry_targets=None):
     """
     Playwright를 사용하여 Megabox 페이지에 접속하고, 
     지역 -> 극장 -> [날짜 리스트] 순으로 순회하며 데이터 수집 즉시 DB에 저장합니다.
     (Theater-First Approach)
     
     :param target_regions: List of region names to process (e.g., ["서울", "인천"]). If None, process all.
+    :param retry_targets: {Region: {Theater: [Dates]}} - If set, only process specific targets.
     """
     if date_list is None:
         date_list = [datetime.now().strftime("%Y%m%d")]
+
+    if retry_targets:
+        print(f"[RetryWorker] 🚀 Starting Retry Run for Megabox...")
 
     collected_results = []
     failures = [] # 실패 내역
@@ -99,6 +103,10 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                              # print(f"[{worker_id}] Skipping '{region_name}' (Not in target)")
                              continue
                     
+                    # [Retry Logic] Region Filtering
+                    if retry_targets and region_name not in retry_targets:
+                        continue
+                    
                     print(f"\n[{worker_id}] Processing Region: {region_name} (Raw: {raw_region_name})")
                     
                     region_btn.scroll_into_view_if_needed()
@@ -125,6 +133,11 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                             theater_btn = page.locator(theater_list_sel).nth(j)
                             theater_name = theater_btn.inner_text().strip()
                             brch_no = theater_btn.get_attribute("data-brch-no") or "Unknown"
+
+                            # [Retry Logic] Theater Filtering
+                            if retry_targets:
+                                if theater_name not in retry_targets.get(region_name, {}):
+                                    continue
                             
                             print(f"[{worker_id}]       Processing: {theater_name} ({brch_no})")
                             
@@ -133,7 +146,11 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                             time.sleep(1)
 
                             # 2. 날짜 순회 (Theater-First Logic)
-                            for scn_ymd in date_list:
+                            current_dates = date_list
+                            if retry_targets:
+                                current_dates = list(retry_targets[region_name].get(theater_name, []))
+
+                            for scn_ymd in current_dates:
                                 if stop_signal: stop_signal()
                                 
                                 # Megabox: .date-list button[date-data='2024.01.29']
@@ -148,7 +165,21 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                         date_btn = page.locator(f".date-list button:has-text('{target_day}')").first
 
                                     if date_btn.count() > 0:
-                                        is_active = "on" in (date_btn.get_attribute("class") or "")
+                                        # [USER REQUEST] Chekc for disabled class
+                                        # e.g. <button class="disabled" ...>
+                                        classes = date_btn.get_attribute("class") or ""
+                                        if "disabled" in classes:
+                                            print(f"[{worker_id}]       🚫 Date Disabled: {scn_ymd}")
+                                            failures.append({
+                                                'region': region_name,
+                                                'theater': theater_name,
+                                                'date': scn_ymd,
+                                                'reason': "Date Button Disabled",
+                                                'worker': worker_id
+                                            })
+                                            continue # Skip this date
+
+                                        is_active = "on" in classes
                                         
                                         # 클릭 및 응답 대기
                                         with page.expect_response(lambda response: "schedulePage.do" in response.url, timeout=5000) as response_info:
@@ -170,7 +201,7 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                                     crawler_run=crawler_run
                                                 )
                                                 # print(f"[{worker_id}]          ✅ Saved: {scn_ymd}")
-                                                collected_results.append({"log_id": log.id})
+                                                collected_results.append({"log_id": log.id, "date": scn_ymd})
                                                 
                                             except Exception as e:
                                                 print(f"[{worker_id}]          ❌ Parse Error {scn_ymd}: {e}")
@@ -320,7 +351,8 @@ class MegaboxPipelineService:
                         date_list=dates, 
                         target_regions=region_group, 
                         stop_signal=stop_signal,
-                        crawler_run=crawler_run
+                        crawler_run=crawler_run,
+                        retry_targets=None
                     )
                 )
             
@@ -334,7 +366,65 @@ class MegaboxPipelineService:
                 except Exception as e:
                     print(f"[Main] ❌ One of the workers failed: {e}")
         
-        return collected_logs, total_detected_cnt, all_failures
+        # [Retry Logic]
+        retry_map = {}
+        final_failures = []
+        
+        for f in all_failures:
+            reason = f['reason']
+            # Exclude permanent failures
+            if reason != "Date Button Not Found" and reason != "Date Button Disabled":
+                r = f['region']
+                t = f['theater']
+                d = f['date']
+                
+                # Handling 'Unknown' or non-date failures logic same as Lotte
+                if d == 'Unknown' or d == 'All':
+                     # If theater failure, retry all requested dates
+                     target_list = dates
+                else:
+                     target_list = [d]
+
+                if r not in retry_map: retry_map[r] = {}
+                if t not in retry_map[r]: retry_map[r][t] = set()
+                
+                for td in target_list:
+                    retry_map[r][t].add(td)
+            else:
+                final_failures.append(f)
+        
+        if retry_map:
+            retry_count = sum(len(dates) for r in retry_map.values() for dates in r.values())
+            print(f"\n[Megabox] 🔄 Found {retry_count} items to retry. Starting Retry Phase...")
+            
+            try:
+                # Single Worker for Retry
+                logs_retry, failures_retry, _ = fetch_megabox_schedule_rpa(
+                    date_list=dates, # Not used effectively due to retry_targets logic
+                    target_regions=None, # Not used due to retry_targets logic
+                    stop_signal=stop_signal,
+                    crawler_run=crawler_run,
+                    retry_targets=retry_map
+                )
+                
+                print(f"[Megabox] ✅ Retry Finished. Recovered: {len(logs_retry)} items.")
+                collected_logs.extend(logs_retry)
+                final_failures.extend(failures_retry)
+                
+            except Exception as e:
+                print(f"[Megabox] ❌ Retry Failed: {e}")
+                for r, theaters in retry_map.items():
+                    for t, dates_set in theaters.items():
+                         for d in dates_set:
+                             final_failures.append({
+                                 'region': r, 'theater': t, 'date': d, 
+                                 'reason': f"Retry Execution Failed: {str(e)}", 
+                                 'worker': "RetryWorker"
+                             })
+        else:
+            print("\n[Megabox] No retryable failures found.")
+
+        return collected_logs, total_detected_cnt, final_failures
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
@@ -427,8 +517,42 @@ class MegaboxPipelineService:
             # [USER REQUEST] Strict: No default 0
             total_master = data['total_master']
             
+            # [USER REQUEST] Date-wise breakdown
+            # "collected" is now list of dicts {log_id, date} OR just list of logs?
+            # In collect_schedule_logs, we extend res_logs which has {log_id, date}
+            # So data['collected_list'] should normally be passed, but here data['collected'] usually implies count.
+            # We need to change how we pass data to send_slack_message.
+            
+            # Assuming 'collected_logs' list is passed in data as 'collected_list' OR we used 'collected' as count.
+            # Let's adjust run_pipeline to pass the list.
+            
+            collected_list = data.get('collected_list', [])
+            collected_cnt = len(collected_list)
+            
+            # Aggregate by date
+            date_counts = {}
+            for item in collected_list:
+                d_str = item.get('date', 'Unknown')
+                date_counts[d_str] = date_counts.get(d_str, 0) + 1
+            
+            # Sort dates
+            sorted_dates = sorted(date_counts.keys())
+            date_breakdown_str = ""
+            
+            # [USER REQUEST] Multi-line format
+            if sorted_dates:
+               parts = []
+               for d in sorted_dates:
+                   try:
+                       dt = datetime.strptime(d, "%Y%m%d")
+                       d_fmt = f"{dt.month}월 {dt.day}일"
+                   except:
+                       d_fmt = d
+                   parts.append(f"• {d_fmt}: {date_counts[d]}개")
+               date_breakdown_str = "\n" + "\n".join(parts)
+
             # Text Summary
-            text = f"📊 [Megabox] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_text}"
+            text = f"📊 [Megabox] 결과: 총 {total_master}개 Master.{date_breakdown_str}\n{missing_msg}{fail_text}"
 
             blocks = [
                 {
@@ -439,7 +563,7 @@ class MegaboxPipelineService:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
-                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
+                        {"type": "mrkdwn", "text": f"*수집된 극장 (날짜별):*{date_breakdown_str}"}
                     ]
                 }
             ]
@@ -528,6 +652,7 @@ class MegaboxPipelineService:
         
         cls.send_slack_message("SUCCESS", {
             "collected": len(logs), 
+            "collected_list": logs, # Pass full list for date breakdown
             "created": created_cnt,
             "failures": collection_failures,
             "missing_info": check_result,

@@ -76,18 +76,19 @@ def scan_cgv_master_list_rpa():
             
     return total_count
 
-def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None):
+def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=None, target_regions=None, stop_signal=None, retry_targets=None):
     """
     Playwright를 사용하여 CGV 페이지에 접속하고, 
     모든 지역 및 극장을 순회하며 데이터 수집 즉시 DB에 저장합니다.
     (Optimized: 극장 선택 후 날짜 목록을 순회합니다)
     
     :param target_regions: List of region names to process. If None, process all.
+    :param retry_targets: Dict of {Region: {Theater: [Dates]}} for targeted retry. If set, ignores date_list/target_regions priority.
     """
     # Date List Normalization
-    target_dates = date_list if date_list else ([scn_ymd] if scn_ymd else [datetime.now().strftime("%Y%m%d")])
+    default_dates = date_list if date_list else ([scn_ymd] if scn_ymd else [datetime.now().strftime("%Y%m%d")])
     
-    print(f"[디버그] fetch_cgv_schedule_rpa 호출됨. 대상 날짜 목록: {target_dates}")
+    print(f"[디버그] fetch_cgv_schedule_rpa 호출됨. retry_targets={bool(retry_targets)}")
     collected_results = []
     failures = [] # 실패 내역 저장
     total_theater_count = 0  # 전체 극장 수 누적 변수
@@ -143,8 +144,13 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                     raw_region_name = region_btn.inner_text().strip()
                     region_name = raw_region_name.split('(')[0].strip()
                     
-                    # --- Region Filtering Logic ---
-                    if target_regions:
+                    # [Retry Logic] Region Filtering
+                    if retry_targets and region_name not in retry_targets:
+                        # Retry 모드인데 해당 지역이 대상이 아니면 스킵
+                        continue
+
+                    # --- Region Filtering Logic (Normal Mode) ---
+                    if not retry_targets and target_regions:
                          # 안전한 매칭을 위해 포함 여부 또는 시작 문자열 확인
                          is_target = False
                          for tr in target_regions:
@@ -182,6 +188,11 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                             # j번째 극장 클릭
                             theater_btn = page.locator(f"{theater_items_selector}:nth-child({j+1}) > button")
                             theater_name = theater_btn.inner_text().strip()
+                            
+                            # [Retry Logic] Theater Filtering
+                            if retry_targets:
+                                if theater_name not in retry_targets.get(region_name, {}):
+                                    continue
                             
                             # siteNo 추출
                             onclick_val = theater_btn.get_attribute("onclick") or ""
@@ -229,7 +240,13 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                 time.sleep(1.0) # 추가 비동기 응답 대기
 
                                 # ===================== [DATE LOOP START] =====================
-                                for target_ymd in target_dates:
+                                # Determine dates to scan for this theater
+                                current_target_dates = default_dates
+                                if retry_targets:
+                                    # Retry 모드면 해당 극장의 실패했던 날짜들만 로드
+                                    current_target_dates = list(retry_targets[region_name].get(theater_name, []))
+
+                                for target_ymd in current_target_dates:
                                     if stop_signal: stop_signal()
                                     
                                     target_date_obj = datetime.strptime(target_ymd, "%Y%m%d")
@@ -238,6 +255,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
 
                                     # 1단계: 캐시 확인
                                     json_data = response_cache.get(target_ymd)
+                                    skip_reason = None
                                     
                                     if json_data:
                                         print(f"      ⚡ 캐시된 데이터 즉시 사용 ({target_ymd})")
@@ -261,6 +279,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                                 
                                                 if not target_btn:
                                                     print(f"      ⚠️ 날짜 버튼 없음: {target_day}")
+                                                    skip_reason = "Date Button Not Found"
                                                     break
                                                 
                                                 # 상태 확인 (유저 제보 DOM 기반 강화)
@@ -269,11 +288,12 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                                 class_attr = target_btn.get_attribute("class") or ""
                                                 title_attr = target_btn.get_attribute("title") or ""
                                                 
-                                                is_disabled_class = "disabled" in class_attr or "dimmed" in class_attr
+                                                is_disabled_class = "disabled" in class_attr or "dimmed" in class_attr or "dayScroll_disabled" in class_attr
                                                 is_active = "dayScroll_itemActive" in class_attr or "선택됨" in title_attr
                                                 
                                                 if is_disabled_attr or is_disabled_class:
                                                     print(f"      🚫 날짜 비활성화됨: {target_ymd}")
+                                                    skip_reason = "Date Button Disabled"
                                                     break
                                                 
                                                 # 클릭
@@ -322,7 +342,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                             )
                                             action = "생성됨" if created else "업데이트됨"
                                             print(f"      ✅ [SUCCESS] {site_code_res} (날짜: {target_ymd}) - {action} (from Cache/Net)")
-                                            collected_results.append({"log_id": log.id})
+                                            collected_results.append({"log_id": log.id, "date": target_ymd})
                                         except Exception as e:
                                             print(f"      ❌ [FAIL] 저장 오류: {e}")
                                             failures.append({
@@ -334,12 +354,13 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                             })
                                     else:
                                         # 최종 실패 (disabled였거나, 클릭해도 응답 없거나)
-                                        print(f"      ❌ [FAIL] 데이터 수집 실패: {target_ymd} (No Data)")
+                                        real_reason = skip_reason if skip_reason else "API Response Timeout / No Data"
+                                        print(f"      ❌ [FAIL] 데이터 수집 실패: {target_ymd} ({real_reason})")
                                         failures.append({
                                             'region': region_name,
                                             'theater': theater_name,
                                             'date': target_ymd,
-                                            'reason': "No Data (Disabled or Response Timeout)",
+                                            'reason': real_reason,
                                             'worker': worker_id
                                         })
                                         pass 
@@ -452,7 +473,58 @@ class CGVPipelineService:
                 except Exception as e:
                     print(f"[Main] ❌ One of the workers failed: {e}")
 
-        return collected_logs, total_detected_cnt, all_failures
+        # [Step 1.5] Retry Logic for API Failures
+        retry_map = {} # {Region: {Theater: {Set of Dates}}}
+        final_failures = []
+        
+        for f in all_failures:
+            # "Date Button Disabled"인 경우는 재시도 해도 소용없으므로 제외
+            # "API Response Timeout"이나 "No Data" 등 일시적/네트워크성 오류만 재시도
+            if f['reason'] != "Date Button Disabled" and f['reason'] != "Date Button Not Found":
+                r = f['region']
+                t = f['theater']
+                d = f['date']
+                
+                if r not in retry_map: retry_map[r] = {}
+                if t not in retry_map[r]: retry_map[r][t] = set()
+                retry_map[r][t].add(d)
+            else:
+                final_failures.append(f) # 재시도 대상 아니면 바로 최종 실패 목록으로
+        
+        if retry_map:
+            retry_count = sum(len(dates) for r in retry_map.values() for dates in r.values())
+            print(f"\n[Retry] 🔄 Found {retry_count} items to retry (API Timeouts/Errors). Starting Retry Phase...")
+            
+            try:
+                # 재시도는 안정성을 위해 단일 워커로 실행 (또는 별도 설정)
+                # target_regions=None으로 주고 retry_targets만 전달
+                logs_retry, failures_retry, _ = fetch_cgv_schedule_rpa(
+                    date_list=None, # retry_targets 내부 날짜 사용
+                    target_regions=None,
+                    retry_targets=retry_map,
+                    stop_signal=stop_signal
+                )
+                
+                print(f"[Retry] ✅ Retry Finished. Recovered: {len(logs_retry)} items.")
+                collected_logs.extend(logs_retry)
+                final_failures.extend(failures_retry) # 재시도에서도 실패한 건 최종 실패로
+                
+            except Exception as e:
+                print(f"[Retry] ❌ Retry Failed: {e}")
+                # 재시도 로직 자체가 터지면, 원래의 실패 내역들을 다시 복구해야 함 (이미 all_failures에서 분리됨)
+                # 여기서는 간단히 재시도 맵에 있던 것들을 'Retry Failed' 이유로 추가
+                for r, theaters in retry_map.items():
+                    for t, dates in theaters.items():
+                         for d in dates:
+                             final_failures.append({
+                                 'region': r, 'theater': t, 'date': d, 
+                                 'reason': f"Retry Execution Failed: {str(e)}", 
+                                 'worker': "RetryWorker"
+                             })
+        else:
+            print("\n[Retry] No retryable failures found.")
+
+        return collected_logs, total_detected_cnt, final_failures
 
     @classmethod
     def check_missing_theaters(cls, logs, total_expected):
@@ -569,12 +641,40 @@ class CGVPipelineService:
                 missing_msg = f"\n⚠️ *누락 극장 목록:* {missing_list_str}"
 
             collected_cnt = data.get('collected', 0)
+            collected_list = data.get('collected_list', [])
+            
+            # Aggregate by date
+            date_counts = {}
+            for item in collected_list:
+                # item is dict {..., 'date': 'YYYYMMDD'}
+                d_str = item.get('date', 'Unknown')
+                date_counts[d_str] = date_counts.get(d_str, 0) + 1
+
+            sorted_dates = sorted(date_counts.keys())
+            date_breakdown_str = ""
+            
+            # [USER REQUEST] Multi-line format: "1월 31일: N개"
+            if sorted_dates:
+               parts = []
+               for d in sorted_dates:
+                   # d is usually YYYYMMDD
+                   try:
+                       dt = datetime.strptime(d, "%Y%m%d")
+                       d_fmt = f"{dt.month}월 {dt.day}일"
+                   except:
+                       d_fmt = d
+                       
+                   parts.append(f"• {d_fmt}: {date_counts[d]}개")
+               
+               # Join with newlines
+               date_breakdown_str = "\n" + "\n".join(parts)
+            
             created_cnt = data.get('created', 0)
             # [USER REQUEST] Strict: No default 0
             total_master = data['total_master']
             
             # Text Summary
-            text = f"📊 [CGV/Fixed] 결과: 총 {total_master}개 중 {collected_cnt}개 수집 완료.{missing_msg}{fail_msg}"
+            text = f"📊 [CGV] 결과: 총 {total_master}개 Master.{date_breakdown_str}\n{fail_msg}"
             
             blocks = [
                 {
@@ -585,7 +685,7 @@ class CGVPipelineService:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*총 극장 수 (Master):*\n{total_master}개"},
-                        {"type": "mrkdwn", "text": f"*수집된 극장:*\n{collected_cnt}개"}
+                        {"type": "mrkdwn", "text": f"*수집된 극장 (날짜별):*{date_breakdown_str}"}
                     ]
                 }
             ]
@@ -684,6 +784,7 @@ class CGVPipelineService:
 
         cls.send_slack_message("SUCCESS", {
             "collected": len(logs),
+            "collected_list": logs, # Pass logs for breakdown
             "created": 0, # created_cnt,
             "failures": collection_failures,
             "missing_info": check_result,
