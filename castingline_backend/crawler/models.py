@@ -17,6 +17,7 @@ class CGVScheduleLog(models.Model):
         return f"CGV Schedule Log - {self.query_date} ({self.theater_name} / {self.site_code})"
 
 
+
 class MegaboxScheduleLog(models.Model):
     query_date = models.CharField(max_length=8)  # YYYYMMDD
     site_code = models.CharField(max_length=20)  # 지점코드 (brchNo)
@@ -64,6 +65,7 @@ class MovieSchedule(models.Model):
     
     start_time = models.DateTimeField() # 상영 시작 시간
     end_time = models.DateTimeField(null=True, blank=True) # 상영 종료 시간
+    play_date = models.DateField(null=True, blank=True) # 상영 일자 (심야 영화 식별용)
     
     is_booking_available = models.BooleanField(default=True) # 예매 가능 여부
     booking_url = models.URLField(max_length=500, null=True, blank=True) # 예매 링크
@@ -73,6 +75,26 @@ class MovieSchedule(models.Model):
     tags = models.JSONField(default=list, blank=True)
     total_seats = models.IntegerField(null=True, blank=True, default=0)
     remaining_seats = models.IntegerField(null=True, blank=True, default=0)
+
+    # Note: parse_robust_datetime added here
+    @staticmethod
+    def parse_robust_datetime(ymd, tm_str):
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        
+        if not ymd or not tm_str: return None
+        
+        ymd = str(ymd).replace("-", "").strip()[:8]
+        tm_str = str(tm_str).replace(":", "").strip()[:4]
+        
+        try:
+            hour_int = int(tm_str[:2])
+            min_int = int(tm_str[2:])
+            base_dt = datetime.strptime(ymd, "%Y%m%d")
+            dt = base_dt + timedelta(hours=hour_int, minutes=min_int)
+            return timezone.make_aware(dt)
+        except:
+            return None
     
     # 원본 로그 추적용 (선택)
     raw_log = models.ForeignKey(CGVScheduleLog, on_delete=models.SET_NULL, null=True, blank=True)
@@ -210,7 +232,7 @@ class MovieSchedule(models.Model):
             return 0, []
 
         data_list = json_data["data"]
-        from datetime import datetime
+        from datetime import datetime, timedelta
         from django.utils import timezone
         
         parsed_items = []
@@ -249,24 +271,31 @@ class MovieSchedule(models.Model):
                 if not (play_ymd and play_start_time):
                     continue
                 
-                # 안전한 파싱
+                # 안전한 파싱 (24시 포맷 처리 및 play_date 저장)
                 ymd_clean = str(play_ymd)[:8]
+                
+                # [NEW] play_date는 로그의 query_date를 사용 (User Request)
+                try:
+                     parsed_play_date = datetime.strptime(log.query_date, "%Y%m%d").date()
+                except:
+                     parsed_play_date = None
+
                 start_tm_clean = str(play_start_time)[:4]
-                start_dt_str = f"{ymd_clean}{start_tm_clean}"
-                start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
-                start_dt = timezone.make_aware(start_dt)
+                start_dt = cls.parse_robust_datetime(ymd_clean, start_tm_clean)
+                if not start_dt: continue
                 
                 target_dates.add(start_dt.date())
 
                 end_dt = None
                 if play_end_time:
                     end_tm_clean = str(play_end_time)[:4]
-                    end_dt_str = f"{ymd_clean}{end_tm_clean}"
-                    end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
-                    end_dt = timezone.make_aware(end_dt)
-                    if end_dt < start_dt:
-                        from datetime import timedelta
-                        end_dt += timedelta(days=1)
+                    end_dt = cls.parse_robust_datetime(ymd_clean, end_tm_clean)
+                    # 종료 시간이 시작 시간보다 빠르면(보통 없겠지만) 하루 더하기? 
+                    # parse_robust_datetime이 이미 24시 넘는건 처리함.
+                    # 단, 01:00 종료가 입력되었는데 사실 25:00 의미라면? 
+                    # CGV는 보통 2500으로 줌. 만약 0100으로 준다면 처리 필요.
+                    if end_dt and end_dt < start_dt:
+                         end_dt += timedelta(days=1)
 
                 remain_seat = int(item.get("frSeatCnt", 0))
                 is_available = remain_seat > 0
@@ -295,6 +324,8 @@ class MovieSchedule(models.Model):
                     'is_booking_available': is_available, # Update 대상
                     'total_seats': int(item.get("stcnt", 0)),
                     'remaining_seats': int(item.get("frtmpSeatCnt", 0)),
+                    'remaining_seats': int(item.get("frtmpSeatCnt", 0)),
+                    'play_date': parsed_play_date, # [NEW] Play Date
                     'raw_log': log
                 })
                     
@@ -342,6 +373,7 @@ class MovieSchedule(models.Model):
                 obj.tags = item['tags']
                 obj.total_seats = item['total_seats']
                 obj.remaining_seats = item['remaining_seats']
+                obj.play_date = item['play_date'] # Update
                 obj.raw_log = log # 최신 로그로 갱신
                 to_update.append(obj)
             else:
@@ -358,7 +390,7 @@ class MovieSchedule(models.Model):
             
         if to_update:
             # 변경될 수 있는 필드만 업데이트
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
             updated_count = len(to_update)
             
         return created_count + updated_count, errors
@@ -421,19 +453,40 @@ class MovieSchedule(models.Model):
                 # movie 변수명이 헷갈리지만 item으로 취급
                 item = movie
                 try:
-                    ymd = play_date_str
+                    ymd_clean = log.query_date
+                    parsed_play_date = None
+                    try:
+                        parsed_play_date = datetime.strptime(ymd_clean, "%Y%m%d").date()
+                    except:
+                        pass
+                        
                     # 시간에서 콜론만 제거 (HH:MM -> HHMM)
                     start_tm_clean = str(play_start_tm).replace(':', '')[:4]
                     end_tm_clean = str(play_end_tm).replace(':', '')[:4]
                     
-                    start_dt_str = f"{ymd}{start_tm_clean}"
-                    end_dt_str = f"{ymd}{end_tm_clean}"
+                    # [Fix] 24:05 -> 다음날 00:05 처리 로직 (from CGV logic)
+                    try:
+                        hour_int = int(start_tm_clean[:2])
+                        min_int = int(start_tm_clean[2:])
+                        base_dt_naive = datetime.strptime(ymd_clean, "%Y%m%d")
+                        start_dt_naive = base_dt_naive + timedelta(hours=hour_int, minutes=min_int)
+                        start_dt = timezone.make_aware(start_dt_naive)
+                    except:
+                        # Fallback for complex format
+                        start_dt_str = f"{ymd_clean}{start_tm_clean}"
+                        start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
+                        start_dt = timezone.make_aware(start_dt)
                     
-                    start_dt = datetime.strptime(start_dt_str, "%Y%m%d%H%M")
-                    end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
-                    
-                    start_dt = timezone.make_aware(start_dt)
-                    end_dt = timezone.make_aware(end_dt)
+                    try:
+                        ehour_int = int(end_tm_clean[:2])
+                        emin_int = int(end_tm_clean[2:])
+                        ebase_dt_naive = datetime.strptime(ymd_clean, "%Y%m%d")
+                        end_dt_naive = ebase_dt_naive + timedelta(hours=ehour_int, minutes=emin_int)
+                        end_dt = timezone.make_aware(end_dt_naive)
+                    except:
+                        end_dt_str = f"{ymd_clean}{end_tm_clean}"
+                        end_dt = datetime.strptime(end_dt_str, "%Y%m%d%H%M")
+                        end_dt = timezone.make_aware(end_dt)
                     
                     if end_dt < start_dt:
                         end_dt += timedelta(days=1)
@@ -467,7 +520,9 @@ class MovieSchedule(models.Model):
                         'tags': extracted_tags,
                         'is_booking_available': is_available,
                         'total_seats': total_seat,
-                        'remaining_seats': remain_seat
+                        'total_seats': total_seat,
+                        'remaining_seats': remain_seat,
+                        'play_date': parsed_play_date
                     })
                 except Exception as e:
                     errors.append({
@@ -510,7 +565,7 @@ class MovieSchedule(models.Model):
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
             
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
             
         return len(to_create) + len(to_update), errors
 
@@ -590,6 +645,12 @@ class MovieSchedule(models.Model):
                 start_dt_str = start_tm_str or play_dt_val
                 
                 if not start_dt_str: continue
+                
+                # [NEW] Play Date from Log
+                try:
+                     parsed_play_date = datetime.strptime(log.query_date, "%Y%m%d").date()
+                except:
+                     parsed_play_date = None
 
                 # 만약 시간만 있다면 (length < 8 등) 날짜 붙여주기
                 if len(start_dt_str) < 10:
@@ -602,7 +663,9 @@ class MovieSchedule(models.Model):
                     if base_date:
                         start_dt_str = f"{base_date} {start_dt_str}"
                 
-                # Format check
+                # Format check & 24h logic (Lotte usually uses standard datetime string but check if needed)
+                # Lotte often gives "2026-01-31 25:30:00" ? -> Unlikely, usually standard. 
+                # But let's keep robust.
                 try:
                     if "T" in start_dt_str:
                         start_dt = datetime.fromisoformat(start_dt_str)
@@ -673,7 +736,8 @@ class MovieSchedule(models.Model):
                     'tags': extracted_tags,
                     'is_booking_available': is_available,
                     'total_seats': total_seat,
-                    'remaining_seats': remain_seat
+                    'remaining_seats': remain_seat,
+                    'play_date': parsed_play_date
                 })
             except Exception as e:
                 errors.append({
@@ -712,7 +776,7 @@ class MovieSchedule(models.Model):
         if to_create:
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
         if to_update:
-            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at', 'total_seats', 'remaining_seats'])
+            cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
             
         return len(to_create) + len(to_update), errors
 

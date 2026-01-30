@@ -433,8 +433,8 @@ def run_transform_background(new_history_id, source_history_id):
         if run_mega: target_brands.append('Megabox')
         
         qs = MovieSchedule.objects.filter(
-            start_time__date__gte=start_date,
-            start_time__date__lte=end_date,
+            play_date__gte=start_date,
+            play_date__lte=end_date,
             brand__in=target_brands
         )
         
@@ -577,7 +577,7 @@ class CrawlerScheduleOptionsView(APIView):
             
             from crawler.models import MovieSchedule
             movies = MovieSchedule.objects.filter(
-                start_time__date=target_date
+                play_date=target_date
             ).values_list('movie_title', flat=True).distinct().order_by('movie_title')
             
             return Response({"movies": list(movies)}, status=status.HTTP_200_OK)
@@ -612,8 +612,8 @@ class CrawlerScheduleExportView(APIView):
             
             # qs is the initial candidate list based on date
             qs = MovieSchedule.objects.filter(
-                start_time__date__gte=start_date,
-                start_time__date__lte=end_date
+                play_date__gte=start_date,
+                play_date__lte=end_date
             )
 
             # --- Flexible Title Filtering ---
