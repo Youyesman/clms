@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 import threading
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import Models & Pipeline Services
 from crawler.models import CrawlerRunHistory
@@ -72,83 +73,92 @@ def run_crawler_background(history_id, data):
             return False
 
         # Execute Pipelines
-        if run_cgv:
-            check_stop_signal()
-            print(f"Executing CGV for {date_list}")
+        # Execute Pipelines in Parallel
+        def run_cgv_wrapper():
+            if not run_cgv: return None
             try:
+                check_stop_signal()
+                print(f"Executing CGV for {date_list}")
                 logs, cnt, failures = CGVPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
                 
-                # [USER REQUEST] Slack Report & Disable Transform
                 CGVPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-                
-                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                # CGVPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
-                
-                executed_companies.append('CGV')
-                companies_for_export.append('CGV')
+                return 'CGV'
             except InterruptedError:
                 raise
             except Exception as e:
                 CGVPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
-                logger.error(f"CGV Failure: {e}") 
+                logger.error(f"CGV Failure: {e}")
+                return None
 
-        if run_lotte:
-            check_stop_signal()
-            print(f"Executing Lotte for {date_list}")
+        def run_lotte_wrapper():
+            if not run_lotte: return None
             try:
+                check_stop_signal()
+                print(f"Executing Lotte for {date_list}")
                 logs, cnt, failures = LottePipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
                 
-                # [USER REQUEST] Slack Report & Disable Transform
                 LottePipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-
-                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                # LottePipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
-                
-                executed_companies.append('Lotte')
-                companies_for_export.append('LOTTE') # Map to DB value
+                return 'Lotte'
             except InterruptedError:
                 raise
             except Exception as e:
                 LottePipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
                 logger.error(f"Lotte Failure: {e}")
+                return None
 
-        if run_mega:
-            check_stop_signal()
-            print(f"Executing Megabox for {date_list}")
+        def run_mega_wrapper():
+            if not run_mega: return None
             try:
+                check_stop_signal()
+                print(f"Executing Megabox for {date_list}")
                 logs, cnt, failures = MegaboxPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
                 check_stop_signal()
                 
-                # [USER REQUEST] Slack Report & Disable Transform
                 MegaboxPipelineService.send_slack_message("SUCCESS", {
                     "collected": len(logs),
                     "created": 0,
                     "failures": failures,
                     "total_master": cnt
                 })
-
-                # log_ids = [l['log_id'] for l in logs if isinstance(l, dict) and 'log_id' in l]
-                # MegaboxPipelineService.transform_logs_to_schedule(log_ids, target_titles=target_titles_list)
-                
-                executed_companies.append('Megabox')
-                companies_for_export.append('MEGABOX')
+                return 'Megabox'
             except InterruptedError:
                 raise
             except Exception as e:
                 MegaboxPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
                 logger.error(f"Megabox Failure: {e}")
+                return None
+
+        # Run Parallel
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = []
+            if run_cgv: futures.append(executor.submit(run_cgv_wrapper))
+            if run_lotte: futures.append(executor.submit(run_lotte_wrapper))
+            if run_mega: futures.append(executor.submit(run_mega_wrapper))
+            
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        executed_companies.append(result)
+                        if result == 'CGV': companies_for_export.append('CGV')
+                        elif result == 'Lotte': companies_for_export.append('LOTTE')
+                        elif result == 'Megabox': companies_for_export.append('MEGABOX')
+                except InterruptedError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Parallel Execution Error: {e}")
                 
         # 4. Generate Excel
         check_stop_signal()
