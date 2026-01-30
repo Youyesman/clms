@@ -310,6 +310,12 @@ def run_transform_background(new_history_id, source_history_id):
         new_history.save()
         
         data = source_history.configuration
+        import json
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except:
+                data = {}
         
         # 1. Parse Dates and Companies
         start_date_str = data.get('crawlStartDate')
@@ -325,19 +331,57 @@ def run_transform_background(new_history_id, source_history_id):
             curr += timedelta(days=1)
             
         choice_company = data.get('choiceCompany', {})
+        if isinstance(choice_company, str):
+            try:
+                choice_company = json.loads(choice_company)
+            except:
+                choice_company = {}
+
         run_cgv = choice_company.get('cgv', False)
         run_lotte = choice_company.get('lotte', False)
         run_mega = choice_company.get('mega', False)
         
+        processing_context = {"stage": "init", "log_id": None, "brand": None}
+        
         results = {}
         total_created = 0
         
+        # [Title Normalization Init]
+        # [Title Normalization Init]
+        from crawler.models import MovieSchedule
+        from django.db.models import Min
+        title_map = {}
+        # Pre-populate title_map from existing DB to respect "First Come" titles
+        map_start = start_date - timedelta(days=60)
+        map_end = end_date + timedelta(days=60)
+        
+        # Optimize: Fetch distinct titles ordered by their first appearance (First-Come Rule)
+        existing_titles_qs = MovieSchedule.objects.filter(
+            start_time__date__gte=map_start, 
+            start_time__date__lte=map_end
+        ).values('movie_title').annotate(
+            first_seen=Min('created_at')
+        ).order_by('first_seen')
+        
+        for entry in existing_titles_qs:
+            t = entry['movie_title']
+            norm = MovieSchedule.normalize_title(t)
+            if norm not in title_map:
+                title_map[norm] = t
+
         # 2. CGV Transformation
         if run_cgv:
             from crawler.models import CGVScheduleLog
             log_ids = CGVScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
             if log_ids:
-                cnt, errors = CGVPipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                cnt = 0
+                errors = []
+                logs = CGVScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                for log in logs:
+                    processing_context = {"stage": "CGV", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
+                    c, e = MovieSchedule.create_from_cgv_log(log, title_map=title_map)
+                    cnt += c
+                    errors.extend(e)
                 results['CGV'] = {"created": cnt, "errors": len(errors)}
                 total_created += cnt
             else:
@@ -346,10 +390,16 @@ def run_transform_background(new_history_id, source_history_id):
         # 3. Lotte Transformation
         if run_lotte:
             from crawler.models import LotteScheduleLog
-            # [FIX] query_date for Lotte
             log_ids = LotteScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
             if log_ids:
-                cnt, errors = LottePipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                cnt = 0
+                errors = []
+                logs = LotteScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                for log in logs:
+                    processing_context = {"stage": "Lotte", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
+                    c, e = MovieSchedule.create_from_lotte_log(log, title_map=title_map)
+                    cnt += c
+                    errors.extend(e)
                 results['Lotte'] = {"created": cnt, "errors": len(errors)}
                 total_created += cnt
             else:
@@ -358,10 +408,16 @@ def run_transform_background(new_history_id, source_history_id):
         # 4. Megabox Transformation
         if run_mega:
             from crawler.models import MegaboxScheduleLog
-            # [FIX] query_date for Megabox
             log_ids = MegaboxScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
             if log_ids:
-                cnt, errors = MegaboxPipelineService.transform_logs_to_schedule(log_ids=list(log_ids))
+                cnt = 0
+                errors = []
+                logs = MegaboxScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                for log in logs:
+                    processing_context = {"stage": "Megabox", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
+                    c, e = MovieSchedule.create_from_megabox_log(log, title_map=title_map)
+                    cnt += c
+                    errors.extend(e)
                 results['Megabox'] = {"created": cnt, "errors": len(errors)}
                 total_created += cnt
             else:
@@ -395,11 +451,78 @@ def run_transform_background(new_history_id, source_history_id):
         new_history.save()
         
     except Exception as e:
+        import traceback
+        import json
+        
+        # Identify context
+        context_str = "No specific context captured."
+        try:
+            if 'processing_context' in locals():
+                context_str = json.dumps(processing_context, ensure_ascii=False, indent=2)
+                
+                # If we have a log_id, accept the effort to fetch and dump the raw json for debugging
+                # This could be large, but it's essential for "str object has no attribute get" errors
+                try:
+                    target_log = None
+                    pid = processing_context.get('log_id')
+                    brand = processing_context.get('stage')
+                    if pid and brand:
+                        if brand == 'CGV':
+                            from crawler.models import CGVScheduleLog
+                            target_log = CGVScheduleLog.objects.filter(id=pid).first()
+                        elif brand == 'Lotte':
+                            from crawler.models import LotteScheduleLog
+                            target_log = LotteScheduleLog.objects.filter(id=pid).first()
+                        elif brand == 'Megabox':
+                            from crawler.models import MegaboxScheduleLog
+                            target_log = MegaboxScheduleLog.objects.filter(id=pid).first()
+                            
+                    if target_log:
+                         # Append partial raw data
+                         raw_dump = json.dumps(target_log.response_json, ensure_ascii=False)
+                         if len(raw_dump) > 10000:
+                             raw_dump = raw_dump[:10000] + "... (truncated)"
+                         context_str += f"\n\n[Raw Log Data Request]\n{raw_dump}"
+                except:
+                    pass
+        except:
+            pass
+
+        error_details = f"Background Transform Failed: {str(e)}\n\n"
+        error_details += f"Traceback:\n{traceback.format_exc()}\n\n"
+        error_details += f"Processing Context:\n{context_str}\n"
+
         logger.error(f"Background Transform Failed: {e}")
+        
+        # Create Error Log File
+        from django.conf import settings
+        import os
+        
         new_history = CrawlerRunHistory.objects.get(id=new_history_id)
         new_history.status = 'FAILED'
         new_history.finished_at = timezone.now()
         new_history.error_message = str(e)
+        
+        try:
+            file_name = f"error_log_{new_history_id}.txt"
+            # Use MEDIA_ROOT if available, else 'media' in base
+            base_dir = getattr(settings, 'MEDIA_ROOT', 'media')
+            # Ensure it's absolute or relative to workspace
+            if not os.path.isabs(base_dir):
+                base_dir = os.path.join(settings.BASE_DIR, base_dir)
+                
+            if not os.path.exists(base_dir):
+                os.makedirs(base_dir, exist_ok=True)
+                
+            error_file_path = os.path.join(base_dir, file_name)
+            
+            with open(error_file_path, "w", encoding="utf-8") as f:
+                f.write(error_details)
+                
+            new_history.excel_file_path = error_file_path
+        except Exception as file_e:
+            new_history.error_message += f" (Failed to write log file: {file_e})"
+            
         new_history.save()
 
 class CrawlerTransformView(APIView):

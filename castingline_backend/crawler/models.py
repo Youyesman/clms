@@ -104,10 +104,19 @@ class MovieSchedule(models.Model):
         CGVScheduleLog 객체를 받아 파싱하여 MovieSchedule 데이터를 일괄 생성/업데이트합니다.
         (Bulk Operation 적용)
         """
-        if not log.response_json or "data" not in log.response_json:
+        # [Robust JSON Parse]
+        json_data = log.response_json
+        if isinstance(json_data, str):
+            try:
+                import json
+                json_data = json.loads(json_data)
+            except:
+                json_data = {}
+
+        if not json_data or "data" not in json_data:
             return 0, []
 
-        data_list = log.response_json["data"]
+        data_list = json_data["data"]
         from datetime import datetime
         from django.utils import timezone
         
@@ -262,7 +271,14 @@ class MovieSchedule(models.Model):
         from datetime import datetime, timedelta
         from django.utils import timezone
 
+        # [Robust JSON Parse]
         json_data = log.response_json or {}
+        if isinstance(json_data, str):
+            try:
+                import json
+                json_data = json.loads(json_data)
+            except:
+                json_data = {}
         mega_map = json_data.get("megaMap", {})
         movie_list = mega_map.get("movieFormList", [])
         
@@ -398,7 +414,14 @@ class MovieSchedule(models.Model):
         from datetime import datetime, timedelta
         from django.utils import timezone
 
+        # [Robust JSON Parse]
         json_data = log.response_json or {}
+        if isinstance(json_data, str):
+            try:
+                import json
+                json_data = json.loads(json_data)
+            except:
+                json_data = {}
         
         # 롯데시네마 API 구조 분석 필요 - 실제 API 응답에 따라 수정 필요
         # 일반적인 극장 API 패턴: Movies 리스트 > PlaySchedules 리스트
@@ -406,8 +429,23 @@ class MovieSchedule(models.Model):
         play_list = json_data.get("PlaySeqs", [])
         items = json_data.get("Items", [])
         
-        # 어떤 키가 실제로 사용되는지 확인 후 처리
-        schedule_data = movies or play_list or items or []
+        schedule_data = []
+        
+        # Priority 1: Movies (List)
+        if movies and isinstance(movies, list):
+            schedule_data = movies
+        # Priority 2: PlaySeqs (Dict or List)
+        elif play_list:
+            if isinstance(play_list, dict) and "Items" in play_list:
+                schedule_data = play_list["Items"]
+            elif isinstance(play_list, list):
+                schedule_data = play_list
+        # Priority 3: Items (List)
+        elif items and isinstance(items, list):
+            schedule_data = items
+            
+        if not isinstance(schedule_data, list):
+            schedule_data = []
         
         parsed_items = []
         target_dates = set()

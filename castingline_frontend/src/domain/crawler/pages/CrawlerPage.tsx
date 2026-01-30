@@ -216,9 +216,9 @@ export const CrawlerPage = () => {
         }
     };
 
-    const handleDownload = (historyId: number) => {
+    const handleDownload = (item: ICrawlerHistory) => {
         const token = localStorage.getItem("token");
-        fetch(`${BASE_URL}/crawler/download/${historyId}`, {
+        fetch(`${BASE_URL}/crawler/download/${item.id}`, {
             headers: { 'Authorization': `token ${token}` }
         })
             .then(response => {
@@ -229,7 +229,14 @@ export const CrawlerPage = () => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `crawler_log_${historyId}.xlsx`; // Changed name to crawler_log
+
+                // Determine extension
+                let ext = ".xlsx";
+                if (item.excel_file_path && item.excel_file_path.endsWith(".txt")) {
+                    ext = ".txt";
+                }
+
+                a.download = `crawler_log_${item.id}${ext}`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
@@ -411,7 +418,7 @@ export const CrawlerPage = () => {
                     ) : (
                         <div style={{ display: 'flex', gap: '6px' }}>
                             <button
-                                onClick={() => handleDownload(item.id)}
+                                onClick={() => handleDownload(item)}
                                 style={{
                                     background: 'none',
                                     border: '1px solid #e2e8f0',
@@ -475,7 +482,30 @@ export const CrawlerPage = () => {
                         중단
                     </button>
                 ) : item.status === 'FAILED' ? (
-                    <span style={{ fontSize: '11px', color: '#ef4444' }}>{item.error_message?.slice(0, 10)}...</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', color: '#ef4444' }}>{item.error_message?.slice(0, 10)}...</span>
+                        {item.excel_file_path && (
+                            <button
+                                onClick={() => handleDownload(item)}
+                                style={{
+                                    background: '#fff1f2',
+                                    border: '1px solid #fecaca',
+                                    borderRadius: '6px',
+                                    padding: '2px 6px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                    color: '#e11d48',
+                                    fontSize: '10px',
+                                    fontWeight: 500
+                                }}
+                            >
+                                <DownloadSimple size={12} />
+                                로그
+                            </button>
+                        )}
+                    </div>
                 ) : "-"
             )
         }
@@ -564,6 +594,6 @@ export const CrawlerPage = () => {
                 onClose={() => setIsExportModalOpen(false)}
                 historyItem={exportTargetHistory}
             />
-        </PageContainer>
+        </PageContainer >
     );
 };
