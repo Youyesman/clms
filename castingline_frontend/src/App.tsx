@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useOutlet } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { RecoilRoot, useRecoilValue } from "recoil";
+import { RecoilRoot, useRecoilState, useRecoilValue } from "recoil";
 import styled from "styled-components";
 import Topbar from "./components/navbar/Topbar";
 import { SnackbarProvider } from "notistack";
@@ -12,10 +12,15 @@ import StaffTopbar from "./components/navbar/StaffTopbar";
 import CustomerTopbar from "./components/navbar/CustomerTopbar";
 import { Sidebar } from "./components/navbar/Sidebar";
 import { GlobalSkeleton } from "./components/common/GlobalSkeleton";
+import { TabBar } from "./components/navbar/TabBar";
+import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "./atom/TabState";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 // AppContainer의 prop 타입 정의
 interface AppContainerProps {
     $hasSidebar?: boolean; // 사이드바 유무에 따른 마진 조절
+    $hasTabBar?: boolean;  // 탭바 유무에 따른 상단 패딩 조절
 }
 
 const AppContainer = styled.div<AppContainerProps>`
@@ -24,22 +29,70 @@ const AppContainer = styled.div<AppContainerProps>`
     display: flex;
     /* 사이드바가 확장되었을 때 220px, 접혔을 때 72px, 없으면 0 */
     padding-left: ${({ $hasSidebar }) => ($hasSidebar ? "72px" : "0")};
-    /* GNB(Topbar) 높이만큼 상단 여백 확보 */
-    padding-top: 60px;
+    /* GNB(Topbar) 높이 + TabBar 높이 */
+    padding-top: ${({ $hasTabBar }) => ($hasTabBar ? "96px" : "60px")};
     transition: padding-left 0.3s ease;
 
     .outlet-container {
         flex: 1;
         min-width: 0;
-        min-height: calc(100vh - 60px);
+        min-height: calc(100vh - ${({ $hasTabBar }) => ($hasTabBar ? "96px" : "60px")});
     }
 `;
+
+// 랜딩/로그인 페이지에서는 레이아웃 없이 전체 화면 표시
+const FULLSCREEN_PATHS = ["/", "/login"];
 
 function App() {
     const location = useLocation();
     const currentOutlet = useOutlet();
     const account = useRecoilValue(AccountState);
     const showStaffUI = account?.is_superuser;
+    const navigate = useNavigate();
+
+    const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
+    const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
+
+    const isFullscreen = FULLSCREEN_PATHS.includes(location.pathname);
+    const isManagePath = location.pathname.startsWith("/manage");
+
+    // URL 변경 시 → /manage 하위면 자동으로 탭 추가/활성화
+    useEffect(() => {
+        if (!isManagePath || !showStaffUI) return;
+
+        const path = location.pathname;
+        const label = PATH_TO_TAB_LABEL[path];
+        if (!label) return; // 매핑 없으면 무시
+
+        const tabId = path;
+        const existingTab = openTabs.find((t) => t.id === tabId);
+
+        if (!existingTab) {
+            const newTab: Tab = {
+                id: tabId,
+                label,
+                path,
+                closable: true,
+            };
+            setOpenTabs((prev) => [...prev, newTab]);
+        }
+        setActiveTabId(tabId);
+    }, [location.pathname, isManagePath, showStaffUI]);
+
+    // 풀스크린 페이지 (랜딩, 로그인): Topbar/Sidebar 숨김
+    if (isFullscreen) {
+        return (
+            <>
+                <GlobalAlert />
+                <GlobalSkeleton />
+                <CustomToastProvider>
+                    <GlobalModalProvider>
+                        {currentOutlet}
+                    </GlobalModalProvider>
+                </CustomToastProvider>
+            </>
+        );
+    }
 
     return (
         <>
@@ -50,16 +103,20 @@ function App() {
                     <>
                         <Sidebar />
                         <StaffTopbar $hasSidebar={showStaffUI} />
+                        <TabBar $hasSidebar={showStaffUI} />
                     </>
                 ) : (
                     <CustomerTopbar />
                 )}
-                <AppContainer $hasSidebar={showStaffUI}>
+                <AppContainer
+                    $hasSidebar={showStaffUI}
+                    $hasTabBar={showStaffUI && isManagePath}
+                >
                     <div className="outlet-container">
                         <GlobalModalProvider>
                             <AnimatePresence mode="wait">
                                 <motion.div
-                                    key={location.pathname}
+                                    key={isManagePath ? "manage" : location.pathname}
                                     initial={{ opacity: 0, x: -20 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     exit={{ opacity: 0, x: 20 }}

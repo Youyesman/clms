@@ -1,15 +1,16 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, Coins, MapPin, Receipt,
     SealCheck, Bank, Percent, SignOut, UserCircle, Bug
 } from "@phosphor-icons/react";
-import { useRecoilValue, useResetRecoilState } from "recoil";
+import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
 import { AxiosGet } from "../../axios/Axios";
+import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../atom/TabState";
 
 const SidebarContainer = styled.aside<{ $isExpanded: boolean }>`
     width: ${({ $isExpanded }) => ($isExpanded ? "220px" : "72px")};
@@ -116,17 +117,18 @@ const GroupTitle = styled.div<{ $isExpanded: boolean }>`
     white-space: nowrap;
 `;
 
-const NavItem = styled(NavLink) <{ $isExpanded: boolean }>`
+const NavItem = styled.div<{ $isExpanded: boolean; $isActive: boolean }>`
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 10px 24px;
-    color: #94a3b8;
+    color: ${({ $isActive }) => ($isActive ? "#3b82f6" : "#94a3b8")};
     text-decoration: none;
     font-size: 13.5px;
     font-weight: 600;
     transition: all 0.2s ease;
     white-space: nowrap;
+    cursor: pointer;
 
     svg {
         min-width: 24px;
@@ -143,12 +145,13 @@ const NavItem = styled(NavLink) <{ $isExpanded: boolean }>`
         color: #f8fafc;
     }
 
-    &.active {
+    ${({ $isActive }) =>
+        $isActive &&
+        `
         background-color: #1e293b;
-        color: #3b82f6;
         border-left: 4px solid #3b82f6;
         padding-left: 20px;
-    }
+    `}
 `;
 
 const UserSection = styled.div<{ $isExpanded: boolean }>`
@@ -202,18 +205,48 @@ const LogoutButton = styled.button<{ $isExpanded: boolean }>`
 export function Sidebar() {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const location = useLocation();
     const nowAccount = useRecoilValue(AccountState);
     const resetAccount = useResetRecoilState(AccountState);
     const [isHovered, setIsHovered] = useState(false);
+
+    const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
+    const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
 
     const handleLogout = async () => {
         try {
             await AxiosGet("logout");
         } catch (e) { }
         resetAccount();
+        setOpenTabs([]); // 탭 초기화
+        setActiveTabId(null);
         localStorage.clear();
         navigate("/login");
     };
+
+    /** 사이드바 메뉴 클릭 → 탭 추가 + 활성화 + navigate */
+    const handleNavClick = (path: string) => {
+        const label = PATH_TO_TAB_LABEL[path] || path;
+        const tabId = path;
+
+        // 이미 열려있지 않으면 탭 추가
+        const exists = openTabs.find((t) => t.id === tabId);
+        if (!exists) {
+            const newTab: Tab = {
+                id: tabId,
+                label,
+                path,
+                closable: true,
+            };
+            setOpenTabs((prev) => [...prev, newTab]);
+        }
+
+        // 활성 탭 설정 + 라우팅
+        setActiveTabId(tabId);
+        navigate(path);
+    };
+
+    const isActive = (path: string) => location.pathname === path;
 
     return (
         <SidebarContainer
@@ -221,7 +254,7 @@ export function Sidebar() {
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            <LogoWrapper $isExpanded={isHovered} onClick={() => navigate("/")}>
+            <LogoWrapper $isExpanded={isHovered} onClick={() => navigate("/manage")}>
                 {isHovered ? (
                     <FullLogo>
                         <div className="logo-icon-sm">C</div>
@@ -238,11 +271,21 @@ export function Sidebar() {
             <NavSection>
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("DASHBOARD")}</GroupTitle>
-                    <NavItem to="/score" $isExpanded={isHovered} title={t("스코어 현황")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/score")}
+                        onClick={() => handleNavClick("/manage/score")}
+                        title={t("스코어 현황")}
+                    >
                         <ChartBar size={24} />
                         <span className="label">{t("스코어 현황")}</span>
                     </NavItem>
-                    <NavItem to="/time_table" $isExpanded={isHovered} title={t("시간표 조회")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/time_table")}
+                        onClick={() => handleNavClick("/manage/time_table")}
+                        title={t("시간표 조회")}
+                    >
                         <Calendar size={24} />
                         <span className="label">{t("시간표 조회")}</span>
                     </NavItem>
@@ -250,23 +293,48 @@ export function Sidebar() {
 
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("CORE INFO")}</GroupTitle>
-                    <NavItem to="/manage/manage_user" $isExpanded={isHovered} title={t("사용자 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_user")}
+                        onClick={() => handleNavClick("/manage/manage_user")}
+                        title={t("사용자 관리")}
+                    >
                         <Users size={24} />
                         <span className="label">{t("사용자 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_client" $isExpanded={isHovered} title={t("거래처 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_client")}
+                        onClick={() => handleNavClick("/manage/manage_client")}
+                        title={t("거래처 관리")}
+                    >
                         <Buildings size={24} />
                         <span className="label">{t("거래처 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_movie" $isExpanded={isHovered} title={t("영화 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_movie")}
+                        onClick={() => handleNavClick("/manage/manage_movie")}
+                        title={t("영화 관리")}
+                    >
                         <FilmSlate size={24} />
                         <span className="label">{t("영화 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_theater_map" $isExpanded={isHovered} title={t("극장명 매핑")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_theater_map")}
+                        onClick={() => handleNavClick("/manage/manage_theater_map")}
+                        title={t("극장명 매핑")}
+                    >
                         <MapPin size={24} />
                         <span className="label">{t("극장명 매핑")}</span>
                     </NavItem>
-                    <NavItem to="/manage/crawler" $isExpanded={isHovered} title={t("크롤러 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/crawler")}
+                        onClick={() => handleNavClick("/manage/crawler")}
+                        title={t("크롤러 관리")}
+                    >
                         <Bug size={24} />
                         <span className="label">{t("크롤러 관리")}</span>
                     </NavItem>
@@ -274,15 +342,30 @@ export function Sidebar() {
 
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("OPERATIONS")}</GroupTitle>
-                    <NavItem to="/manage/manage_order" $isExpanded={isHovered} title={t("오더 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_order")}
+                        onClick={() => handleNavClick("/manage/manage_order")}
+                        title={t("오더 관리")}
+                    >
                         <ClipboardText size={24} />
                         <span className="label">{t("오더 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_score" $isExpanded={isHovered} title={t("스코어 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_score")}
+                        onClick={() => handleNavClick("/manage/manage_score")}
+                        title={t("스코어 관리")}
+                    >
                         <TrendUp size={24} />
                         <span className="label">{t("스코어 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_fund" $isExpanded={isHovered} title={t("기금 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_fund")}
+                        onClick={() => handleNavClick("/manage/manage_fund")}
+                        title={t("기금 관리")}
+                    >
                         <Bank size={24} />
                         <span className="label">{t("기금 관리")}</span>
                     </NavItem>
@@ -290,15 +373,30 @@ export function Sidebar() {
 
                 <NavGroup>
                     <GroupTitle $isExpanded={isHovered}>{t("SETTLEMENT")}</GroupTitle>
-                    <NavItem to="/manage/manage_rate" $isExpanded={isHovered} title={t("부율 관리")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_rate")}
+                        onClick={() => handleNavClick("/manage/manage_rate")}
+                        title={t("부율 관리")}
+                    >
                         <Percent size={24} />
                         <span className="label">{t("부율 관리")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_settlement" $isExpanded={isHovered} title={t("부금 정산")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_settlement")}
+                        onClick={() => handleNavClick("/manage/manage_settlement")}
+                        title={t("부금 정산")}
+                    >
                         <Receipt size={24} />
                         <span className="label">{t("부금 정산")}</span>
                     </NavItem>
-                    <NavItem to="/manage/manage_special_settlement" $isExpanded={isHovered} title={t("지정 부금")}>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/manage_special_settlement")}
+                        onClick={() => handleNavClick("/manage/manage_special_settlement")}
+                        title={t("지정 부금")}
+                    >
                         <SealCheck size={24} />
                         <span className="label">{t("지정 부금")}</span>
                     </NavItem>
@@ -307,7 +405,7 @@ export function Sidebar() {
 
             <UserSection $isExpanded={isHovered}>
                 <UserCircle size={32} weight="duotone" color="#3b82f6" style={{ minWidth: "32px" }} />
-                <UserInfo $isExpanded={isHovered} onClick={() => navigate("/manage/my_profile")}>
+                <UserInfo $isExpanded={isHovered} onClick={() => handleNavClick("/manage/my_profile")}>
                     <div className="name">{nowAccount?.username || "Guest"}</div>
                     <div className="role">{nowAccount?.is_superuser ? "Administrator" : "Staff"}</div>
                 </UserInfo>

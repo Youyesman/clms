@@ -1,2 +1,3 @@
 from .main_views import *
 from .slack_views import SlackInteractiveView
+from .tmdb_views import tmdb_trending, tmdb_upcoming, tmdb_now_playing, movie_news

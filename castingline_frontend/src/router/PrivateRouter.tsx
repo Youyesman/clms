@@ -4,6 +4,7 @@ import { useRecoilValue } from "recoil";
 import { AccountState } from "../atom/AccountState";
 import { BASE_URL } from "../axios/Axios";
 import axios from "axios";
+import { TabContentArea } from "../components/navbar/TabContentArea";
 
 const PrivateRouter = (): JSX.Element | null => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -48,9 +49,9 @@ const PrivateRouter = (): JSX.Element | null => {
     }, [navigate]);
 
     if (isAuthenticated) {
-        // ✅ account 정보가 있고, is_superuser가 true인 경우에만 Outlet 리턴
+        // ✅ account 정보가 있고, is_superuser가 true인 경우에만 TabContentArea 리턴
         if (account && account.is_superuser === true) {
-            return <Outlet />;
+            return <TabContentArea />;
         } else {
             // 권한이 없는 경우 (일반 유저 등)
             alert("관리자 권한이 필요한 페이지입니다.");
@@ -63,3 +64,4 @@ const PrivateRouter = (): JSX.Element | null => {
 };
 
 export default PrivateRouter;
+

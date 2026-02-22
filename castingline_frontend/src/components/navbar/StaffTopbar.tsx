@@ -96,10 +96,12 @@ const LiveClock = styled.div`
 
 // 경로별 한글 매핑 맵
 const PATH_MAP: Record<string, { group: string; name: string }> = {
+    "/manage": { group: "대시보드", name: "Casting Line Dashboard" },
     "/manage/manage_client": { group: "기준 정보", name: "거래처 관리" },
     "/manage/manage_user": { group: "기준 정보", name: "사용자 관리" },
     "/manage/manage_movie": { group: "기준 정보", name: "영화 관리" },
     "/manage/manage_theater_map": { group: "기준 정보", name: "극장명 매핑 관리" },
+    "/manage/crawler": { group: "기준 정보", name: "크롤러 관리" },
     "/manage/manage_order": { group: "운영 관리", name: "오더 관리" },
     "/manage/manage_score": { group: "운영 관리", name: "스코어 관리" },
     "/manage/manage_fund": { group: "운영 관리", name: "기금 관리" },
@@ -107,8 +109,8 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/manage_settlement": { group: "정산 관리", name: "부금 정산 관리" },
     "/manage/manage_special_settlement": { group: "정산 관리", name: "지정 부금 관리" },
     "/manage/my_profile": { group: "시스템", name: "내 정보 수정" },
-    "/score": { group: "대시보드", name: "스코어 현황" },
-    "/time_table": { group: "대시보드", name: "시간표 조회" },
+    "/manage/score": { group: "대시보드", name: "스코어 현황" },
+    "/manage/time_table": { group: "대시보드", name: "시간표 조회" },
 };
 
 function StaffTopbar({ $hasSidebar }: { $hasSidebar?: boolean }) {
