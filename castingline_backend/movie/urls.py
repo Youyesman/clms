@@ -16,4 +16,6 @@ urlpatterns = [
     path('tmdb/upcoming/', tmdb_upcoming, name='tmdb_upcoming'),
     path('tmdb/now_playing/', tmdb_now_playing, name='tmdb_now_playing'),
     path('news/movies/', movie_news, name='movie_news'),
+    path('news/naver/', naver_news, name='naver_news'),
+    path('blog/naver/', naver_blog, name='naver_blog'),
 ]
