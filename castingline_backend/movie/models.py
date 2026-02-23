@@ -69,5 +69,31 @@ class Movie(TimeStampedModel):
         return f"{self.title_ko} ({self.movie_code})"
 
 
+class CachedArticle(models.Model):
+    """뉴스/블로그 기사 캐시 (30분마다 갱신)"""
 
+    ARTICLE_TYPES = [
+        ("news", "뉴스"),
+        ("blog", "블로그"),
+    ]
+
+    article_type = models.CharField(max_length=10, choices=ARTICLE_TYPES)
+    query = models.CharField(max_length=255)  # 검색어
+    title = models.CharField(max_length=500)
+    description = models.TextField(blank=True, default="")
+    link = models.URLField(max_length=1000)
+    original_link = models.URLField(max_length=1000, blank=True, default="")
+    source = models.CharField(max_length=100, blank=True, default="")  # 언론사 or 블로거
+    pub_date = models.CharField(max_length=100, blank=True, default="")
+    image = models.URLField(max_length=1000, blank=True, default="")
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-fetched_at"]
+        indexes = [
+            models.Index(fields=["article_type", "query"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.article_type}] {self.title[:50]}"
 

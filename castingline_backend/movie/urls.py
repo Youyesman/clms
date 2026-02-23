@@ -18,4 +18,5 @@ urlpatterns = [
     path('news/movies/', movie_news, name='movie_news'),
     path('news/naver/', naver_news, name='naver_news'),
     path('blog/naver/', naver_blog, name='naver_blog'),
+    path('celeb/hollywood/', hollywood_celeb, name='hollywood_celeb'),
 ]

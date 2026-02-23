@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import styled, { keyframes } from "styled-components";
-import { CalendarBlank, FilmStrip, Star, Newspaper, ArrowUpRight, Clock, Image, PencilLine, User } from "@phosphor-icons/react";
+import { CalendarBlank, FilmStrip, Star, Newspaper, ArrowUpRight, Clock, Image, PencilLine, User, X, ArrowSquareOut } from "@phosphor-icons/react";
 import axios from "axios";
 import { BASE_URL } from "../../../axios/Axios";
 
@@ -31,7 +31,7 @@ interface BlogItem {
     title: string;
     description: string;
     link: string;
-    blogger_name: string;
+    source: string;
     pub_date: string;
     image: string;
 }
@@ -51,6 +51,23 @@ function formatTimeAgo(dateStr: string): string {
         if (diffHour < 24) return `${diffHour}시간 전`;
         if (diffDay < 7) return `${diffDay}일 전`;
         return date.toLocaleDateString("ko-KR");
+    } catch { return dateStr; }
+}
+
+function formatBlogDate(dateStr: string): string {
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return dateStr;
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMin = Math.floor(diffMs / 60000);
+        const diffHour = Math.floor(diffMin / 60);
+        if (diffMin < 60) return `${diffMin}분 전`;
+        if (diffHour < 24) return `${diffHour}시간 전`;
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
     } catch { return dateStr; }
 }
 
@@ -310,10 +327,10 @@ const BlogScrollContainer = styled.div`
     animation: ${fadeUp} 0.5s ease 0.1s both;
 `;
 
-const BlogCard = styled.a<{ $delay: number }>`
+const BlogCard = styled.div<{ $delay: number }>`
     flex: 0 0 320px; scroll-snap-align: start;
     display: flex; flex-direction: column;
-    border-radius: 14px; overflow: hidden;
+    border-radius: 14px; cursor: pointer; overflow: hidden;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.06);
     text-decoration: none; transition: all 0.3s ease;
@@ -327,32 +344,106 @@ const BlogCard = styled.a<{ $delay: number }>`
     }
 `;
 
-const BlogThumb = styled.div`
+const BlogCardThumb = styled.div`
     width: 100%; height: 160px; overflow: hidden;
     background: linear-gradient(135deg, #1a1a2e, #16213e);
-    img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
+    img {
+        width: 100%; height: 100%; object-fit: cover;
+        transition: transform 0.4s ease;
+    }
     ${BlogCard}:hover & img { transform: scale(1.05); }
 `;
 
-const BlogNoThumb = styled.div`
-    width: 100%; height: 160px;
+/* ── Modal ── */
+const ModalOverlay = styled.div`
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, #1a1a2e 0%, #1e293b 50%, #0f172a 100%);
-    color: #334155;
+    padding: 24px;
+    animation: ${fadeUp} 0.2s ease;
+`;
+
+const ModalContent = styled.div`
+    background: #1a1a2e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    max-width: 560px; width: 100%;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6);
+    animation: ${slideIn} 0.3s ease;
+
+    scrollbar-width: thin; scrollbar-color: #334155 transparent;
+    &::-webkit-scrollbar { width: 6px; }
+    &::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+`;
+
+const ModalHeader = styled.div`
+    display: flex; justify-content: flex-end;
+    padding: 16px 20px 0;
+`;
+
+const ModalCloseBtn = styled.button`
+    background: rgba(255,255,255,0.06); border: none;
+    color: #94a3b8; width: 36px; height: 36px;
+    border-radius: 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+    &:hover { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+`;
+
+const ModalImage = styled.div`
+    margin: 12px 20px 0; border-radius: 14px; overflow: hidden;
+    img { width: 100%; max-height: 280px; object-fit: cover; }
+`;
+
+const ModalBody = styled.div`
+    padding: 20px 24px 28px;
+
+    .m-source {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11px; color: #a78bfa; font-weight: 700;
+        background: rgba(168, 85, 247, 0.12);
+        padding: 4px 10px; border-radius: 20px;
+        margin-bottom: 12px;
+    }
+    .m-title {
+        font-size: 20px; font-weight: 800; color: #f1f5f9;
+        line-height: 1.45; margin: 0 0 12px;
+    }
+    .m-desc {
+        font-size: 14px; color: #94a3b8; line-height: 1.7; margin: 0 0 20px;
+    }
+    .m-date {
+        font-size: 12px; color: #64748b; margin-bottom: 20px;
+        display: flex; align-items: center; gap: 5px;
+    }
+`;
+
+const ModalLinkBtn = styled.a`
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(135deg, #7c3aed, #a78bfa);
+    color: white; font-size: 14px; font-weight: 700;
+    padding: 12px 24px; border-radius: 12px;
+    text-decoration: none; transition: all 0.3s;
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+    }
 `;
 
 const BlogBody = styled.div`
-    padding: 16px; display: flex; flex-direction: column; gap: 8px; flex: 1;
+    padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; flex: 1;
 
     .b-title {
         font-size: 15px; font-weight: 700; color: #e2e8f0;
-        line-height: 1.45; margin: 0;
+        line-height: 1.5; margin: 0;
         display: -webkit-box; -webkit-line-clamp: 2;
         -webkit-box-orient: vertical; overflow: hidden;
     }
     .b-desc {
-        font-size: 12px; color: #94a3b8; line-height: 1.5; margin: 0;
-        display: -webkit-box; -webkit-line-clamp: 2;
+        font-size: 13px; color: #94a3b8; line-height: 1.55; margin: 0;
+        display: -webkit-box; -webkit-line-clamp: 3;
         -webkit-box-orient: vertical; overflow: hidden;
     }
     .b-meta {
@@ -366,7 +457,7 @@ const BlogBody = styled.div`
 `;
 
 const SkeletonBlog = styled.div`
-    flex: 0 0 320px; height: 300px; border-radius: 14px;
+    flex: 0 0 320px; height: 280px; border-radius: 14px;
     background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.06));
     animation: pulse 1.5s ease-in-out infinite;
 `;
@@ -390,6 +481,10 @@ export default function NewsSection() {
     const [errorM, setErrorM] = useState("");
     const [errorN, setErrorN] = useState("");
     const [errorB, setErrorB] = useState("");
+    const [selectedBlog, setSelectedBlog] = useState<BlogItem | null>(null);
+    const [celebs, setCelebs] = useState<BlogItem[]>([]);
+    const [loadingC, setLoadingC] = useState(true);
+    const [errorC, setErrorC] = useState("");
 
     useEffect(() => {
         axios
@@ -399,17 +494,24 @@ export default function NewsSection() {
             .finally(() => setLoadingM(false));
 
         axios
-            .get(`${BASE_URL}/news/naver/`, { params: { q: "영화 개봉 OR 박스오피스 OR 영화제 OR 할리우드 배우 OR 한국 배우", display: 12 } })
+            .get(`${BASE_URL}/news/naver/`, { params: { q: "영화", display: 20 } })
             .then((res) => setNews(res.data.results || []))
             .catch(() => setErrorN("뉴스를 불러올 수 없습니다."))
             .finally(() => setLoadingN(false));
 
         // 영화 칼럼/리뷰
         axios
-            .get(`${BASE_URL}/blog/naver/`, { params: { q: "왕과사는남자 영화평 OR 휴민트 영화평", display: 10 } })
+            .get(`${BASE_URL}/blog/naver/`, { params: { q: "영화 리뷰", display: 10 } })
             .then((res) => setBlogs(res.data.results || []))
             .catch(() => setErrorB("블로그를 불러올 수 없습니다."))
             .finally(() => setLoadingB(false));
+
+        // 할리우드 스타
+        axios
+            .get(`${BASE_URL}/celeb/hollywood/`, { params: { q: "hollywood celebrity", display: 10 } })
+            .then((res) => setCelebs(res.data.results || []))
+            .catch(() => setErrorC("할리우드 스타 소식을 불러올 수 없습니다."))
+            .finally(() => setLoadingC(false));
     }, []);
 
     // 이미지 있는 기사를 상단 featured로, 없으면 compact로
@@ -529,8 +631,8 @@ export default function NewsSection() {
                     <div className="icon-circle" style={{ background: "rgba(168, 85, 247, 0.12)", color: "#a78bfa" }}>
                         <PencilLine size={22} weight="bold" />
                     </div>
-                    <h2>✍️ 영화평</h2>
-                    <span className="subtitle">블로거들의 영화 이야기</span>
+                    <h2>🌍 해외 영화 소식</h2>
+                    <span className="subtitle">Variety · THR · IndieWire</span>
                 </SectionHeader>
 
                 {loadingB ? (
@@ -542,15 +644,11 @@ export default function NewsSection() {
                 ) : (
                     <BlogScrollContainer>
                         {blogs.map((blog, i) => (
-                            <BlogCard key={i} $delay={i} href={blog.link} target="_blank" rel="noopener noreferrer">
-                                {blog.image ? (
-                                    <BlogThumb>
+                            <BlogCard key={i} $delay={i} onClick={() => setSelectedBlog(blog)}>
+                                {blog.image && (
+                                    <BlogCardThumb>
                                         <img src={blog.image} alt="" loading="lazy" />
-                                    </BlogThumb>
-                                ) : (
-                                    <BlogNoThumb>
-                                        <PencilLine size={40} weight="thin" />
-                                    </BlogNoThumb>
+                                    </BlogCardThumb>
                                 )}
                                 <BlogBody>
                                     <p className="b-title">{blog.title}</p>
@@ -558,9 +656,93 @@ export default function NewsSection() {
                                     <div className="b-meta">
                                         <span className="b-author">
                                             <User size={12} />
-                                            {blog.blogger_name}
+                                            {blog.source}
                                         </span>
-                                        <span className="b-date">{blog.pub_date}</span>
+                                        <span className="b-date">{formatBlogDate(blog.pub_date)}</span>
+                                    </div>
+                                </BlogBody>
+                            </BlogCard>
+                        ))}
+                    </BlogScrollContainer>
+                )}
+
+                {/* ═══ 기사 모달 ═══ */}
+                {selectedBlog && (
+                    <ModalOverlay onClick={() => setSelectedBlog(null)}>
+                        <ModalContent onClick={(e) => e.stopPropagation()}>
+                            <ModalHeader>
+                                <ModalCloseBtn onClick={() => setSelectedBlog(null)}>
+                                    <X size={18} weight="bold" />
+                                </ModalCloseBtn>
+                            </ModalHeader>
+                            {selectedBlog.image && (
+                                <ModalImage>
+                                    <img src={selectedBlog.image} alt="" />
+                                </ModalImage>
+                            )}
+                            <ModalBody>
+                                <span className="m-source">
+                                    <PencilLine size={12} />
+                                    {selectedBlog.source}
+                                </span>
+                                <h2 className="m-title">{selectedBlog.title}</h2>
+                                {selectedBlog.description && (
+                                    <p className="m-desc">{selectedBlog.description}</p>
+                                )}
+                                <div className="m-date">
+                                    <Clock size={13} />
+                                    {formatBlogDate(selectedBlog.pub_date)}
+                                </div>
+                                <ModalLinkBtn
+                                    href={selectedBlog.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    <ArrowSquareOut size={16} weight="bold" />
+                                    원문 보기
+                                </ModalLinkBtn>
+                            </ModalBody>
+                        </ModalContent>
+                    </ModalOverlay>
+                )}
+
+                <Divider />
+            </Section>
+
+            {/* ═══ 할리우드 스타 ═══ */}
+            <Section>
+                <SectionHeader>
+                    <div className="icon-circle" style={{ background: "rgba(244, 63, 94, 0.12)", color: "#fb7185" }}>
+                        <Star size={22} weight="bold" />
+                    </div>
+                    <h2>⭐ 할리우드 스타</h2>
+                    <span className="subtitle">TMZ · Page Six · People · E! News</span>
+                </SectionHeader>
+
+                {loadingC ? (
+                    <BlogScrollContainer>
+                        {[...Array(4)].map((_, i) => <SkeletonBlog key={i} />)}
+                    </BlogScrollContainer>
+                ) : errorC ? (
+                    <ErrorMsg>{errorC}</ErrorMsg>
+                ) : (
+                    <BlogScrollContainer>
+                        {celebs.map((celeb, i) => (
+                            <BlogCard key={i} $delay={i} onClick={() => setSelectedBlog(celeb)}>
+                                {celeb.image && (
+                                    <BlogCardThumb>
+                                        <img src={celeb.image} alt="" loading="lazy" />
+                                    </BlogCardThumb>
+                                )}
+                                <BlogBody>
+                                    <p className="b-title">{celeb.title}</p>
+                                    {celeb.description && <p className="b-desc">{celeb.description}</p>}
+                                    <div className="b-meta">
+                                        <span className="b-author">
+                                            <Star size={12} />
+                                            {celeb.source}
+                                        </span>
+                                        <span className="b-date">{formatBlogDate(celeb.pub_date)}</span>
                                     </div>
                                 </BlogBody>
                             </BlogCard>
