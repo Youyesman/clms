@@ -252,10 +252,14 @@ export function CustomSelect({
         return () => document.removeEventListener("mousedown", handleOutside);
     }, []);
 
-    // 스크롤 시 드롭다운 닫기 (capture: true로 중첩 스크롤도 감지)
+    // 스크롤 시 드롭다운 닫기 (드롭다운 내부 스크롤은 제외)
     useEffect(() => {
         if (!isOpen) return;
-        const close = () => setIsOpen(false);
+        const close = (e: Event) => {
+            // 드롭다운 내부에서 발생한 스크롤은 무시
+            if (dropdownRef.current?.contains(e.target as Node)) return;
+            setIsOpen(false);
+        };
         window.addEventListener("scroll", close, true);
         return () => window.removeEventListener("scroll", close, true);
     }, [isOpen]);

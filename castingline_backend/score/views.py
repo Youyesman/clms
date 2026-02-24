@@ -325,7 +325,11 @@ class ScoreViewSet(viewsets.ModelViewSet):
         })
 
 
-def get_movie_ids_for_primary(movie_id):
+def get_movie_ids_for_primary(movie_id, format_movie_ids=None):
+    """
+    대표 영화 ID를 기준으로 관련 영화 ID들을 반환합니다.
+    format_movie_ids가 제공되면 해당 서브영화 ID만 필터링하여 반환합니다.
+    """
     try:
         primary = Movie.objects.get(id=movie_id, is_primary_movie=True)
     except Movie.DoesNotExist:
@@ -333,6 +337,11 @@ def get_movie_ids_for_primary(movie_id):
 
     base_code = primary.movie_code.strip()
 
+    # 특정 포맷(서브영화)이 지정된 경우: 대표영화 + 지정된 서브영화만 반환
+    if format_movie_ids:
+        return [primary.id] + [int(fid) for fid in format_movie_ids if str(fid).isdigit()]
+
+    # 전체 하위영화 반환 (기존 동작)
     related_movies = Movie.objects.annotate(
         trimmed_code=Trim("primary_movie_code")
     ).filter(Q(movie_code=base_code) | Q(trimmed_code=base_code))
@@ -381,7 +390,11 @@ def score_by_region(movie_id, request):
     date_to_str = request.query_params.get("date_to")
     compare_mode = request.query_params.get("compare_mode", "daily")
 
-    movie_ids = get_movie_ids_for_primary(movie_id)
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
     if not date_from_str or not movie_ids:
         return Response({"error": "필수 파라미터 누락"}, status=400)
 
@@ -486,7 +499,11 @@ def score_by_multi(movie_id, request):
     date_to_str = request.query_params.get("date_to")
     compare_mode = request.query_params.get("compare_mode", "daily")
 
-    movie_ids = get_movie_ids_for_primary(movie_id)
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
     if not date_from_str or not movie_ids:
         return Response({"error": "필수 파라미터가 누락되었습니다."}, status=400)
 

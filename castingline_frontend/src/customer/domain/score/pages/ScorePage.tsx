@@ -115,29 +115,50 @@ export function ScorePage() {
         date: new Date().toISOString().split("T")[0],
     });
 
-    // 포맷 선택 상태 (모든 카테고리 통합)
+    // 포맷(서브영화) 선택 상태
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
+    // API에서 가져온 하위영화(포맷) 목록
+    const [formatOptions, setFormatOptions] = useState<{ id: number; label: string; movie_code: string }[]>([]);
 
-    const FORMAT_GROUPS: FormatGroup[] = [
-        { label: '필름/디지털', key: 'film_digital', items: ['필름', '디지털'] },
-        { label: '더빙/자막', key: 'dub_sub', items: ['자막', '더빙', '영어자막', '한글자막'] },
-        { label: '2D/3D/4D', key: 'dim_2d_3d', items: ['2D', '3D', '4D'] },
-        { label: 'IMAX/ATMOS', key: 'imax', items: ['IMAX', 'ATMOS'] },
-        { label: '4DX', key: 'screen_4dx', items: ['4-DX', 'Super-4D', 'Dolby', '광음시네마', 'MX4D'] },
-        { label: 'IMAX-L', key: 'laser', items: ['LASER'] },
-        { label: 'ScreenX', key: 'screen_x', items: ['ScreenX'] },
-    ];
+    // 하위영화 목록 → CustomMultiSelect 그룹 형태로 변환
+    const FORMAT_GROUPS: FormatGroup[] = useMemo(() => {
+        if (formatOptions.length === 0) return [];
+        return [{
+            label: '서브영화',
+            key: 'sub_movies',
+            items: formatOptions.map((f) => f.label),
+        }];
+    }, [formatOptions]);
+
+    // 영화 선택 시 → 하위영화(포맷) 목록 조회
+    const fetchMovieFormats = useCallback((movieId: string) => {
+        if (!movieId) {
+            setFormatOptions([]);
+            setSelectedFormats([]);
+            return;
+        }
+        AxiosGet(`score/movie-formats/`, { params: { movie_id: movieId } })
+            .then((res) => {
+                setFormatOptions(res.data || []);
+                setSelectedFormats([]);
+            })
+            .catch((err) => toast.error(handleBackendErrors(err)));
+    }, [toast]);
+
     const yearOptions = useMemo(() => {
         const currentYear = new Date().getFullYear();
         return Array.from({ length: 11 }, (_, i) => (currentYear - i).toString());
     }, []);
+
+    // 대표영화만 가져오는 API (score/movies-by-year/)
     const fetchMoviesByYear = useCallback(
         (year: string) => {
-            // 엔드포인트를 신규 API인 'movies/public/'으로 변경
-            AxiosGet(`public_movies/`, { params: { release_year: year } })
+            AxiosGet(`score/movies-by-year/`, { params: { year } })
                 .then((res) => {
                     setMoviesList(res.data || []);
-                    setSearchParams((prev) => ({ ...prev, movie_id: "" })); // 연도 변경 시 선택 초기화
+                    setSearchParams((prev) => ({ ...prev, movie_id: "" }));
+                    setFormatOptions([]);
+                    setSelectedFormats([]);
                 })
                 .catch((err) => toast.error(handleBackendErrors(err)));
         },
@@ -162,12 +183,23 @@ export function ScorePage() {
     };
     const fetchStatistics = useCallback(() => {
         if (!activeFilters.movie_id) return;
+        // 선택된 포맷 라벨 → 서브영화 ID 매핑
+        const formatIds = selectedFormats
+            .map((label) => formatOptions.find((f) => f.label === label)?.id)
+            .filter(Boolean)
+            .join(",");
         AxiosGet(`score/summary/`, {
-            params: { ...activeFilters, compare_mode: compareMode, date_from: activeFilters.date, date_to: activeFilters.date },
+            params: {
+                ...activeFilters,
+                compare_mode: compareMode,
+                date_from: activeFilters.date,
+                date_to: activeFilters.date,
+                ...(formatIds ? { format_movie_ids: formatIds } : {}),
+            },
         })
             .then((res) => setData(res.data || []))
             .catch((err) => toast.error(handleBackendErrors(err)));
-    }, [activeFilters, compareMode]);
+    }, [activeFilters, compareMode, selectedFormats, formatOptions]);
 
     useEffect(() => {
         fetchStatistics();
@@ -311,7 +343,13 @@ export function ScorePage() {
                                 }
                                 onChange={(val) => {
                                     const selected = moviesList.find((m) => m.title_ko === val);
-                                    setSearchParams((prev) => ({ ...prev, movie_id: selected?.id.toString() || "" }));
+                                    const movieId = selected?.id.toString() || "";
+                                    setSearchParams((prev) => {
+                                        const next = { ...prev, movie_id: movieId };
+                                        if (movieId) setActiveFilters(next);
+                                        return next;
+                                    });
+                                    fetchMovieFormats(movieId);
                                 }}
                             />
                         </div>
@@ -335,14 +373,16 @@ export function ScorePage() {
 
                     {/* 2열: 나머지 필터들 */}
                     <FilterRow>
-                        <div>
-                            <CustomMultiSelect
-                                label="포맷"
-                                groups={FORMAT_GROUPS}
-                                value={selectedFormats}
-                                onChange={setSelectedFormats}
-                            />
-                        </div>
+                        {formatOptions.length > 0 && (
+                            <div>
+                                <CustomMultiSelect
+                                    label="포맷"
+                                    groups={FORMAT_GROUPS}
+                                    value={selectedFormats}
+                                    onChange={setSelectedFormats}
+                                />
+                            </div>
+                        )}
                         <div>
                             <CustomSelect
                                 label="지역"
