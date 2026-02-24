@@ -5,12 +5,14 @@ import axios from "axios";
 
 // export const BASE_URL = "http://127.0.0.1:8000/Api";
 // export const WEBSOCKET_URL = "ws://127.0.0.1:8000";
+const apiPort = process.env.REACT_APP_API_PORT || '8000';
+
 export const BASE_URL = process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8000/Api'
+    ? `http://localhost:${apiPort}/Api`
     : '/Api';
 
 export const WEBSOCKET_URL = process.env.NODE_ENV === 'development'
-    ? 'ws://localhost:8000'
+    ? `ws://localhost:${apiPort}`
     : (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname;
 
 //모바일 웹뷰테스트용
@@ -31,6 +33,70 @@ const updateLoadingState = (delta: number) => {
 };
 
 let isUnauthorized = false;
+
+/* ── 세션 만료 모달 (React 트리 외부이므로 순수 DOM으로 생성합니다) ── */
+function showSessionExpiredModal() {
+    // 이미 모달이 존재하면 중복 생성 방지
+    if (document.getElementById("session-expired-modal")) return;
+
+    const overlay = document.createElement("div");
+    overlay.id = "session-expired-modal";
+    Object.assign(overlay.style, {
+        position: "fixed", inset: "0", zIndex: "99999",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0, 0, 0, 0.5)",
+        backdropFilter: "blur(4px)",
+        fontFamily: '"Pretendard", "Apple SD Gothic Neo", sans-serif',
+        animation: "fadeInModal 0.25s ease-out",
+    });
+
+    const card = document.createElement("div");
+    Object.assign(card.style, {
+        background: "#fff", borderRadius: "12px", padding: "40px 36px",
+        maxWidth: "400px", width: "90%", textAlign: "center",
+        boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+        border: "1px solid #e5e7eb",
+    });
+
+    const title = document.createElement("div");
+    title.textContent = "세션이 만료되었습니다";
+    Object.assign(title.style, {
+        fontSize: "20px", fontWeight: "700", color: "#111827",
+        marginBottom: "12px",
+    });
+
+    const desc = document.createElement("div");
+    desc.textContent = "보안을 위해 자동으로 로그아웃 되었습니다. 다시 로그인 해주세요.";
+    Object.assign(desc.style, {
+        fontSize: "14px", color: "#6b7280", lineHeight: "1.6",
+        marginBottom: "32px", wordBreak: "keep-all",
+    });
+
+    const btn = document.createElement("button");
+    btn.textContent = "로그인 페이지로 이동";
+    Object.assign(btn.style, {
+        width: "100%", padding: "14px", border: "1px solid #111827",
+        borderRadius: "6px", background: "#111827", color: "#fff",
+        fontSize: "15px", fontWeight: "600", cursor: "pointer",
+        transition: "background 0.2s",
+    });
+    btn.onmouseenter = () => { btn.style.background = "#1f2937"; };
+    btn.onmouseleave = () => { btn.style.background = "#111827"; };
+    btn.onclick = () => { window.location.href = "/login"; };
+
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(btn);
+    overlay.appendChild(card);
+
+    // 간단한 fadeIn 애니메이션 추가
+    const style = document.createElement("style");
+    style.textContent = `@keyframes fadeInModal { from { opacity: 0; } to { opacity: 1; } }`;
+    document.head.appendChild(style);
+
+    document.body.appendChild(overlay);
+}
+
 const axiosInstance = axios.create();
 
 axiosInstance.interceptors.request.use(
@@ -59,8 +125,7 @@ axiosInstance.interceptors.response.use(
                 localStorage.removeItem("AccountBtnStte");
                 localStorage.removeItem("AccountState");
                 localStorage.removeItem("TableColumnState");
-                alert("Invalid user. Please log in.");
-                window.location.href = "/login";
+                showSessionExpiredModal();
                 return Promise.reject(error);
             }
         }

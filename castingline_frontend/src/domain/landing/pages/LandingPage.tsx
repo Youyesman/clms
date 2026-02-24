@@ -3,32 +3,27 @@ import styled, { keyframes } from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { useRecoilValue } from "recoil";
 import { AccountState } from "../../../atom/AccountState";
-import { FilmReel, ArrowRight, ChartLineUp, ShieldCheck } from "@phosphor-icons/react";
-import NewsSection from "../components/NewsSection";
+import { FilmReel, ArrowRight, ChartLineUp, ShieldCheck, Database, Cloud, Desktop, FilmStrip } from "@phosphor-icons/react";
 
-/* ── Animations ── */
-const fadeUp = keyframes`
-    from { opacity: 0; transform: translateY(30px); }
+/* ── Refined Animations ── */
+const slideUp = keyframes`
+    from { opacity: 0; transform: translateY(20px); }
     to   { opacity: 1; transform: translateY(0); }
 `;
 
-const shimmer = keyframes`
-    0%   { background-position: -200% center; }
-    100% { background-position: 200% center; }
+const dataFlow = keyframes`
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
 `;
 
-const float = keyframes`
-    0%, 100% { transform: translateY(0); }
-    50%      { transform: translateY(-12px); }
-`;
-
-/* ── Styles ── */
+/* ── Styled Components (Modern B2B SaaS Style) ── */
 const PageWrapper = styled.div`
     min-height: 100vh;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #0f172a 100%);
+    background: #fcfcfd;
+    color: #111827;
+    font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif;
     display: flex;
     flex-direction: column;
-    font-family: "SUIT", "Pretendard", sans-serif;
     overflow-x: hidden;
 `;
 
@@ -37,34 +32,34 @@ const Nav = styled.nav`
     align-items: center;
     justify-content: space-between;
     padding: 20px 48px;
-    z-index: 10;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid #e5e7eb;
+    position: sticky;
+    top: 0;
+    z-index: 50;
 `;
 
 const Logo = styled.div`
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #111827;
+    cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 22px;
-    font-weight: 900;
-    letter-spacing: -0.5px;
+    gap: 8px;
 
-    .icon {
-        background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-        width: 38px;
-        height: 38px;
+    .icon-box {
+        background: #111827;
+        color: #fff;
+        width: 32px;
+        height: 32px;
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 10px;
-        color: #fff;
-        font-size: 20px;
-        box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
-    }
-    .white { color: #f8fafc; }
-    .blue  {
-        background: linear-gradient(90deg, #3b82f6, #818cf8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        border-radius: 6px;
+        font-size: 16px;
     }
 `;
 
@@ -73,201 +68,253 @@ const NavActions = styled.div`
     gap: 12px;
 `;
 
-const NavButton = styled.button<{ $primary?: boolean }>`
-    padding: 10px 24px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 700;
+const Button = styled.button<{ $primary?: boolean, $size?: "large" }>`
+    padding: ${({ $size }) => $size === "large" ? "16px 32px" : "10px 20px"};
+    font-size: ${({ $size }) => $size === "large" ? "16px" : "14px"};
+    font-weight: 600;
     cursor: pointer;
+    border-radius: 6px;
     transition: all 0.2s ease;
-    border: ${({ $primary }) => ($primary ? "none" : "1px solid #334155")};
-    background: ${({ $primary }) =>
-        $primary
-            ? "linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)"
-            : "transparent"};
-    color: ${({ $primary }) => ($primary ? "#fff" : "#94a3b8")};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    
+    background: ${({ $primary }) => ($primary ? "#111827" : "#ffffff")};
+    color: ${({ $primary }) => ($primary ? "#ffffff" : "#374151")};
+    border: 1px solid ${({ $primary }) => ($primary ? "#111827" : "#d1d5db")};
+    box-shadow: ${({ $primary }) => ($primary ? "0 4px 6px -1px rgba(0, 0, 0, 0.1)" : "0 1px 2px 0 rgba(0, 0, 0, 0.05)")};
 
     &:hover {
+        background: ${({ $primary }) => ($primary ? "#1f2937" : "#f9fafb")};
         transform: translateY(-1px);
-        box-shadow: ${({ $primary }) =>
-            $primary
-                ? "0 8px 24px rgba(59, 130, 246, 0.4)"
-                : "0 4px 12px rgba(0,0,0,0.2)"};
-        color: #fff;
+        box-shadow: ${({ $primary }) => ($primary ? "0 6px 8px -1px rgba(0, 0, 0, 0.15)" : "0 4px 6px -1px rgba(0, 0, 0, 0.05)")};
     }
 `;
 
 const HeroSection = styled.section`
-    flex: 1;
+    padding: 100px 48px 80px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     text-align: center;
-    padding: 60px 24px 80px;
-    gap: 32px;
-    position: relative;
+    max-width: 1000px;
+    margin: 0 auto;
+    width: 100%;
 `;
 
 const HeroBadge = styled.div`
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 18px;
-    background: rgba(59, 130, 246, 0.12);
-    border: 1px solid rgba(59, 130, 246, 0.25);
-    border-radius: 100px;
     font-size: 13px;
     font-weight: 600;
-    color: #60a5fa;
-    animation: ${fadeUp} 0.6s ease both;
+    color: #2563eb;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    padding: 6px 16px;
+    border-radius: 4px;
+    margin-bottom: 24px;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 `;
 
 const HeroTitle = styled.h1`
-    font-size: clamp(36px, 5vw, 60px);
-    font-weight: 900;
-    color: #f8fafc;
-    line-height: 1.15;
+    font-size: clamp(36px, 5vw, 56px);
+    font-weight: 800;
+    line-height: 1.2;
     letter-spacing: -1px;
-    margin: 0;
-    animation: ${fadeUp} 0.6s ease 0.15s both;
+    margin: 0 0 24px 0;
+    color: #111827;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+    word-break: keep-all;
 
-    .gradient {
-        background: linear-gradient(90deg, #3b82f6, #818cf8, #3b82f6);
-        background-size: 200% auto;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        animation: ${shimmer} 4s linear infinite;
+    span {
+        color: #2563eb;
     }
 `;
 
-const HeroDescription = styled.p`
+const HeroSubtitle = styled.p`
     font-size: 18px;
-    color: #94a3b8;
-    max-width: 560px;
+    color: #4b5563;
+    max-width: 680px;
     line-height: 1.7;
-    margin: 0;
-    animation: ${fadeUp} 0.6s ease 0.3s both;
+    margin: 0 0 40px 0;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    word-break: keep-all;
+
+    strong {
+        color: #111827;
+        font-weight: 600;
+    }
 `;
 
 const CTAGroup = styled.div`
     display: flex;
     gap: 16px;
-    animation: ${fadeUp} 0.6s ease 0.45s both;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
 `;
 
-const CTAButton = styled.button<{ $variant?: "primary" | "secondary" }>`
+/* ── Sleek Data flow Animation ── */
+const TechAnimationContainer = styled.div`
+    width: 100%;
+    max-width: 720px;
+    height: 120px;
+    margin: 60px auto 40px;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 14px 32px;
-    border-radius: 12px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    border: none;
-    transition: all 0.25s ease;
-
-    ${({ $variant }) =>
-        $variant === "secondary"
-            ? `
-        background: rgba(255,255,255,0.06);
-        color: #cbd5e1;
-        border: 1px solid #334155;
-        &:hover {
-            background: rgba(255,255,255,0.1);
-            border-color: #475569;
-            color: #f8fafc;
-        }
-    `
-            : `
-        background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-        color: #fff;
-        box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35);
-        &:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(59, 130, 246, 0.5);
-        }
-    `}
+    justify-content: space-between;
+    padding: 0 40px;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 `;
 
-const FeaturesGrid = styled.div`
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-    max-width: 900px;
-    margin-top: 20px;
-    animation: ${fadeUp} 0.6s ease 0.6s both;
+const TechNode = styled.div`
+    width: 64px;
+    height: 64px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #334155;
+    position: relative;
+    z-index: 2;
+    
+    &::after {
+        content: '';
+        position: absolute;
+        top: -4px; right: -4px;
+        width: 8px; height: 8px;
+        background: #10b981;
+        border-radius: 50%;
+        border: 2px solid #ffffff;
+    }
+`;
 
-    @media (max-width: 768px) {
+const TechLine = styled.div`
+    flex: 1;
+    height: 2px;
+    background: #e2e8f0;
+    margin: 0 16px;
+    position: relative;
+    overflow: hidden;
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; bottom: 0; width: 30%;
+        background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+        animation: ${dataFlow} 2s ease-in-out infinite;
+    }
+`;
+
+const FeaturesContainer = styled.div`
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto 80px;
+    padding: 0 48px;
+
+    @media (max-width: 800px) {
         grid-template-columns: 1fr;
     }
 `;
 
-const FeatureCard = styled.div`
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    padding: 28px 24px;
+const FeatureCard = styled.div<{ $delay: string }>`
+    padding: 32px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
     text-align: left;
     transition: all 0.3s ease;
+    animation: ${slideUp} 0.8s cubic-bezier(0.16, 1, 0.3, 1) ${({ $delay }) => $delay} both;
 
     &:hover {
-        background: rgba(255, 255, 255, 0.07);
-        border-color: rgba(59, 130, 246, 0.3);
-        transform: translateY(-4px);
+        border-color: #cbd5e1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        transform: translateY(-2px);
     }
 
-    .icon-box {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
+    .icon-wrapper {
+        width: 48px;
+        height: 48px;
+        border-radius: 6px;
+        background: #f1f5f9;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 16px;
-        background: rgba(59, 130, 246, 0.12);
-        color: #60a5fa;
+        color: #111827;
+        margin-bottom: 20px;
     }
 
     h3 {
-        font-size: 16px;
-        font-weight: 800;
-        color: #f1f5f9;
-        margin: 0 0 8px;
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0 0 12px 0;
+        color: #111827;
+        letter-spacing: -0.5px;
     }
 
     p {
-        font-size: 13.5px;
-        color: #64748b;
+        font-size: 14.5px;
+        color: #4b5563;
         line-height: 1.6;
         margin: 0;
+        word-break: keep-all;
     }
 `;
 
-const GlowOrb = styled.div<{ $top: string; $left: string; $color: string; $delay: string }>`
-    position: absolute;
-    width: 300px;
-    height: 300px;
-    border-radius: 50%;
-    background: ${({ $color }) => $color};
-    filter: blur(120px);
-    opacity: 0.15;
-    pointer-events: none;
-    top: ${({ $top }) => $top};
-    left: ${({ $left }) => $left};
-    animation: ${float} 6s ease-in-out ${({ $delay }) => $delay} infinite;
-`;
-
 const Footer = styled.footer`
-    padding: 24px 48px;
+    border-top: 1px solid #e5e7eb;
+    padding: 48px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    font-size: 12px;
-    color: #475569;
-    border-top: 1px solid #1e293b;
 `;
 
-/* ── Component ── */
+const FooterBrand = styled.div`
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #111827;
+    margin-bottom: 24px;
+`;
+
+const FooterInfo = styled.div`
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px 24px;
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 24px;
+    line-height: 1.5;
+
+    span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    b {
+        color: #374151;
+        font-weight: 600;
+    }
+`;
+
+const Copyright = styled.div`
+    font-size: 12px;
+    color: #9ca3af;
+`;
+
 export default function LandingPage() {
     const navigate = useNavigate();
     const account = useRecoilValue(AccountState);
@@ -276,31 +323,105 @@ export default function LandingPage() {
     return (
         <PageWrapper>
             <Nav>
-                <Logo>
-                    <div className="icon">C</div>
-                    <span className="white">CASTING</span>
-                    <span className="blue">LINE</span>
+                <Logo onClick={() => navigate("/")}>
+                    <div className="icon-box">
+                        <FilmStrip weight="fill" />
+                    </div>
+                    CASTINGLINE
                 </Logo>
                 <NavActions>
                     {isLoggedIn ? (
-                        <NavButton $primary onClick={() => navigate("/manage")}>
-                            대시보드로 이동
-                        </NavButton>
+                        <Button $primary onClick={() => navigate((account as any)?.is_superuser ? "/manage" : "/score")}>
+                            시스템 접속
+                        </Button>
                     ) : (
-                        <>
-                            <NavButton onClick={() => navigate("/score")}>스코어 조회</NavButton>
-                            <NavButton $primary onClick={() => navigate("/login")}>
-                                로그인
-                            </NavButton>
-                        </>
+                        <Button $primary onClick={() => navigate("/login")}>
+                            로그인
+                        </Button>
                     )}
                 </NavActions>
             </Nav>
 
-            <NewsSection />
+            <HeroSection>
+                <HeroBadge>
+                    <ShieldCheck weight="bold" size={16} /> 대한민국 No.1 영화 입회사
+                </HeroBadge>
+
+                <HeroTitle>
+                    투명한 데이터 스탠다드, <br /> <span>CASTINGLINE</span>
+                </HeroTitle>
+
+                <HeroSubtitle>
+                    캐스팅라인은 <strong>20년 업력</strong>의 영화 입회 노하우와 방대한 축적 데이터를 갖춘 전문 기업입니다. <br />
+                    매일 극장 데이터를 수집·가공하여 <strong>오차 없는 부금 정산</strong>을 수행하며, <br />
+                    나아가 <strong>빅데이터 기반의 인사이트</strong>로 가장 성공적인 배급 전략을 지원합니다.
+                </HeroSubtitle>
+
+                <CTAGroup>
+                    {isLoggedIn ? (
+                        <Button $primary $size="large" onClick={() => navigate((account as any)?.is_superuser ? "/manage" : "/score")}>
+                            <Desktop size={20} /> 대시보드 바로가기
+                        </Button>
+                    ) : (
+                        <>
+                            <Button $primary $size="large" onClick={() => navigate("/score")}>
+                                <ChartLineUp size={20} /> 스코어 조회 (배급사용)
+                            </Button>
+                            <Button $size="large" onClick={() => navigate("/login")}>
+                                관리자 로그인
+                            </Button>
+                        </>
+                    )}
+                </CTAGroup>
+
+                <TechAnimationContainer>
+                    <TechNode>
+                        <Database size={28} weight="duotone" />
+                    </TechNode>
+                    <TechLine />
+                    <TechNode>
+                        <Cloud size={28} weight="duotone" />
+                    </TechNode>
+                    <TechLine />
+                    <TechNode>
+                        <Desktop size={28} weight="duotone" />
+                    </TechNode>
+                </TechAnimationContainer>
+            </HeroSection>
+
+            <FeaturesContainer>
+                <FeatureCard $delay="0.4s">
+                    <div className="icon-wrapper"><ChartLineUp size={24} weight="bold" /></div>
+                    <h3>투명한 스코어 검증 (데이터 입회)</h3>
+                    <p>매일 오차 없는 현황판을 통해 복잡한 극장 관람객 수 및 티켓 단가를 교차 검증하여, 실시간 배급 척도를 제공합니다.</p>
+                </FeatureCard>
+                <FeatureCard $delay="0.5s">
+                    <div className="icon-wrapper"><ShieldCheck size={24} weight="bold" /></div>
+                    <h3>정확한 부금 정산 시스템</h3>
+                    <p>시스템 내 자동화된 부율 계산 과정을 통해, 배급사 및 극장 간의 투명하고 빠르고 무결한 부금 정산 서류를 발행합니다.</p>
+                </FeatureCard>
+                <FeatureCard $delay="0.6s">
+                    <div className="icon-wrapper"><FilmReel size={24} weight="bold" /></div>
+                    <h3>20년 누적 빅데이터 인사이트</h3>
+                    <p>20년 이상 누적된 스크린·스코어 아카이브에 기반해 최적의 타겟 상영관 배정 전략과 예상 수익성 모델링을 제안합니다.</p>
+                </FeatureCard>
+                <FeatureCard $delay="0.7s">
+                    <div className="icon-wrapper"><ArrowRight size={24} weight="bold" /></div>
+                    <h3>배급사 전산망 다이렉트 API</h3>
+                    <p>이중 입력의 번거로움 없이 입회 데이터 및 정산 완료 내역을 배급사 측 자체 ERP와 다이렉트로 안전하게 동기화합니다.</p>
+                </FeatureCard>
+            </FeaturesContainer>
 
             <Footer>
-                © 2026 Casting Line. All rights reserved.
+                <FooterBrand>CASTINGLINE</FooterBrand>
+                <FooterInfo>
+                    <span><b>회사명</b> (주) 캐스팅라인</span>
+                    <span><b>대표이사</b> 박미선</span>
+                    <span><b>전화</b> 02-2285-1790</span>
+                    <span><b>사업자등록번호</b> 201-181-69426</span>
+                    <span><b>주소</b> 경기도 고양시 덕양구 으뜸로 130</span>
+                </FooterInfo>
+                <Copyright>© 2026 CASTINGLINE. All rights reserved.</Copyright>
             </Footer>
         </PageWrapper>
     );
