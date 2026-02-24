@@ -637,7 +637,7 @@ def score_by_version(movie_id, request):
         # ✅ 기존의 "2D DOLBY" 형식 명칭 조립
         v_name = " ".join(
             filter(None, [m.viewing_dimension,
-                   m.audio_dimension, m.screening_type])
+                   m.audio_mode, m.screening_type])
         ).strip()
         movie_map[m.id] = v_name or m.title_ko
 

@@ -118,7 +118,7 @@ const LabelValue = styled.div<{ $fs: number; $hasLeft?: boolean; $isPlaceholder?
 `;
 
 const Option = styled.div<{ selected?: boolean }>`
-    height: 40px;
+    min-height: 40px;
     padding: 0 16px;
     border-radius: 6px;
     background: ${({ selected }) => (selected ? "#f1f5f9" : "white")};
@@ -126,6 +126,7 @@ const Option = styled.div<{ selected?: boolean }>`
     align-items: center;
     cursor: pointer;
     margin-bottom: 4px;
+    flex-shrink: 0;
 
     &:last-child {
         margin-bottom: 0;

@@ -7,8 +7,6 @@ import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
-import { CustomIconButton } from "../../../../components/common/CustomIconButton";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { GenericTable } from "../../../../components/GenericTable";
 import { ComparisonChart } from "../../../../components/common/ComparisonChart";
 import LogoImg from "../../../../assets/img/logo/logo.png";
@@ -16,35 +14,32 @@ import LogoImg from "../../../../assets/img/logo/logo.png";
 
 /** 스타일 정의 **/
 const ScorePageWrapper = styled.div`
-    display: flex;
-    min-height: calc(100vh - 60px);
-    background-color: #f8fafc;
-`;
-
-const ScoreSidebar = styled.aside`
-    width: 200px;
-    background-color: #ffffff;
-    border-right: 1px solid #e2e8f0;
+    flex: 1;
     display: flex;
     flex-direction: column;
-    padding: 20px 0;
-    flex-shrink: 0;
+    background-color: #f8fafc;
+    min-height: calc(100vh - 60px);
 `;
 
-const SidebarMenu = styled.button<{ active: boolean }>`
-    width: 100%;
-    padding: 12px 24px;
-    text-align: left;
-    border: none;
-    background: ${(props) => (props.active ? "#f1f5f9" : "transparent")};
-    color: ${(props) => (props.active ? "#2563eb" : "#64748b")};
-    font-size: 14px;
-    font-weight: ${(props) => (props.active ? "700" : "500")};
-    border-right: 3px solid ${(props) => (props.active ? "#2563eb" : "transparent")};
+const SortTabGroup = styled.div`
+    display: flex;
+    gap: 4px;
+`;
+
+const SortTab = styled.button<{ $active: boolean }>`
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
+    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
+    color: ${({ $active }) => ($active ? "#2563eb" : "#475569")};
+    font-size: 13px;
+    font-weight: ${({ $active }) => ($active ? "700" : "500")};
     cursor: pointer;
+    transition: all 0.15s ease;
+
     &:hover {
-        background-color: #f8fafc;
-        color: #0f172a;
+        border-color: #2563eb;
+        color: #2563eb;
     }
 `;
 
@@ -205,13 +200,20 @@ export function ScorePage() {
         fetchStatistics();
     }, [fetchStatistics]);
 
-    const handleSearch = () => {
-        if (!searchParams.movie_id) {
-            toast.error("영화를 선택해주세요.");
-            return;
+    // 필터 변경 시 자동 검색: movie_id가 선택된 상태에서 필터가 바뀌면 즉시 반영
+    useEffect(() => {
+        if (searchParams.movie_id) {
+            setActiveFilters({ ...searchParams });
         }
-        setActiveFilters({ ...searchParams });
-    };
+    }, [
+        searchParams.yyyy,
+        searchParams.movie_id,
+        searchParams.sort_by,
+        searchParams.region,
+        searchParams.multi,
+        searchParams.theater_type,
+        searchParams.date,
+    ]);
 
     const handleSortChange = (newSort: string) => {
         setSearchParams((prev) => ({ ...prev, sort_by: newSort }));
@@ -304,24 +306,17 @@ export function ScorePage() {
     }, [activeFilters.sort_by]);
     return (
         <ScorePageWrapper>
-            <ScoreSidebar>
-                <SidebarMenu active={searchParams.sort_by === "region"} onClick={() => handleSortChange("region")}>
-                    지역별총괄
-                </SidebarMenu>
-                <SidebarMenu active={searchParams.sort_by === "multi"} onClick={() => handleSortChange("multi")}>
-                    멀티별총괄
-                </SidebarMenu>
-                <SidebarMenu active={searchParams.sort_by === "version"} onClick={() => handleSortChange("version")}>
-                    버전별총괄
-                </SidebarMenu>
-                <SidebarMenu active={searchParams.sort_by === "period"} onClick={() => handleSortChange("period")}>
-                    기간별총괄
-                </SidebarMenu>
-            </ScoreSidebar>
-
             <MainSection>
                 <FilterBar>
-                    {/* 1열: 연도, 영화선택, 극장유형, 기준일 */}
+                    {/* 0열: 분류 탭 */}
+                    <SortTabGroup>
+                        <SortTab $active={searchParams.sort_by === "region"} onClick={() => handleSortChange("region")}>지역별총괄</SortTab>
+                        <SortTab $active={searchParams.sort_by === "multi"} onClick={() => handleSortChange("multi")}>멀티별총괄</SortTab>
+                        <SortTab $active={searchParams.sort_by === "version"} onClick={() => handleSortChange("version")}>버전별총괄</SortTab>
+                        <SortTab $active={searchParams.sort_by === "period"} onClick={() => handleSortChange("period")}>기간별총괄</SortTab>
+                    </SortTabGroup>
+
+                    {/* 필터: 모두 한 줄 */}
                     <FilterRow>
                         <div>
                             <CustomSelect
@@ -336,21 +331,25 @@ export function ScorePage() {
                             <CustomSelect
                                 style={{ width: "500px" }}
                                 label="영화선택"
-                                options={moviesList.length > 0 ? moviesList.map((m) => m.title_ko) : ["데이터 없음"]}
-                                value={
-                                    moviesList.find((m) => m.id.toString() === searchParams.movie_id)?.title_ko ||
-                                    "선택해주세요"
-                                }
+                                allowClear={false}
+                                options={moviesList.map((m) => ({
+                                    label: m.title_ko,
+                                    value: m.id.toString(),
+                                }))}
+                                value={searchParams.movie_id}
                                 onChange={(val) => {
-                                    const selected = moviesList.find((m) => m.title_ko === val);
-                                    const movieId = selected?.id.toString() || "";
-                                    setSearchParams((prev) => {
-                                        const next = { ...prev, movie_id: movieId };
-                                        if (movieId) setActiveFilters(next);
-                                        return next;
-                                    });
-                                    fetchMovieFormats(movieId);
+                                    setSearchParams((prev) => ({ ...prev, movie_id: val }));
+                                    fetchMovieFormats(val);
                                 }}
+                            />
+                        </div>
+                        <div>
+                            <CustomMultiSelect
+                                label="포맷"
+                                groups={FORMAT_GROUPS}
+                                value={selectedFormats}
+                                onChange={setSelectedFormats}
+                                disabled={formatOptions.length === 0}
                             />
                         </div>
                         <div>
@@ -369,20 +368,6 @@ export function ScorePage() {
                                 setValue={(v) => setSearchParams((p) => ({ ...p, date: v }))}
                             />
                         </div>
-                    </FilterRow>
-
-                    {/* 2열: 나머지 필터들 */}
-                    <FilterRow>
-                        {formatOptions.length > 0 && (
-                            <div>
-                                <CustomMultiSelect
-                                    label="포맷"
-                                    groups={FORMAT_GROUPS}
-                                    value={selectedFormats}
-                                    onChange={setSelectedFormats}
-                                />
-                            </div>
-                        )}
                         <div>
                             <CustomSelect
                                 label="지역"
@@ -408,9 +393,6 @@ export function ScorePage() {
                                 onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))}
                             />
                         </div>
-                        <CustomIconButton color="blue" onClick={handleSearch}>
-                            <MagnifyingGlassIcon weight="bold" />
-                        </CustomIconButton>
                     </FilterRow>
                 </FilterBar>
 

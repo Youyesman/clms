@@ -17,18 +17,19 @@ const Wrapper = styled.div`
     gap: 4px;
 `;
 
-const SelectButton = styled.div<{ $open?: boolean }>`
+const SelectButton = styled.div<{ $open?: boolean; $disabled?: boolean }>`
     display: inline-flex;
     height: 32px;
-    background: white;
+    background: ${({ $disabled }) => ($disabled ? "#f1f5f9" : "white")};
     border-radius: 4px;
     border: ${({ $open }) => ($open ? "1px solid #0f172a" : "1px solid #cbd5e1")};
     align-items: center;
-    cursor: pointer;
+    cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
     transition: all 0.2s ease;
     overflow: hidden;
+    opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 
-    &:hover { border-color: ${({ $open }) => ($open ? "#0f172a" : "#94a3b8")}; }
+    &:hover { border-color: ${({ $open, $disabled }) => ($disabled ? "#cbd5e1" : $open ? "#0f172a" : "#94a3b8")}; }
 `;
 
 const InternalLabelBox = styled.div`
@@ -176,18 +177,19 @@ export interface FormatGroup {
 interface CustomMultiSelectProps {
     label?: string;
     groups: FormatGroup[];
-    value: string[];              // 선택된 값 배열 (모든 그룹에서 통합)
+    value: string[];
     onChange: (v: string[]) => void;
     style?: React.CSSProperties;
+    disabled?: boolean;
 }
 
-export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style }: CustomMultiSelectProps) {
+export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style, disabled = false }: CustomMultiSelectProps) {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [isOpen, setIsOpen] = useState(false);
     const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
 
-    const toggle = () => setIsOpen(prev => !prev);
+    const toggle = () => !disabled && setIsOpen(prev => !prev);
 
     // 같은 그룹 내에서는 1개만 선택 (라디오), 다른 그룹끼리는 동시 선택 가능
     const handleToggleItem = (item: string) => {
@@ -253,7 +255,7 @@ export function CustomMultiSelect({ label = "포맷", groups, value, onChange, s
 
     return (
         <Wrapper ref={wrapperRef} style={style}>
-            <SelectButton onClick={toggle} $open={isOpen}>
+            <SelectButton onClick={toggle} $open={isOpen} $disabled={disabled}>
                 <InternalLabelBox>{label}</InternalLabelBox>
                 <ValueDisplay $isPlaceholder={value.length === 0}>
                     {value.length === 0 ? "전체" : value.length <= 2 ? value.join(", ") : `${value[0]}, ${value[1]} 외 ${value.length - 2}건`}

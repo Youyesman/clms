@@ -18,6 +18,10 @@ const router = createBrowserRouter([
 
             // ── 일반 유저용 페이지 ──
             { path: "score", element: <ScorePage /> },
+            { path: "score/criteria", element: <div style={{ padding: 40, color: "#64748b" }}>기준별 현황 (준비 중)</div> },
+            { path: "score/daily", element: <div style={{ padding: 40, color: "#64748b" }}>일현황 (준비 중)</div> },
+            { path: "score/seat-rate", element: <div style={{ padding: 40, color: "#64748b" }}>좌석판매율현황 (준비 중)</div> },
+            { path: "score/ranking", element: <div style={{ padding: 40, color: "#64748b" }}>누계순위 (준비 중)</div> },
             { path: "time_table", element: <TimeTablePage /> },
 
             // ── 관리자(superuser) 전용 ──
