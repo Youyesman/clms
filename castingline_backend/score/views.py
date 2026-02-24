@@ -896,3 +896,174 @@ def score_summary_excel(request):
     wb.save(response)
     return response
 
+
+# ============================
+#  기준별 현황 API (DB 집계 최적화)
+# ============================
+@api_view(["GET"])
+def score_criteria(request):
+    movie_id = request.query_params.get("movie_id")
+    date_str = request.query_params.get("date")
+
+    if not movie_id or not date_str:
+        return Response({"error": "movie_id, date 필수"}, status=400)
+
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
+
+    if not movie_ids:
+        return Response({"meta": None, "rows": []})
+
+    base_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    prev_date = base_date - timedelta(days=1)
+    prev_week_date = base_date - timedelta(days=7)
+
+    # 대표영화 정보
+    try:
+        primary = Movie.objects.get(id=movie_id)
+        release_date = primary.release_date
+    except Movie.DoesNotExist:
+        primary = None
+        release_date = None
+
+    # 서브영화 포맷명 매핑
+    movie_format_map = {}
+    for m in Movie.objects.filter(id__in=movie_ids):
+        fmt = " ".join(filter(None, [m.viewing_dimension, m.audio_mode, m.screening_type,
+                                      m.dx4_viewing_dimension, m.imax_l, m.screen_x])).strip()
+        movie_format_map[m.id] = fmt or m.title_ko
+
+    # ── 공통 필터를 적용한 base queryset ──
+    common_filter = Q(movie_id__in=movie_ids)
+    region = request.query_params.get("region")
+    multi = request.query_params.get("multi")
+    theater_type = request.query_params.get("theater_type")
+    if region and region != "전체":
+        common_filter &= Q(client__region_code=region)
+    if multi and multi != "전체":
+        common_filter &= Q(client__theater_kind=multi)
+    if theater_type and theater_type != "전체":
+        common_filter &= Q(client__client_type=theater_type)
+
+    GROUP_FIELDS = ["client_id", "auditorium", "movie_id", "fare"]
+
+    def _aggregate(extra_filter):
+        """DB 레벨 집계: (client, auditorium, movie, fare, show_count) → sum(visitor)"""
+        return (
+            Score.objects
+            .filter(common_filter & extra_filter)
+            .values(*GROUP_FIELDS, "show_count")
+            .annotate(total=Sum(Cast("visitor", IntegerField())))
+        )
+
+    def _aggregate_total(extra_filter):
+        """DB 레벨 집계: (client, auditorium, movie, fare) → sum(visitor) (회차 무관)"""
+        return (
+            Score.objects
+            .filter(common_filter & extra_filter)
+            .values(*GROUP_FIELDS)
+            .annotate(total=Sum(Cast("visitor", IntegerField())))
+        )
+
+    # ── 1. 기준일 회차별 데이터 ──
+    base_data = defaultdict(lambda: defaultdict(int))
+    client_ids_set = set()
+
+    for row in _aggregate(Q(entry_date=base_date)):
+        mid = row["movie_id"]
+        fmt = movie_format_map.get(mid, "")
+        key = (row["client_id"], row["auditorium"] or "", fmt, row["fare"] or "")
+        try:
+            sc = int(row["show_count"]) if row["show_count"] else 0
+        except (ValueError, TypeError):
+            sc = 0
+        base_data[key][sc] += row["total"] or 0
+        client_ids_set.add(row["client_id"])
+
+    if not base_data:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(release_date) if release_date else "",
+            "base_date": date_str,
+        }
+        return Response({"meta": meta, "rows": []})
+
+    # ── 2. 전일/전주일/누계: 합계만 (회차 구분 없이) ──
+    prev_totals = {}
+    for row in _aggregate_total(Q(entry_date=prev_date)):
+        fmt = movie_format_map.get(row["movie_id"], "")
+        key = (row["client_id"], row["auditorium"] or "", fmt, row["fare"] or "")
+        prev_totals[key] = prev_totals.get(key, 0) + (row["total"] or 0)
+
+    prev_week_totals = {}
+    for row in _aggregate_total(Q(entry_date=prev_week_date)):
+        fmt = movie_format_map.get(row["movie_id"], "")
+        key = (row["client_id"], row["auditorium"] or "", fmt, row["fare"] or "")
+        prev_week_totals[key] = prev_week_totals.get(key, 0) + (row["total"] or 0)
+
+    cumul_filter = Q(entry_date__lte=base_date)
+    if release_date:
+        cumul_filter &= Q(entry_date__gte=release_date)
+    cumul_totals = {}
+    for row in _aggregate_total(cumul_filter):
+        fmt = movie_format_map.get(row["movie_id"], "")
+        key = (row["client_id"], row["auditorium"] or "", fmt, row["fare"] or "")
+        cumul_totals[key] = cumul_totals.get(key, 0) + (row["total"] or 0)
+
+    # ── 3. 거래처 정보 일괄 조회 ──
+    from client.models import Client
+    clients = Client.objects.filter(id__in=client_ids_set).values(
+        "id", "theater_name", "client_name", "region_code", "theater_kind", "classification"
+    )
+    client_info = {}
+    for c in clients:
+        client_info[c["id"]] = {
+            "theater": c["theater_name"] or c["client_name"] or "",
+            "region": c["region_code"] or "",
+            "multi": c["theater_kind"] or "",
+            "classification": c["classification"] or "",
+        }
+
+    # ── 4. 결과 조립 ──
+    sorted_keys = sorted(base_data.keys(), key=lambda k: (
+        client_info.get(k[0], {}).get("region", ""),
+        client_info.get(k[0], {}).get("multi", ""),
+        client_info.get(k[0], {}).get("theater", ""),
+        k[1], k[2], k[3],
+    ))
+
+    rows = []
+    for key in sorted_keys:
+        cid, aud, fmt, fare = key
+        info = client_info.get(cid, {})
+        sessions = base_data[key]
+        s_list = [sessions.get(i, 0) for i in range(1, 13)]
+        daily_total = sum(s_list)
+
+        rows.append({
+            "type": "data",
+            "client_id": cid,
+            "theater": info.get("theater", ""),
+            "auditorium": aud,
+            "format": fmt,
+            "region": info.get("region", ""),
+            "multi": info.get("multi", ""),
+            "classification": info.get("classification", ""),
+            "fare": fare,
+            "sessions": s_list,
+            "daily_total": daily_total,
+            "prev_day": prev_totals.get(key, 0),
+            "prev_week": prev_week_totals.get(key, 0),
+            "cumulative": cumul_totals.get(key, 0),
+        })
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(release_date) if release_date else "",
+        "base_date": date_str,
+    }
+
+    return Response({"meta": meta, "rows": rows})
+

@@ -4,6 +4,7 @@ import App from "../App";
 import { Login } from "../domain/auth/pages/Login";
 import PrivateRouter from "./PrivateRouter";
 import { ScorePage } from "../customer/domain/score/pages/ScorePage";
+import { CriteriaPage } from "../customer/domain/score/pages/CriteriaPage";
 import { TimeTablePage } from "../customer/domain/time_table/pages/TimeTablePage";
 import LandingPage from "../domain/landing/pages/LandingPage";
 
@@ -18,7 +19,7 @@ const router = createBrowserRouter([
 
             // ── 일반 유저용 페이지 ──
             { path: "score", element: <ScorePage /> },
-            { path: "score/criteria", element: <div style={{ padding: 40, color: "#64748b" }}>기준별 현황 (준비 중)</div> },
+            { path: "score/criteria", element: <CriteriaPage /> },
             { path: "score/daily", element: <div style={{ padding: 40, color: "#64748b" }}>일현황 (준비 중)</div> },
             { path: "score/seat-rate", element: <div style={{ padding: 40, color: "#64748b" }}>좌석판매율현황 (준비 중)</div> },
             { path: "score/ranking", element: <div style={{ padding: 40, color: "#64748b" }}>누계순위 (준비 중)</div> },

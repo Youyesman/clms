@@ -27,4 +27,8 @@ urlpatterns = [
     # 5. 엑셀 다운로드 API
     path('score/summary/excel/', score_summary_excel,
          name='score-summary-excel'),
+
+    # 6. 기준별 현황 API
+    path('score/criteria/', score_criteria,
+         name='score-criteria'),
 ]
