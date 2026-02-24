@@ -729,3 +729,153 @@ def confirm_score_save(request):
     data_list = request.data.get("data", [])
     count = save_confirmed_scores(data_list)
     return Response({"message": f"{count}건의 데이터가 저장되었습니다."}, status=200)
+
+
+# ── 배급사(유저)별 연도별 영화 목록 API ──
+@api_view(["GET"])
+def movies_by_year(request):
+    """
+    GET /Api/score/movies-by-year/?year=2025
+    로그인 유저의 배급사에 소속된, 해당 연도 개봉 대표 영화 목록을 반환합니다.
+    superuser일 경우 전체 대표 영화를 반환합니다.
+    """
+    year = request.query_params.get("year")
+    if not year:
+        return Response({"error": "year 파라미터가 필요합니다."}, status=400)
+
+    qs = Movie.objects.filter(
+        release_date__year=year,
+        is_primary_movie=True,
+    ).order_by("-release_date")
+
+    # 일반 유저(배급사 소속)일 경우 해당 배급사 영화만 필터링
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        qs = qs.filter(distributor_id=user.client_id)
+
+    movies = qs.values("id", "title_ko", "movie_code", "release_date")
+    return Response(list(movies))
+
+
+# ── 대표 영화의 서브(포맷) 목록 API ──
+@api_view(["GET"])
+def movie_formats(request):
+    """
+    GET /Api/score/movie-formats/?movie_id=10
+    대표 영화의 서브(포맷) 영화 목록을 반환합니다.
+    viewing_dimension, screening_type 등을 조합하여 포맷 라벨을 생성합니다.
+    """
+    movie_id = request.query_params.get("movie_id")
+    if not movie_id:
+        return Response({"error": "movie_id 파라미터가 필요합니다."}, status=400)
+
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
+
+    base_code = primary.movie_code.strip()
+
+    # 대표 영화를 부모로 둔 모든 서브(포맷) 영화 조회
+    subs = Movie.objects.annotate(
+        trimmed_code=Trim("primary_movie_code")
+    ).filter(
+        Q(trimmed_code=base_code)
+    ).exclude(id=movie_id)
+
+    result = []
+    for s in subs:
+        # 포맷 라벨 조립: viewing_dimension + screening_type + dx4_viewing_dimension
+        parts = [s.viewing_dimension, s.screening_type, s.dx4_viewing_dimension, s.audio_mode]
+        label = " ".join(p for p in parts if p and p.strip())
+        result.append({
+            "id": s.id,
+            "label": label or s.title_ko,
+            "movie_code": s.movie_code,
+        })
+
+    return Response(result)
+
+
+# ── 엑셀 다운로드 API ──
+@api_view(["GET"])
+def score_summary_excel(request):
+    """
+    GET /Api/score/summary/excel/?movie_id=10&date=2025-01-01&region=...
+    score_summary와 동일한 로직으로 데이터를 집계한 뒤 xlsx 파일로 반환합니다.
+    """
+    import openpyxl
+    from django.http import HttpResponse
+
+    # 기존 score_summary 로직을 재활용하여 데이터 생성
+    # score_by_region을 직접 호출하고 Response 데이터를 파싱
+    sort_by = request.query_params.get("sort_by", "region")
+    movie_id = request.query_params.get("movie_id")
+
+    if not movie_id:
+        return Response({"error": "movie_id가 필요합니다."}, status=400)
+
+    if sort_by == "multi":
+        resp = score_by_multi(movie_id, request)
+    elif sort_by == "version":
+        resp = score_by_version(movie_id, request)
+    else:
+        resp = score_by_region(movie_id, request)
+
+    data = resp.data if hasattr(resp, 'data') else []
+
+    # 영화 정보 조회
+    try:
+        movie = Movie.objects.get(id=movie_id)
+        movie_title = movie.title_ko
+        release_date = movie.release_date.strftime("%Y-%m-%d") if movie.release_date else "-"
+    except Movie.DoesNotExist:
+        movie_title = "알 수 없는 영화"
+        release_date = "-"
+
+    # 엑셀 워크북 생성
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "스코어 종합"
+
+    # 영화 정보 헤더
+    ws.append([f"영화명: {movie_title}", f"개봉일: {release_date}"])
+    ws.append([])
+
+    # 테이블 헤더
+    headers = ["구분", "극장수", "스크린수", "기준일 관객수(명)", "기준일 총요금(원)", "총 누계(명)", "총 요금(원)"]
+    ws.append(headers)
+
+    # 데이터 행
+    totals = {"theaters": 0, "screens": 0, "base_visitors": 0, "base_fare": 0, "total_visitors": 0, "total_fare": 0}
+    for row in data:
+        section = row.get("section", "-")
+        theaters = row.get("theater_count", 0) or 0
+        screens = row.get("screen_count", 0) or 0
+        base_visitors = row.get("base_day_visitors", 0) or 0
+        base_fare = row.get("base_day_fare", 0) or 0
+        total_visitors = row.get("total_visitors", 0) or 0
+        total_fare = row.get("total_fare", 0) or 0
+
+        ws.append([section, theaters, screens, base_visitors, base_fare, total_visitors, total_fare])
+
+        totals["theaters"] += theaters
+        totals["screens"] += screens
+        totals["base_visitors"] += base_visitors
+        totals["base_fare"] += base_fare
+        totals["total_visitors"] += total_visitors
+        totals["total_fare"] += total_fare
+
+    # 합계 행
+    ws.append(["합계", totals["theaters"], totals["screens"], totals["base_visitors"],
+               totals["base_fare"], totals["total_visitors"], totals["total_fare"]])
+
+    # HTTP Response로 반환
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    safe_title = movie_title.replace(" ", "_")
+    response["Content-Disposition"] = f'attachment; filename="score_{safe_title}.xlsx"'
+    wb.save(response)
+    return response
+

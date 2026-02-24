@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useRecoilValue } from "recoil";
 import { AccountState } from "../../../atom/AccountState";
 import { FilmReel, ArrowRight, ChartLineUp, ShieldCheck, Database, Cloud, Desktop, FilmStrip } from "@phosphor-icons/react";
+import LogoVerticalImg from "../../../assets/img/logo/logo_vertical.png";
 
 /* ── Refined Animations ── */
 const slideUp = keyframes`
@@ -31,7 +32,8 @@ const Nav = styled.nav`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 48px;
+    padding: 0 48px;
+    height: 72px;
     background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid #e5e7eb;
@@ -41,25 +43,16 @@ const Nav = styled.nav`
 `;
 
 const Logo = styled.div`
-    font-size: 20px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    color: #111827;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 8px;
+    overflow: hidden;
+    height: 52px;
 
-    .icon-box {
-        background: #111827;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 6px;
-        font-size: 16px;
+    img {
+        height: 180px;
+        object-fit: contain;
+        margin: -64px 0;
     }
 `;
 
@@ -286,6 +279,17 @@ const FooterBrand = styled.div`
     letter-spacing: -0.5px;
     color: #111827;
     margin-bottom: 24px;
+    overflow: hidden;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    img {
+        height: 160px;
+        object-fit: contain;
+        margin: -56px 0;
+    }
 `;
 
 const FooterInfo = styled.div`
@@ -324,10 +328,7 @@ export default function LandingPage() {
         <PageWrapper>
             <Nav>
                 <Logo onClick={() => navigate("/")}>
-                    <div className="icon-box">
-                        <FilmStrip weight="fill" />
-                    </div>
-                    CASTINGLINE
+                    <img src={LogoVerticalImg} alt="Castingline" />
                 </Logo>
                 <NavActions>
                     {isLoggedIn ? (
@@ -413,7 +414,9 @@ export default function LandingPage() {
             </FeaturesContainer>
 
             <Footer>
-                <FooterBrand>CASTINGLINE</FooterBrand>
+                <FooterBrand>
+                    <img src={LogoVerticalImg} alt="Castingline" />
+                </FooterBrand>
                 <FooterInfo>
                     <span><b>회사명</b> (주) 캐스팅라인</span>
                     <span><b>대표이사</b> 박미선</span>

@@ -11,6 +11,8 @@ import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
 import { AxiosGet } from "../../axios/Axios";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../atom/TabState";
+import LogoImg from "../../assets/img/logo/logo.png";
+import LogoVerticalImg from "../../assets/img/logo/logo_vertical.png";
 
 const SidebarContainer = styled.aside<{ $isExpanded: boolean }>`
     width: ${({ $isExpanded }) => ($isExpanded ? "220px" : "72px")};
@@ -41,53 +43,37 @@ const LogoWrapper = styled.div<{ $isExpanded: boolean }>`
 `;
 
 const CollapsedLogo = styled.div`
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 10px;
-    font-size: 22px;
-    font-weight: 900;
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+
+    img {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+        border-radius: 6px;
+    }
 `;
 
 const FullLogo = styled.div`
     display: flex;
     align-items: center;
-    gap: 10px;
     animation: fadeIn 0.3s ease;
+    overflow: hidden;
+    height: 48px;
 
     @keyframes fadeIn {
         from { opacity: 0; transform: translateX(-10px); }
         to { opacity: 1; transform: translateX(0); }
     }
 
-    .logo-icon-sm {
-        background: #3b82f6;
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        font-size: 18px;
-        font-weight: 900;
-        color: #ffffff;
-    }
-
-    .logo-text {
-        display: flex;
-        align-items: baseline;
-        font-family: "SUIT", sans-serif;
-        font-weight: 900;
-        font-size: 18px;
-        letter-spacing: -0.5px;
-        
-        .white { color: #f8fafc; }
-        .blue { color: #3b82f6; margin-left: 1px; }
+    img {
+        height: 140px;
+        object-fit: contain;
+        filter: brightness(0) invert(1);
+        margin: -46px 0;
     }
 `;
 
@@ -257,14 +243,12 @@ export function Sidebar() {
             <LogoWrapper $isExpanded={isHovered} onClick={() => navigate("/manage")}>
                 {isHovered ? (
                     <FullLogo>
-                        <div className="logo-icon-sm">C</div>
-                        <div className="logo-text">
-                            <span className="white">CASTING</span>
-                            <span className="blue">LINE</span>
-                        </div>
+                        <img src={LogoVerticalImg} alt="Castingline" />
                     </FullLogo>
                 ) : (
-                    <CollapsedLogo>C</CollapsedLogo>
+                    <CollapsedLogo>
+                        <img src={LogoImg} alt="C" />
+                    </CollapsedLogo>
                 )}
             </LogoWrapper>
 

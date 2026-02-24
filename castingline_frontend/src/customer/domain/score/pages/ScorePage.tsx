@@ -5,10 +5,13 @@ import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
+import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
+import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { CustomIconButton } from "../../../../components/common/CustomIconButton";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { GenericTable } from "../../../../components/GenericTable";
 import { ComparisonChart } from "../../../../components/common/ComparisonChart";
+import LogoImg from "../../../../assets/img/logo/logo.png";
 
 
 /** 스타일 정의 **/
@@ -106,19 +109,24 @@ export function ScorePage() {
         yyyy: new Date().getFullYear().toString(),
         movie_id: "",
         sort_by: "region",
-        film_digital: "전체",
-        dub_sub: "전체",
-        dim_2d_3d: "전체",
-        imax: "전체",
-        screen_4dx: "전체",
-        laser: "전체",
-        screen_x: "전체",
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date_from: new Date().toISOString().split("T")[0],
-        date_to: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString().split("T")[0],
     });
+
+    // 포맷 선택 상태 (모든 카테고리 통합)
+    const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
+
+    const FORMAT_GROUPS: FormatGroup[] = [
+        { label: '필름/디지털', key: 'film_digital', items: ['필름', '디지털'] },
+        { label: '더빙/자막', key: 'dub_sub', items: ['자막', '더빙', '영어자막', '한글자막'] },
+        { label: '2D/3D/4D', key: 'dim_2d_3d', items: ['2D', '3D', '4D'] },
+        { label: 'IMAX/ATMOS', key: 'imax', items: ['IMAX', 'ATMOS'] },
+        { label: '4DX', key: 'screen_4dx', items: ['4-DX', 'Super-4D', 'Dolby', '광음시네마', 'MX4D'] },
+        { label: 'IMAX-L', key: 'laser', items: ['LASER'] },
+        { label: 'ScreenX', key: 'screen_x', items: ['ScreenX'] },
+    ];
     const yearOptions = useMemo(() => {
         const currentYear = new Date().getFullYear();
         return Array.from({ length: 11 }, (_, i) => (currentYear - i).toString());
@@ -155,7 +163,7 @@ export function ScorePage() {
     const fetchStatistics = useCallback(() => {
         if (!activeFilters.movie_id) return;
         AxiosGet(`score/summary/`, {
-            params: { ...activeFilters, compare_mode: compareMode }, // ✅ 모드 전달
+            params: { ...activeFilters, compare_mode: compareMode, date_from: activeFilters.date, date_to: activeFilters.date },
         })
             .then((res) => setData(res.data || []))
             .catch((err) => toast.error(handleBackendErrors(err)));
@@ -225,10 +233,10 @@ export function ScorePage() {
                 activeFilters.sort_by === "region"
                     ? "지역"
                     : activeFilters.sort_by === "multi"
-                    ? "멀티구분"
-                    : activeFilters.sort_by === "version"
-                    ? "버전"
-                    : "기간",
+                        ? "멀티구분"
+                        : activeFilters.sort_by === "version"
+                            ? "버전"
+                            : "기간",
         },
         { key: "theater_count", label: "극장수" },
         { key: "screen_count", label: "스크린수" },
@@ -239,7 +247,7 @@ export function ScorePage() {
     ];
 
     const columnWidths = ["150px", "100px", "100px", "140px", "160px", "140px", "160px", "120px"];
-    const baseDate = searchParams.date_from; // 기준일 (1/7)
+    const baseDate = searchParams.date; // 기준일
 
     const prevDate = useMemo(() => {
         const date = new Date(baseDate);
@@ -318,17 +326,9 @@ export function ScorePage() {
                         <div>
                             <CustomInput
                                 inputType="date"
-                                label="시작일"
-                                value={searchParams.date_from}
-                                setValue={(v) => setSearchParams((p) => ({ ...p, date_from: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomInput
-                                inputType="date"
-                                label="종료일"
-                                value={searchParams.date_to}
-                                setValue={(v) => setSearchParams((p) => ({ ...p, date_to: v }))}
+                                label="날짜"
+                                value={searchParams.date}
+                                setValue={(v) => setSearchParams((p) => ({ ...p, date: v }))}
                             />
                         </div>
                     </FilterRow>
@@ -336,59 +336,11 @@ export function ScorePage() {
                     {/* 2열: 나머지 필터들 */}
                     <FilterRow>
                         <div>
-                            <CustomSelect
-                                label="필름/디지털"
-                                options={["전체", "디지털"]}
-                                value={searchParams.film_digital}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, film_digital: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="더빙/자막"
-                                options={["전체", "더빙", "자막"]}
-                                value={searchParams.dub_sub}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, dub_sub: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="2D/3D"
-                                options={["전체", "2D", "3D"]}
-                                value={searchParams.dim_2d_3d}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, dim_2d_3d: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="IMAX"
-                                options={["전체", "일반", "ATMOS"]}
-                                value={searchParams.imax}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, imax: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="4DX"
-                                options={["전체", "일반", "Dolby"]}
-                                value={searchParams.screen_4dx}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, screen_4dx: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="LASER"
-                                options={["전체", "일반"]}
-                                value={searchParams.laser}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, laser: v }))}
-                            />
-                        </div>
-                        <div>
-                            <CustomSelect
-                                label="Screen X"
-                                options={["전체", "일반"]}
-                                value={searchParams.screen_x}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, screen_x: v }))}
+                            <CustomMultiSelect
+                                label="포맷"
+                                groups={FORMAT_GROUPS}
+                                value={selectedFormats}
+                                onChange={setSelectedFormats}
                             />
                         </div>
                         <div>
@@ -427,7 +379,7 @@ export function ScorePage() {
                         headers={headers}
                         data={sortedData}
                         summaryData={totals}
-                        onSelectItem={() => {}}
+                        onSelectItem={() => { }}
                         sortKey={sortConfig.key} // 현재 정렬 기준 키
                         sortOrder={sortConfig.order} // 현재 정렬 순서
                         onSortChange={handleTableSort} // 헤더 클릭 시 함수

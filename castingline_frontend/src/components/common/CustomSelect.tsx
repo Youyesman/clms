@@ -142,7 +142,7 @@ const Option = styled.div<{ selected?: boolean }>`
     }
 `;
 
-export const CustomCaretIcon = styled(CaretDown)<{ open?: boolean }>`
+export const CustomCaretIcon = styled(CaretDown) <{ open?: boolean }>`
     color: #64748b;
     transition: transform 0.2s ease;
     ${({ open }) => open && `transform: rotate(180deg);`}
@@ -251,6 +251,14 @@ export function CustomSelect({
         document.addEventListener("mousedown", handleOutside);
         return () => document.removeEventListener("mousedown", handleOutside);
     }, []);
+
+    // 스크롤 시 드롭다운 닫기 (capture: true로 중첩 스크롤도 감지)
+    useEffect(() => {
+        if (!isOpen) return;
+        const close = () => setIsOpen(false);
+        window.addEventListener("scroll", close, true);
+        return () => window.removeEventListener("scroll", close, true);
+    }, [isOpen]);
 
     useEffect(() => {
         if (isOpen && wrapperRef.current) {

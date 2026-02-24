@@ -11,7 +11,8 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "username", "password", "nickname", "email", "team", 
             "direct_call", "phone", "country", "is_active", "is_superuser", 
-            "groups", "groups_display", "last_login", "created_date"
+            "groups", "groups_display", "last_login", "created_date",
+            "client", "client_id",
         ]
 
     def get_groups_display(self, obj):

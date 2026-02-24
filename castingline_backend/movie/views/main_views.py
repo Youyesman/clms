@@ -76,9 +76,8 @@ def get_public_movies(request):
     """
     release_year = request.query_params.get("release_year")
 
-    # 1. 기본 필터: 공개된 영화 + 대표 영화 위주
-    # (모든 버전을 다 보여주려면 is_primary_movie 필터는 제거하세요)
-    qs = Movie.objects.filter(is_public=True)
+    # 1. 기본 필터: 대표 영화 위주
+    qs = Movie.objects.all()
 
     # 2. 연도 필터링 (개봉일 기준)
     if release_year:

@@ -22,6 +22,7 @@ export const AccountState = atom({
         team: "",
         direct_call: "",
         kakao_id: "",
+        client_id: null as number | null,
     },
     effects_UNSTABLE: [persistAtom],
 });

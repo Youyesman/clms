@@ -4,10 +4,10 @@ import styled, { keyframes } from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { useSetRecoilState } from "recoil";
 import { BASE_URL } from "../../../axios/Axios";
-import { FilmStrip } from "@phosphor-icons/react";
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { AccountState } from "../../../atom/AccountState";
+import LogoVerticalImg from "../../../assets/img/logo/logo_vertical.png";
 
 const slideUpFade = keyframes`
     from { opacity: 0; transform: translateY(10px); }
@@ -41,11 +41,18 @@ const HeaderSection = styled.div`
 `;
 
 const LogoContainer = styled.div`
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
     margin-bottom: 20px;
+    height: 80px;
+    overflow: hidden;
+
+    img {
+        height: 200px;
+        object-fit: contain;
+        margin: -60px;
+    }
 `;
 
 const BrandIcon = styled.div`
@@ -194,8 +201,7 @@ export function Login() {
             <LoginCard>
                 <HeaderSection>
                     <LogoContainer>
-                        <BrandIcon><FilmStrip weight="fill" /></BrandIcon>
-                        <BrandName>CASTINGLINE</BrandName>
+                        <img src={LogoVerticalImg} alt="Castingline" />
                     </LogoContainer>
                     <Subtitle>통합 시스템에 접속하세요</Subtitle>
                 </HeaderSection>
