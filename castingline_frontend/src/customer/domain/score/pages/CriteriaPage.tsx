@@ -83,12 +83,6 @@ const StyledTable = styled.table`
     td {
         color: #475569;
     }
-
-    /* 극장명, 관 등 왼쪽 정렬 */
-    td:nth-child(1), td:nth-child(2), td:nth-child(3),
-    td:nth-child(4), td:nth-child(5) {
-        text-align: left;
-    }
 `;
 
 const SubtotalRow = styled.tr`
@@ -126,6 +120,8 @@ export function CriteriaPage() {
         theater_type: "전체",
         date: new Date().toISOString().split("T")[0],
     });
+    // 날짜 디바운스용 확정 상태
+    const [debouncedDate, setDebouncedDate] = useState(searchParams.date);
 
     // 포맷(서브영화)
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -170,7 +166,7 @@ export function CriteriaPage() {
         AxiosGet(`score/criteria/`, {
             params: {
                 movie_id: searchParams.movie_id,
-                date: searchParams.date,
+                date: debouncedDate,
                 region: searchParams.region,
                 multi: searchParams.multi,
                 theater_type: searchParams.theater_type,
@@ -179,13 +175,19 @@ export function CriteriaPage() {
         })
             .then((res) => setData(res.data || { meta: null, rows: [] }))
             .catch((err) => toast.error(handleBackendErrors(err)));
-    }, [searchParams, selectedFormats, formatOptions, toast]);
+    }, [searchParams.movie_id, debouncedDate, searchParams.region, searchParams.multi, searchParams.theater_type, selectedFormats, formatOptions, toast]);
+
+    // 날짜 디바운스 (500ms)
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedDate(searchParams.date), 500);
+        return () => clearTimeout(timer);
+    }, [searchParams.date]);
 
     // 필터 변경 시 자동 검색
     useEffect(() => {
         if (searchParams.movie_id) fetchData();
     }, [
-        searchParams.movie_id, searchParams.date, searchParams.region,
+        searchParams.movie_id, debouncedDate, searchParams.region,
         searchParams.multi, searchParams.theater_type,
         selectedFormats, fetchData,
     ]);

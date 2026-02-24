@@ -24,6 +24,7 @@ type CustomInputProps = {
     className?: string;
     style?: React.CSSProperties;
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+    onBlur?: () => void;
     labelPlacement?: "left" | "top";
     labelWidth?: string;
 };
@@ -191,6 +192,7 @@ export const CustomInput: React.FC<CustomInputProps> = ({
     className,
     style,
     onKeyDown,
+    onBlur,
     labelPlacement = "left",
     labelWidth,
 }) => {
@@ -253,6 +255,7 @@ export const CustomInput: React.FC<CustomInputProps> = ({
                         $size={size}
                         $hasLeft={Boolean(showInternalLabel || leftLabel)}
                         onKeyDown={onKeyDown}
+                        onBlur={onBlur}
                     />
 
                     {rightLabel && (

@@ -212,8 +212,16 @@ export function ScorePage() {
         searchParams.region,
         searchParams.multi,
         searchParams.theater_type,
-        searchParams.date,
     ]);
+
+    // 날짜 변경 시 디바운스 적용 (500ms)
+    useEffect(() => {
+        if (!searchParams.movie_id) return;
+        const timer = setTimeout(() => {
+            setActiveFilters((prev) => ({ ...prev, date: searchParams.date }));
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchParams.date]);
 
     const handleSortChange = (newSort: string) => {
         setSearchParams((prev) => ({ ...prev, sort_by: newSort }));
