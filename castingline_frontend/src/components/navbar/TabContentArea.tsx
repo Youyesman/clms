@@ -16,6 +16,7 @@ import { ManageSpecialSettlement } from "../../domain/settlement/pages/ManageSpe
 import { ManageUserProfile } from "../../domain/auth/pages/ManageUserProfile";
 import { MyProfile } from "../../domain/auth/pages/MyProfile";
 import { CrawlerPage } from "../../domain/crawler/pages/CrawlerPage";
+import { ScheduleViewerPage } from "../../domain/crawler/pages/ScheduleViewerPage";
 import { ScorePage } from "../../customer/domain/score/pages/ScorePage";
 import { TimeTablePage } from "../../customer/domain/time_table/pages/TimeTablePage";
 import { ScoreOverview } from "../../domain/dashboard/ScoreOverview";
@@ -29,6 +30,7 @@ import Main from "../../domain/main/pages/Main";
 const PATH_TO_COMPONENT: Record<string, React.ComponentType> = {
     "/manage": Main,
     "/manage/crawler": CrawlerPage,
+    "/manage/crawler/schedules": ScheduleViewerPage,
     "/manage/manage_client": ManageClient,
     "/manage/manage_user": ManageUserProfile,
     "/manage/my_profile": MyProfile,

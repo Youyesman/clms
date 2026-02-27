@@ -385,23 +385,38 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                         if date_click_success and collected_data:
                                             # DB Save
                                             close_old_connections()
-                                            
-                                            # Site Code Parsing
+
+                                            # Site Code Parsing (PlaySeqs.Items[0].CinemaID)
                                             site_code = "Unknown"
                                             if isinstance(collected_data, dict):
-                                                 if "CinemaID" in str(collected_data):
-                                                     pass
-                                            
-                                            LotteScheduleLog.objects.create(
+                                                try:
+                                                    items = collected_data.get("PlaySeqs", {}).get("Items", [])
+                                                    if items:
+                                                        site_code = str(items[0].get("CinemaID", "Unknown"))
+                                                except Exception:
+                                                    pass
+
+                                            # 혹시 잔존 중복 레코드가 있으면 먼저 정리
+                                            dup_qs = LotteScheduleLog.objects.filter(
+                                                query_date=target_ymd,
+                                                theater_name=theater_name
+                                            )
+                                            if dup_qs.count() > 1:
+                                                keep_id = dup_qs.order_by('-created_at').values_list('id', flat=True).first()
+                                                dup_qs.exclude(id=keep_id).delete()
+
+                                            log, created = LotteScheduleLog.objects.update_or_create(
                                                 query_date=target_ymd,
                                                 theater_name=theater_name,
-                                                site_code=site_code, 
-                                                response_json=collected_data,
-                                                status='success',
-                                                crawler_run=crawler_run
+                                                defaults={
+                                                    'site_code': site_code,
+                                                    'response_json': collected_data,
+                                                    'status': 'success',
+                                                    'crawler_run': crawler_run
+                                                }
                                             )
                                             print(f"[{worker_id}]      ✅ Saved {theater_name} ({target_ymd})")
-                                            collected_results.append({'log_id': 'saved', 'date': target_ymd}) 
+                                            collected_results.append({'log_id': log.id, 'date': target_ymd, 'theater_name': theater_name}) 
                                             total_theater_count += 1
                                         else:
                                             # FAILED
@@ -881,12 +896,29 @@ class Command(BaseCommand):
     help = 'Run Lotte Pipeline'
 
     def add_arguments(self, parser):
-        parser.add_argument('--date', type=str, help='YYYYMMDD')
+        parser.add_argument('--date', type=str, help='단일 날짜 (YYYYMMDD)')
+        parser.add_argument('--start-date', type=str, help='시작 날짜 (YYYYMMDD)')
+        parser.add_argument('--end-date', type=str, help='종료 날짜 (YYYYMMDD)')
 
     def handle(self, *args, **options):
-        target_date = options.get('date')
-        if target_date:
-            print(f"🎯 Target Date from CLI: {target_date}")
-            LottePipelineService.run_pipeline(dates=[target_date])
+        from datetime import datetime, timedelta
+
+        start_date_str = options.get('start_date')
+        end_date_str = options.get('end_date')
+        single_date = options.get('date')
+
+        if start_date_str and end_date_str:
+            start = datetime.strptime(start_date_str, "%Y%m%d")
+            end = datetime.strptime(end_date_str, "%Y%m%d")
+            target_dates = []
+            cur = start
+            while cur <= end:
+                target_dates.append(cur.strftime("%Y%m%d"))
+                cur += timedelta(days=1)
+            print(f"🎯 Date Range: {start_date_str} ~ {end_date_str} ({len(target_dates)}일)")
+            LottePipelineService.run_pipeline(dates=target_dates)
+        elif single_date:
+            print(f"🎯 Target Date from CLI: {single_date}")
+            LottePipelineService.run_pipeline(dates=[single_date])
         else:
             LottePipelineService.run_pipeline()

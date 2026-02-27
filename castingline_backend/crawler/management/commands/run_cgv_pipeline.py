@@ -1,8 +1,9 @@
 import os
+import re
 import time
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.conf import settings
 from django.db import close_old_connections
 from django.core.management.base import BaseCommand
@@ -197,7 +198,6 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                             # siteNo 추출
                             onclick_val = theater_btn.get_attribute("onclick") or ""
                             current_site_no = "Unknown"
-                            import re
                             match = re.search(r"getTheaterSchedule\('([^']+)'", onclick_val)
                             if match:
                                 current_site_no = match.group(1)
@@ -387,7 +387,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
 
         except InterruptedError:
             print("🛑 사용자에 의해 작업 중단됨")
-            return collected_results, total_theater_count
+            return collected_results, failures, total_theater_count
         except Exception as e:
             print(f"❌ Playwright 오류: {e}")
             
@@ -826,15 +826,32 @@ class Command(BaseCommand):
     help = 'Executes the Full CGV Pipeline Stage 1 (Collect -> Validate -> Notify)'
 
     def add_arguments(self, parser):
-        parser.add_argument('--date', type=str, help='Target Date (YYYYMMDD)')
+        parser.add_argument('--date', type=str, help='단일 날짜 (YYYYMMDD)')
+        parser.add_argument('--start-date', type=str, help='시작 날짜 (YYYYMMDD)')
+        parser.add_argument('--end-date', type=str, help='종료 날짜 (YYYYMMDD)')
         parser.add_argument('--manual', action='store_true', help='Set trigger type to MANUAL')
 
     def handle(self, *args, **options):
         self.stdout.write("Initializing CGV Pipeline...")
-        
-        target_date = options.get('date')
-        target_dates = [target_date] if target_date else None
+
+        start_date_str = options.get('start_date')
+        end_date_str = options.get('end_date')
+        single_date = options.get('date')
         is_manual = options.get('manual', False)
+
+        if start_date_str and end_date_str:
+            start = datetime.strptime(start_date_str, "%Y%m%d")
+            end = datetime.strptime(end_date_str, "%Y%m%d")
+            target_dates = []
+            cur = start
+            while cur <= end:
+                target_dates.append(cur.strftime("%Y%m%d"))
+                cur += timedelta(days=1)
+            print(f"🎯 Date Range: {start_date_str} ~ {end_date_str} ({len(target_dates)}일)")
+        elif single_date:
+            target_dates = [single_date]
+        else:
+            target_dates = None
         
         # History Setup
         from crawler.models import CrawlerRunHistory

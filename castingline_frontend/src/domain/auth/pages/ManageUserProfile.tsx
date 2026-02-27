@@ -4,9 +4,10 @@ import { AxiosGet, AxiosPost, AxiosPatch, AxiosDelete } from "../../../axios/Axi
 import { useToast } from "../../../components/common/CustomToast";
 import { GenericTable } from "../../../components/GenericTable";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
-import { Plus, Trash, PencilSimple, MagnifyingGlass } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple } from "@phosphor-icons/react";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { useAppAlert } from "../../../atom/alertUtils";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomButton } from "../../../components/common/CustomButton";
 import { CustomSelect } from "../../../components/common/CustomSelect";
@@ -25,9 +26,6 @@ const PageContainer = styled.div`
 `;
 
 
-/** 스타일 정의 **/
-
-
 /* --- User Form Modal Component --- */
 const FormContainer = styled.div`
     display: flex;
@@ -44,9 +42,37 @@ const ButtonGroup = styled.div`
     margin-top: 20px;
 `;
 
-function UserFormModal({ user, onSuccess, onClose }: any) {
+interface Group {
+    id: number;
+    name: string;
+}
+
+interface UserFormData {
+    username: string;
+    password: string;
+    nickname: string;
+    email: string;
+    team: string;
+    direct_call: string;
+    phone: string;
+    country: string;
+    groups: number[];
+    is_superuser: boolean;
+}
+
+interface UserRecord extends Omit<UserFormData, "password"> {
+    id: number;
+}
+
+interface UserFormModalProps {
+    user: UserRecord | null;
+    onSuccess: () => void;
+    onClose: () => void;
+}
+
+function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
     const toast = useToast();
-    const [groups, setGroups] = useState<any[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
     const [formData, setFormData] = useState({
         username: "",
         password: "",
@@ -74,14 +100,14 @@ function UserFormModal({ user, onSuccess, onClose }: any) {
         }
     }, [user]);
 
-    const handleChange = (name: string, value: any) => {
+    const handleChange = (name: keyof UserFormData, value: UserFormData[keyof UserFormData]) => {
         setFormData((prev) => ({ ...prev, [name]: value }));
     };
 
     const handleSubmit = async () => {
         try {
             if (user) {
-                const payload: any = { ...formData };
+                const payload: Partial<UserFormData> = { ...formData };
                 if (!payload.password) delete payload.password;
                 await AxiosPatch(`users`, payload, user.id);
                 toast.success("수정되었습니다.");
@@ -153,9 +179,10 @@ function UserFormModal({ user, onSuccess, onClose }: any) {
 export function ManageUserProfile() {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
-    const [users, setUsers] = useState<any[]>([]);
+    const { showAlert } = useAppAlert();
+    const [users, setUsers] = useState<UserRecord[]>([]);
     const [search, setSearch] = useState("");
-    const [selectedUser, setSelectedUser] = useState<any>(null);
+    const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
     const [page, setPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const pageSize = 20;
@@ -191,24 +218,32 @@ export function ManageUserProfile() {
         });
     };
 
-    const handleEdit = (user: any) => {
+    const handleEdit = (user: UserRecord | null) => {
+        if (!user) return;
         openModal(<UserFormModal user={user} onSuccess={fetchUsers} onClose={closeModal} />, {
             title: "사용자 수정",
             width: "500px",
         });
     };
 
-    const handleDelete = async () => {
+    const handleDelete = () => {
         if (!selectedUser) return;
-        if (!window.confirm("정말 삭제하시겠습니까?")) return;
-        try {
-            await AxiosDelete("users", selectedUser.id);
-            toast.success("삭제되었습니다.");
-            fetchUsers();
-            setSelectedUser(null);
-        } catch (err: any) {
-            toast.error(handleBackendErrors(err));
-        }
+        showAlert(
+            "사용자 삭제",
+            `'${selectedUser.username}' 계정을 삭제하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete("users", selectedUser.id);
+                    toast.success("삭제되었습니다.");
+                    fetchUsers();
+                    setSelectedUser(null);
+                } catch (err: any) {
+                    toast.error(handleBackendErrors(err));
+                }
+            },
+            true
+        );
     };
 
     const headers = [
@@ -262,7 +297,7 @@ export function ManageUserProfile() {
                     data={users}
                     selectedItem={selectedUser}
                     onSelectItem={setSelectedUser}
-                    getRowKey={(u: any) => u.id}
+                    getRowKey={(u: UserRecord) => u.id}
                     page={page}
                     pageSize={pageSize}
                     totalCount={totalCount}

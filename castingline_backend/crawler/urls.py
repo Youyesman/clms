@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadView, CrawlerStopView, CrawlerTransformView, CrawlerScheduleOptionsView, CrawlerScheduleExportView
+from .views import CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadView, CrawlerStopView, CrawlerTransformView, CrawlerScheduleOptionsView, CrawlerScheduleExportView, CrawlerScheduleListView
 
 urlpatterns = [
     path('run/', CrawlerExecutionView.as_view(), name='crawler_run'),
@@ -9,4 +9,5 @@ urlpatterns = [
     path('download/<int:history_id>/', CrawlerDownloadView.as_view(), name='crawler_download'),
     path('schedules/options/', CrawlerScheduleOptionsView.as_view(), name='schedule_options'),
     path('schedules/export/', CrawlerScheduleExportView.as_view(), name='schedule_export'),
+    path('schedules/list/', CrawlerScheduleListView.as_view(), name='schedule_list'),
 ]

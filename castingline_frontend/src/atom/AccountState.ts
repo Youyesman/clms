@@ -10,7 +10,21 @@ const { persistAtom } = recoilPersist({
     converter: JSON,
 });
 
-export const AccountState = atom({
+export interface Account {
+    id: number;
+    username: string;
+    nickname: string;
+    local_name: string;
+    email: string;
+    branch: string;
+    team: string;
+    direct_call: string;
+    kakao_id: string;
+    client_id: number | null;
+    is_superuser: boolean;
+}
+
+export const AccountState = atom<Account>({
     key: "AccountState",
     default: {
         id: 0,
@@ -22,7 +36,8 @@ export const AccountState = atom({
         team: "",
         direct_call: "",
         kakao_id: "",
-        client_id: null as number | null,
+        client_id: null,
+        is_superuser: false,
     },
     effects_UNSTABLE: [persistAtom],
 });

@@ -6,6 +6,7 @@ import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomButton } from "../../../components/common/CustomButton";
 import { FloppyDisk } from "@phosphor-icons/react";
+import { GlobalSkeleton } from "../../../components/common/GlobalSkeleton";
 
 const PageContainer = styled.div`
     display: flex;
@@ -118,7 +119,7 @@ export function MyProfile() {
         }
     };
 
-    if (isLoading) return <div>Loading...</div>;
+    if (isLoading) return <GlobalSkeleton />;
 
     return (
         <PageContainer>

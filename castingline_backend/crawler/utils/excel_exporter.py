@@ -21,49 +21,46 @@ def export_schedules_to_excel(start_date_str, end_date_str, companies=None, targ
         str: Absolute path to the generated Excel file
     """
     
-    # Prepare Data -> Removed as user requested only Failure logs
-    
-    # If no failures, return None
-    if not failures:
-        return None
-
-    # Define File Path
+    # Define File Path (항상 파일 생성)
     save_dir = os.path.join(settings.BASE_DIR, 'media', 'crawler_exports')
     os.makedirs(save_dir, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"crawler_result_{timestamp}.xlsx"
     file_path = os.path.join(save_dir, filename)
-    
+
     # Export using ExcelWriter
     with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
         if failures:
             # Group by Date
             # Convert failures list to DataFrame first for easier grouping
             df_all = pd.DataFrame(failures)
-            
+
             # Reorder columns for readability
             desired_order = ['brand', 'region', 'theater', 'date', 'reason', 'worker']
             cols = [c for c in desired_order if c in df_all.columns] + [c for c in df_all.columns if c not in desired_order]
             df_all = df_all[cols]
-            
+
             # Identify unique dates
-            # 'date' column might contain 'Unknown', 'All', or actual dates
             unique_dates = df_all['date'].unique()
-            
+
             for d_val in unique_dates:
                 # Sanitize sheet name (Excel limits: 31 chars, no special chars like / \ ? * : [ ])
                 sheet_name_safe = str(d_val).replace('/', '').replace('\\', '').replace(':', '')
-                # If date is YYYYMMDD, maybe format nicely? or just keep it simple.
-                # Prefix with 'Fail_' to avoid pure number sheet names sometimes causing issues?
-                # User asked for "Failure_20260130"
-                
-                sheet_title = f"Fail_{sheet_name_safe}"[:30] # Limit length
-                
+                sheet_title = f"Fail_{sheet_name_safe}"[:30]
+
                 df_sub = df_all[df_all['date'] == d_val]
                 df_sub.to_excel(writer, sheet_name=sheet_title, index=False)
         else:
-             pass
+            # 실패 건 없음 - 수집 완료 요약 시트 생성
+            df_summary = pd.DataFrame([{
+                '결과': '수집 완료',
+                '수집 기간': f"{start_date_str} ~ {end_date_str}",
+                '수집 대상': ', '.join(companies) if companies else '전체',
+                '실패 건수': 0,
+                '비고': '모든 극장 데이터 정상 수집됨'
+            }])
+            df_summary.to_excel(writer, sheet_name='수집결과', index=False)
 
     return file_path
 

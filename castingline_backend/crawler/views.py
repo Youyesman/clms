@@ -186,7 +186,17 @@ def run_crawler_background(history_id, data):
         history.result_summary = {
             "executed_companies": executed_companies,
             "target_dates": date_list,
-            "target_movies": target_titles_list
+            "target_movies": target_titles_list,
+            "total_failures": len(all_failures),
+            "failure_summary": [
+                {
+                    "brand": f.get('brand'),
+                    "theater": f.get('theater'),
+                    "date": f.get('date'),
+                    "reason": f.get('reason')
+                }
+                for f in all_failures[:20]
+            ]
         }
         history.excel_file_path = excel_path
         history.save()
@@ -587,6 +597,104 @@ class CrawlerScheduleOptionsView(APIView):
         except Exception as e:
             logger.error(f"Schedule Options Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerScheduleListView(APIView):
+    """
+    MovieSchedule 조회 API (크롤링 결과 확인용)
+    Params: brand, start_date, end_date, theater_name, movie_title, page, page_size
+    """
+    def get(self, request):
+        from crawler.models import MovieSchedule, CGVScheduleLog, LotteScheduleLog, MegaboxScheduleLog
+        from django.db.models import Count
+
+        brand = request.query_params.get('brand', '').strip()
+        start_date_str = request.query_params.get('start_date', '').strip()
+        end_date_str = request.query_params.get('end_date', '').strip()
+        theater_name = request.query_params.get('theater_name', '').strip()
+        movie_title = request.query_params.get('movie_title', '').strip()
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            page_size = min(200, max(1, int(request.query_params.get('page_size', 50))))
+        except (ValueError, TypeError):
+            page, page_size = 1, 50
+
+        qs = MovieSchedule.objects.all()
+
+        if brand:
+            qs = qs.filter(brand=brand)
+
+        start_date, end_date = None, None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                qs = qs.filter(play_date__gte=start_date)
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                qs = qs.filter(play_date__lte=end_date)
+            except ValueError:
+                pass
+
+        if theater_name:
+            qs = qs.filter(theater_name__icontains=theater_name)
+        if movie_title:
+            qs = qs.filter(movie_title__icontains=movie_title)
+
+        qs = qs.order_by('play_date', 'brand', 'theater_name', 'start_time')
+
+        total = qs.count()
+        brand_stats = {item['brand']: item['cnt'] for item in qs.values('brand').annotate(cnt=Count('id'))}
+        theater_count = qs.values('theater_name').distinct().count()
+        movie_count = qs.values('movie_title').distinct().count()
+
+        # Raw log counts (크롤링 수집 건수 - transform 전 원본)
+        log_filter = {}
+        if start_date:
+            log_filter['query_date__gte'] = start_date.strftime("%Y%m%d")
+        if end_date:
+            log_filter['query_date__lte'] = end_date.strftime("%Y%m%d")
+
+        raw_logs = {
+            "CGV": CGVScheduleLog.objects.filter(**log_filter).count() if (not brand or brand == 'CGV') else None,
+            "LOTTE": LotteScheduleLog.objects.filter(**log_filter).count() if (not brand or brand == 'LOTTE') else None,
+            "MEGABOX": MegaboxScheduleLog.objects.filter(**log_filter).count() if (not brand or brand == 'MEGABOX') else None,
+        }
+
+        offset = (page - 1) * page_size
+        page_qs = qs[offset:offset + page_size]
+
+        results = []
+        for s in page_qs:
+            results.append({
+                "id": s.id,
+                "brand": s.brand,
+                "theater_name": s.theater_name,
+                "movie_title": s.movie_title,
+                "screen_name": s.screen_name,
+                "start_time": s.start_time.strftime("%Y-%m-%d %H:%M") if s.start_time else None,
+                "end_time": s.end_time.strftime("%H:%M") if s.end_time else None,
+                "play_date": s.play_date.strftime("%Y-%m-%d") if s.play_date else None,
+                "remaining_seats": s.remaining_seats,
+                "total_seats": s.total_seats,
+                "tags": s.tags or [],
+                "is_booking_available": s.is_booking_available,
+            })
+
+        return Response({
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "results": results,
+            "stats": {
+                "theater_count": theater_count,
+                "movie_count": movie_count,
+                "by_brand": brand_stats,
+                "raw_logs": raw_logs,
+            }
+        }, status=status.HTTP_200_OK)
 
 
 class CrawlerScheduleExportView(APIView):

@@ -770,8 +770,16 @@ def movies_by_year(request):
     if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
         qs = qs.filter(distributor_id=user.client_id)
 
-    movies = qs.values("id", "title_ko", "movie_code", "release_date")
-    return Response(list(movies))
+    result = []
+    for m in qs.select_related("distributor"):
+        result.append({
+            "id": m.id,
+            "title_ko": m.title_ko,
+            "movie_code": m.movie_code,
+            "release_date": str(m.release_date) if m.release_date else None,
+            "distributor_name": m.distributor.client_name if m.distributor else None,
+        })
+    return Response(result)
 
 
 # ── 대표 영화의 서브(포맷) 목록 API ──
@@ -900,6 +908,153 @@ def score_summary_excel(request):
 # ============================
 #  기준별 현황 API (DB 집계 최적화)
 # ============================
+@api_view(["GET"])
+def score_daily_status(request):
+    """
+    일현황 API
+    GET /Api/score/daily/?movie_id=1&date_from=2025-03-19&date_to=2025-03-19
+    집계단위: 날짜 + 극장 + 상영관 + 요금
+    정렬: 날짜(오름차순) → 극장(가나다순) → 상영관(오름차순) → 요금(오름차순)
+    """
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to 필수"}, status=400)
+
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
+
+    if not movie_ids:
+        return Response({"rows": [], "grand_total": {"visitor": 0, "revenue": 0}})
+
+    # 대표영화 정보
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        primary = None
+
+    # 공통 필터
+    common_filter = Q(
+        movie_id__in=movie_ids,
+        entry_date__gte=date_from_str,
+        entry_date__lte=date_to_str,
+    )
+    region = request.query_params.get("region")
+    multi = request.query_params.get("multi")
+    theater_type = request.query_params.get("theater_type")
+    if region and region != "전체":
+        common_filter &= Q(client__region_code=region)
+    if multi and multi != "전체":
+        common_filter &= Q(client__theater_kind=multi)
+    if theater_type and theater_type != "전체":
+        common_filter &= Q(client__client_type=theater_type)
+
+    # 집계: 날짜 + 극장 + 상영관 + 요금
+    qs = list(
+        Score.objects
+        .filter(common_filter)
+        .values("entry_date", "client_id", "auditorium", "fare")
+        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+    )
+
+    if not qs:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(primary.release_date) if primary and primary.release_date else "",
+        }
+        return Response({"meta": meta, "rows": [], "grand_total": {"visitor": 0, "revenue": 0}})
+
+    client_ids_set = list({row["client_id"] for row in qs})
+
+    # 극장 기본 정보
+    from client.models import Client, DistributorTheaterMap
+    clients = {
+        c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
+            "id", "theater_name", "client_name", "excel_theater_name"
+        )
+    }
+
+    # 배급사 극장명 조회 (로그인 유저가 배급사인 경우)
+    theater_name_map = {}
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        dist_maps = (
+            DistributorTheaterMap.objects
+            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
+            .order_by("theater_id", "-apply_date")
+        )
+        for m in dist_maps:
+            if m.theater_id not in theater_name_map:
+                theater_name_map[m.theater_id] = m.distributor_theater_name
+
+    def get_theater_name(client_id):
+        if client_id in theater_name_map:
+            return theater_name_map[client_id]
+        info = clients.get(client_id, {})
+        return (
+            info.get("excel_theater_name") or
+            info.get("theater_name") or
+            info.get("client_name") or
+            ""
+        )
+
+    # 결과 조립
+    rows = []
+    total_visitor = 0
+    total_revenue = 0
+
+    for row in qs:
+        try:
+            fare_int = int(row["fare"] or 0)
+        except (ValueError, TypeError):
+            fare_int = 0
+        visitor = row["total_visitor"] or 0
+        revenue = fare_int * visitor
+        theater = get_theater_name(row["client_id"])
+        aud = row["auditorium"] or ""
+
+        rows.append({
+            "date": str(row["entry_date"]),
+            "theater": theater,
+            "auditorium": aud,
+            "fare": row["fare"] or "",
+            "visitor": visitor,
+            "revenue": revenue,
+            "_sort_date": str(row["entry_date"]),
+            "_sort_theater": theater,
+            "_sort_aud": aud,
+            "_sort_fare": fare_int,
+        })
+        total_visitor += visitor
+        total_revenue += revenue
+
+    # 정렬: 날짜(오름차순) → 극장(가나다) → 상영관(오름차순) → 요금(오름차순)
+    rows.sort(key=lambda r: (r["_sort_date"], r["_sort_theater"], r["_sort_aud"], r["_sort_fare"]))
+    for r in rows:
+        del r["_sort_date"]
+        del r["_sort_theater"]
+        del r["_sort_aud"]
+        del r["_sort_fare"]
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(primary.release_date) if primary and primary.release_date else "",
+    }
+
+    return Response({
+        "meta": meta,
+        "rows": rows,
+        "grand_total": {
+            "visitor": total_visitor,
+            "revenue": total_revenue,
+        },
+    })
+
+
 @api_view(["GET"])
 def score_criteria(request):
     movie_id = request.query_params.get("movie_id")
@@ -1066,4 +1221,1299 @@ def score_criteria(request):
     }
 
     return Response({"meta": meta, "rows": rows})
+
+
+# ============================
+#  좌석판매율 현황 API
+# ============================
+MULTI_ORDER = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3, "기타": 4}
+MULTI_LIST = ["CGV", "롯데", "메가박스", "씨네큐", "기타"]
+REGIONS = ["서울", "경강", "경남", "경북", "충청", "호남"]
+
+
+def _normalize_multi(theater_kind, is_car_theater):
+    """theater_kind → 통합 멀티 분류 (기타/자동차극장 포함)"""
+    if is_car_theater:
+        return "기타"
+    if theater_kind in ("CGV", "롯데", "메가박스", "씨네큐"):
+        return theater_kind
+    return "기타"
+
+
+@api_view(["GET"])
+def score_seat_rate(request):
+    """
+    좌석판매율 현황 API
+    GET /Api/score/seat-rate/?movie_id=1&date=2025-02-11
+    집계단위: 날짜 + 극장 (특정 날짜 단일)
+    """
+    movie_id = request.query_params.get("movie_id")
+    date_str = request.query_params.get("date")
+
+    if not movie_id or not date_str:
+        return Response({"error": "movie_id, date 필수"}, status=400)
+
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
+
+    if not movie_ids:
+        return Response({"meta": {}, "summary": [], "detail": []})
+
+    # 대표영화 정보
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        primary = None
+
+    # ── 1. Score 집계: (client_id, auditorium, show_count, fare) → sum(visitor) ──
+    qs = list(
+        Score.objects
+        .filter(movie_id__in=movie_ids, entry_date=date_str)
+        .values("client_id", "auditorium", "show_count", "fare")
+        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+    )
+
+    if not qs:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(primary.release_date) if primary and primary.release_date else "",
+            "date": date_str,
+        }
+        return Response({"meta": meta, "summary": [], "detail": []})
+
+    client_ids_set = list({row["client_id"] for row in qs})
+
+    # ── 2. Theater 좌석수 조회 ──
+    from client.models import Client, Theater, DistributorTheaterMap
+    theater_seat_map = {}
+    for t in Theater.objects.filter(client_id__in=client_ids_set).values("client_id", "auditorium", "seat_count"):
+        key = (t["client_id"], t["auditorium"] or "")
+        try:
+            theater_seat_map[key] = int(t["seat_count"] or 0)
+        except (ValueError, TypeError):
+            theater_seat_map[key] = 0
+
+    # ── 3. Client(극장) 정보 조회 ──
+    clients = {
+        c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
+            "id", "theater_name", "client_name", "excel_theater_name",
+            "region_code", "theater_kind", "classification", "is_car_theater"
+        )
+    }
+
+    # 배급사 극장명 매핑 (배급사 로그인 시)
+    theater_name_map = {}
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        dist_maps = (
+            DistributorTheaterMap.objects
+            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
+            .order_by("theater_id", "-apply_date")
+        )
+        for m in dist_maps:
+            if m.theater_id not in theater_name_map:
+                theater_name_map[m.theater_id] = m.distributor_theater_name
+
+    def get_theater_name(cid):
+        if cid in theater_name_map:
+            return theater_name_map[cid]
+        info = clients.get(cid, {})
+        return (
+            info.get("excel_theater_name") or
+            info.get("theater_name") or
+            info.get("client_name") or
+            ""
+        )
+
+    # ── 4. (관별×회차별) 집계: 관객수·매출액 계산 ──
+    # aud_show_map: {(client_id, auditorium, show_count): {visitor, revenue}}
+    aud_show_data = defaultdict(lambda: {"visitor": 0, "revenue": 0})
+
+    for row in qs:
+        cid = row["client_id"]
+        aud = row["auditorium"] or ""
+        sc = row["show_count"] or ""
+        try:
+            fare_int = int(row["fare"] or 0)
+        except (ValueError, TypeError):
+            fare_int = 0
+        visitor = row["total_visitor"] or 0
+        revenue = fare_int * visitor
+        key = (cid, aud, sc)
+        aud_show_data[key]["visitor"] += visitor
+        aud_show_data[key]["revenue"] += revenue
+
+    # ── 5. 극장별 집계 ──
+    # 좌석수: 관객 1명 이상 발생한 회차의 (관 좌석수 × 해당 회차 수)
+    theater_data = defaultdict(lambda: {"visitor": 0, "revenue": 0, "seat_capacity": 0, "show_count": 0})
+
+    # (client_id, auditorium) 단위로 active show 집계
+    aud_active = defaultdict(lambda: {"active_shows": 0, "visitor": 0, "revenue": 0})
+    for (cid, aud, sc), data in aud_show_data.items():
+        aud_active[(cid, aud)]["visitor"] += data["visitor"]
+        aud_active[(cid, aud)]["revenue"] += data["revenue"]
+        if data["visitor"] > 0:
+            aud_active[(cid, aud)]["active_shows"] += 1
+
+    for (cid, aud), agg in aud_active.items():
+        seat_count = theater_seat_map.get((cid, aud), 0)
+        active_shows = agg["active_shows"]
+        seat_capacity = seat_count * active_shows
+
+        theater_data[cid]["visitor"] += agg["visitor"]
+        theater_data[cid]["revenue"] += agg["revenue"]
+        theater_data[cid]["seat_capacity"] += seat_capacity
+        theater_data[cid]["show_count"] += active_shows
+
+    # ── 6. 상세 데이터 구성 ──
+    detail_rows = []
+    for cid, data in theater_data.items():
+        info = clients.get(cid, {})
+        visitor = data["visitor"]
+        seat_capacity = data["seat_capacity"]
+        revenue = data["revenue"]
+        show_count_val = data["show_count"]
+        seat_rate = round(visitor / seat_capacity * 100, 1) if seat_capacity > 0 else 0.0
+        multi = _normalize_multi(info.get("theater_kind") or "", info.get("is_car_theater") or False)
+
+        detail_rows.append({
+            "client_id": cid,
+            "multi": multi,
+            "multi_order": MULTI_ORDER.get(multi, 4),
+            "region": info.get("region_code") or "",
+            "classification": info.get("classification") or "",
+            "theater": get_theater_name(cid),
+            "date": date_str,
+            "visitor": visitor,
+            "revenue": revenue,
+            "show_count": show_count_val,
+            "seat_count": seat_capacity,
+            "seat_rate": seat_rate,
+        })
+
+    # ── 7. 정렬: 멀티순 → 좌석판매율 내림차순 → 극장명 오름차순 ──
+    detail_rows.sort(key=lambda r: (r["multi_order"], -r["seat_rate"], r["theater"]))
+
+    # ── 8. 멀티별 순위 부여 ──
+    multi_rank_counter = defaultdict(int)
+    for row in detail_rows:
+        multi_rank_counter[row["multi"]] += 1
+        row["rank"] = multi_rank_counter[row["multi"]]
+        del row["multi_order"]
+        del row["client_id"]
+
+    # ── 9. 요약 데이터 (멀티별 합계 + 지역별 좌판율) ──
+    multi_agg = {
+        m: {
+            "visitor": 0,
+            "seat_capacity": 0,
+            "regions": {r: {"visitor": 0, "seat_capacity": 0} for r in REGIONS}
+        }
+        for m in MULTI_LIST
+    }
+
+    for cid, data in theater_data.items():
+        info = clients.get(cid, {})
+        multi = _normalize_multi(info.get("theater_kind") or "", info.get("is_car_theater") or False)
+        region = info.get("region_code") or ""
+        target = multi_agg.get(multi, multi_agg["기타"])
+        target["visitor"] += data["visitor"]
+        target["seat_capacity"] += data["seat_capacity"]
+        if region in REGIONS:
+            target["regions"][region]["visitor"] += data["visitor"]
+            target["regions"][region]["seat_capacity"] += data["seat_capacity"]
+
+    summary = []
+    total_visitor = 0
+    total_seat_capacity = 0
+    total_regions = {r: {"visitor": 0, "seat_capacity": 0} for r in REGIONS}
+
+    for multi in MULTI_LIST:
+        agg = multi_agg[multi]
+        if agg["visitor"] == 0 and agg["seat_capacity"] == 0:
+            continue
+        visitor = agg["visitor"]
+        seat_capacity = agg["seat_capacity"]
+        seat_rate = round(visitor / seat_capacity * 100, 1) if seat_capacity > 0 else 0.0
+
+        region_rates = {}
+        for r in REGIONS:
+            rv = agg["regions"][r]["visitor"]
+            rs = agg["regions"][r]["seat_capacity"]
+            region_rates[r] = round(rv / rs * 100, 1) if rs > 0 else None
+            total_regions[r]["visitor"] += rv
+            total_regions[r]["seat_capacity"] += rs
+
+        summary.append({
+            "multi": multi,
+            "visitor": visitor,
+            "seat_count": seat_capacity,
+            "seat_rate": seat_rate,
+            "regions": region_rates,
+        })
+        total_visitor += visitor
+        total_seat_capacity += seat_capacity
+
+    total_seat_rate = round(total_visitor / total_seat_capacity * 100, 1) if total_seat_capacity > 0 else 0.0
+    total_region_rates = {}
+    for r in REGIONS:
+        rv = total_regions[r]["visitor"]
+        rs = total_regions[r]["seat_capacity"]
+        total_region_rates[r] = round(rv / rs * 100, 1) if rs > 0 else None
+
+    summary.append({
+        "multi": "합계",
+        "visitor": total_visitor,
+        "seat_count": total_seat_capacity,
+        "seat_rate": total_seat_rate,
+        "regions": total_region_rates,
+    })
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(primary.release_date) if primary and primary.release_date else "",
+        "date": date_str,
+    }
+
+    return Response({"meta": meta, "summary": summary, "detail": detail_rows})
+
+
+# ============================
+#  누계 순위 API
+# ============================
+@api_view(["GET"])
+def score_ranking(request):
+    """
+    누계 순위 API
+    GET /Api/score/ranking/?movie_id=1&date_from=2025-01-01&date_to=2025-03-19
+    집계단위: 극장 (date_from~date_to 누적)
+    정렬: 누적 관객수 내림차순 (기본) | 누적 매출액 내림차순 (sort_by=revenue)
+    """
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to 필수"}, status=400)
+
+    # 포맷(서브영화) 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
+
+    if not movie_ids:
+        return Response({"meta": {}, "rows": []})
+
+    # 대표영화 정보
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        primary = None
+
+    # 공통 필터
+    common_filter = Q(
+        movie_id__in=movie_ids,
+        entry_date__gte=date_from_str,
+        entry_date__lte=date_to_str,
+    )
+    region = request.query_params.get("region")
+    multi = request.query_params.get("multi")
+    theater_type = request.query_params.get("theater_type")
+    if region and region != "전체":
+        common_filter &= Q(client__region_code=region)
+    if multi and multi != "전체":
+        common_filter &= Q(client__theater_kind=multi)
+    if theater_type and theater_type != "전체":
+        common_filter &= Q(client__client_type=theater_type)
+
+    # 집계: (client_id, fare, entry_date) → sum(visitor)
+    qs = list(
+        Score.objects
+        .filter(common_filter)
+        .values("client_id", "fare", "entry_date")
+        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+    )
+
+    if not qs:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(primary.release_date) if primary and primary.release_date else "",
+            "date_from": date_from_str,
+            "date_to": date_to_str,
+        }
+        return Response({"meta": meta, "rows": []})
+
+    client_ids_set = list({row["client_id"] for row in qs})
+
+    # 극장 정보 조회
+    from client.models import Client, DistributorTheaterMap
+    clients = {
+        c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
+            "id", "theater_name", "client_name", "excel_theater_name"
+        )
+    }
+
+    # 배급사 극장명 매핑
+    theater_name_map = {}
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        dist_maps = (
+            DistributorTheaterMap.objects
+            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
+            .order_by("theater_id", "-apply_date")
+        )
+        for m in dist_maps:
+            if m.theater_id not in theater_name_map:
+                theater_name_map[m.theater_id] = m.distributor_theater_name
+
+    def get_theater_name(cid):
+        if cid in theater_name_map:
+            return theater_name_map[cid]
+        info = clients.get(cid, {})
+        return (
+            info.get("excel_theater_name") or
+            info.get("theater_name") or
+            info.get("client_name") or
+            ""
+        )
+
+    # 극장별 Python 집계 (min_date, max_date 포함)
+    theater_agg = defaultdict(lambda: {
+        "visitor": 0,
+        "revenue": 0,
+        "min_date": None,
+        "max_date": None,
+    })
+
+    for row in qs:
+        cid = row["client_id"]
+        try:
+            fare_int = int(row["fare"] or 0)
+        except (ValueError, TypeError):
+            fare_int = 0
+        visitor = row["total_visitor"] or 0
+        revenue = fare_int * visitor
+        entry_date = row["entry_date"]
+
+        theater_agg[cid]["visitor"] += visitor
+        theater_agg[cid]["revenue"] += revenue
+
+        if theater_agg[cid]["min_date"] is None or entry_date < theater_agg[cid]["min_date"]:
+            theater_agg[cid]["min_date"] = entry_date
+        if theater_agg[cid]["max_date"] is None or entry_date > theater_agg[cid]["max_date"]:
+            theater_agg[cid]["max_date"] = entry_date
+
+    # 결과 조립
+    sort_by = request.query_params.get("sort_by", "visitor")
+    rows = []
+    for cid, data in theater_agg.items():
+        min_d = str(data["min_date"]) if data["min_date"] else ""
+        max_d = str(data["max_date"]) if data["max_date"] else ""
+        rows.append({
+            "theater": get_theater_name(cid),
+            "visitor": data["visitor"],
+            "revenue": data["revenue"],
+            "min_date": min_d,
+            "max_date": max_d,
+        })
+
+    # 정렬
+    if sort_by == "revenue":
+        rows.sort(key=lambda r: -r["revenue"])
+    else:
+        rows.sort(key=lambda r: -r["visitor"])
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(primary.release_date) if primary and primary.release_date else "",
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+    }
+
+    return Response({"meta": meta, "rows": rows})
+
+
+# ── 집계작 시간표 날짜 목록 API ──
+@api_view(["GET"])
+def score_timetable_dates(request):
+    """
+    GET /Api/score/timetable/dates/?movie_id=1
+    해당 영화의 크롤링 시간표 데이터가 존재하는 날짜 목록을 반환합니다.
+    """
+    import re
+    from crawler.models import MovieSchedule
+
+    movie_id = request.query_params.get("movie_id")
+    if not movie_id:
+        return Response({"error": "movie_id가 필요합니다."}, status=400)
+
+    try:
+        movie = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
+
+    def normalize_str(s):
+        return re.sub(r'[^a-zA-Z0-9가-힣]', '', s).lower()
+
+    clean_target = normalize_str(movie.title_ko)
+
+    # 1) 중복 없는 movie_title 목록에서 매칭되는 제목만 필터
+    all_titles = list(MovieSchedule.objects.values_list('movie_title', flat=True).distinct())
+    matched_titles = [t for t in all_titles if clean_target in normalize_str(t)]
+
+    if not matched_titles:
+        return Response({"dates": []})
+
+    # 2) 매칭된 제목의 play_date 목록 반환
+    dates = list(
+        MovieSchedule.objects.filter(
+            movie_title__in=matched_titles,
+            play_date__isnull=False
+        ).values_list('play_date', flat=True).distinct().order_by('play_date')
+    )
+    return Response({"dates": [d.strftime("%Y-%m-%d") for d in dates]})
+
+
+# ── 집계작 시간표 집계 API ──
+@api_view(["GET"])
+def score_timetable(request):
+    """
+    GET /Api/score/timetable/?movie_id=1&date_from=2026-01-01&date_to=2026-01-31
+    집계작 시간표 데이터를 계열사별/지역별/포맷별/시간대별로 집계하여 반환합니다.
+    """
+    import re
+    from crawler.models import MovieSchedule
+    from client.models import Client
+
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to가 필요합니다."}, status=400)
+
+    try:
+        movie = Movie.objects.select_related("distributor").get(id=movie_id)
+    except Movie.DoesNotExist:
+        return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
+
+    def normalize_str(s):
+        return re.sub(r'[^a-zA-Z0-9가-힣]', '', s).lower()
+
+    clean_target = normalize_str(movie.title_ko)
+
+    # 매칭 제목 목록 추출
+    all_titles = list(MovieSchedule.objects.values_list('movie_title', flat=True).distinct())
+    matched_titles = [t for t in all_titles if clean_target in normalize_str(t)]
+
+    if not matched_titles:
+        return Response({
+            "meta": {
+                "movie_title": movie.title_ko,
+                "release_date": str(movie.release_date) if movie.release_date else None,
+                "distributor_name": movie.distributor.client_name if movie.distributor else None,
+            },
+            "by_chain": [], "by_region": [], "by_format": [],
+            "time_slots": {"count_rows": [], "pct_rows": []},
+            "daily_chart": [],
+        })
+
+    # 데이터 조회
+    schedules = list(
+        MovieSchedule.objects.filter(
+            movie_title__in=matched_titles,
+            play_date__gte=d_from,
+            play_date__lte=d_to,
+        ).values(
+            'brand', 'theater_name', 'screen_name',
+            'start_time', 'play_date', 'total_seats', 'remaining_seats', 'tags'
+        )
+    )
+
+    # 지역/구분 매핑 테이블 구성 (Client 모델 기반)
+    clients = list(Client.objects.values(
+        'theater_kind', 'excel_theater_name', 'theater_name',
+        'region_code', 'classification'
+    ))
+
+    region_map = {}
+    classif_map = {}
+
+    def norm_brand(kind):
+        if not kind: return None
+        k = kind.upper()
+        if 'CGV' in k: return 'CGV'
+        if 'LOTTE' in k or '롯데' in k: return 'LOTTE'
+        if 'MEGA' in k or '메가' in k: return 'MEGABOX'
+        return None
+
+    for c in clients:
+        b = norm_brand(c['theater_kind'])
+        if not b: continue
+        region = c['region_code']
+        cls = c['classification'] or '-'
+        for field in ('excel_theater_name', 'theater_name'):
+            name = c.get(field)
+            if name:
+                key = (b, name.replace(' ', ''))
+                if region:
+                    region_map[key] = region
+                classif_map[key] = cls
+
+    def strip_prefix(s):
+        return (s.replace("CGV", "").replace("롯데시네마", "").replace("롯데", "")
+                  .replace("메가박스", "").replace("씨네큐", "").replace(" ", ""))
+
+    def get_client_info(brand, theater):
+        clean = theater.replace(" ", "")
+        r = region_map.get((brand, clean))
+        cl = classif_map.get((brand, clean))
+        if r and cl:
+            return r, cl
+        crawl_pure = strip_prefix(theater)
+        for (mb, mn), mr in region_map.items():
+            if mb != brand: continue
+            cp = strip_prefix(mn)
+            if crawl_pure == cp or (len(cp) >= 2 and len(crawl_pure) >= 2 and
+                                    (cp in crawl_pure or crawl_pure in cp)):
+                return mr, classif_map.get((mb, mn), '-')
+        return '기타', '-'
+
+    def get_format(tags):
+        for t in (tags or []):
+            tu = str(t).upper()
+            if "IMAX" in tu: return "IMAX"
+            if "4DX" in tu: return "4DX"
+            if "SCREENX" in tu or "SCREEN X" in tu: return "SCREENX"
+            if "DOLBY" in tu or "ATMOS" in tu: return "DOLBY"
+        return "일반"
+
+    def get_slot(start_time):
+        m = start_time.hour * 60 + start_time.minute
+        if 300 <= m <= 600: return "조조"
+        if 601 <= m <= 720: return "오전"
+        if 721 <= m <= 1020: return "오후"
+        if 1021 <= m <= 1260: return "저녁"
+        if 1261 <= m <= 1439: return "심야"
+        return None
+
+    BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스', 'OTHER': '일반'}
+    CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반']
+    REGION_ORDER = ['서울', '경강', '경남', '경북', '충청', '호남']
+    SLOT_NAMES = ["조조", "오전", "오후", "저녁", "심야"]
+
+    def empty_agg():
+        return {'theaters': set(), 'screens': set(), 'shows': 0, 'total_seats': 0, 'sold_seats': 0}
+
+    chain_agg = defaultdict(empty_agg)
+    region_agg = defaultdict(empty_agg)
+    format_agg = defaultdict(empty_agg)
+    slot_agg = defaultdict(lambda: defaultdict(int))
+    daily_agg = defaultdict(int)
+
+    for s in schedules:
+        brand = s['brand']
+        bd = BRAND_DISPLAY.get(brand, brand)
+        theater = s['theater_name']
+        screen = s['screen_name']
+        ts = s['total_seats'] or 0
+        rem = s['remaining_seats'] or 0
+        sold = max(0, ts - rem)
+        tags = s['tags'] or []
+        fmt = get_format(tags)
+        region, cls = get_client_info(brand, theater)
+        play_date = s['play_date']
+        start_time = s['start_time']
+
+        # 계열사별
+        chain_agg[bd]['theaters'].add(theater)
+        chain_agg[bd]['screens'].add((theater, screen))
+        chain_agg[bd]['shows'] += 1
+        chain_agg[bd]['total_seats'] += ts
+        chain_agg[bd]['sold_seats'] += sold
+
+        # 지역별
+        region_agg[region]['theaters'].add((brand, theater))
+        region_agg[region]['screens'].add((brand, theater, screen))
+        region_agg[region]['shows'] += 1
+        region_agg[region]['total_seats'] += ts
+        region_agg[region]['sold_seats'] += sold
+
+        # 포맷별 (계열사+포맷+구분)
+        fk = (bd, fmt, cls)
+        format_agg[fk]['theaters'].add(theater)
+        format_agg[fk]['screens'].add((theater, screen))
+        format_agg[fk]['shows'] += 1
+        format_agg[fk]['total_seats'] += ts
+        format_agg[fk]['sold_seats'] += sold
+
+        # 시간대별
+        if start_time:
+            slot = get_slot(start_time)
+            if slot:
+                slot_agg[bd][slot] += 1
+
+        # 일별 차트
+        if play_date:
+            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
+            daily_agg[ds] += ts
+
+    def make_row(label, d):
+        tc = len(d['theaters'])
+        sc = len(d['screens'])
+        sh = d['shows']
+        tot = d['total_seats']
+        sold = d['sold_seats']
+        return {
+            "label": label,
+            "theater_count": tc,
+            "show_count": sh,
+            "avg_shows": round(sh / tc, 1) if tc > 0 else 0,
+            "screen_count": sc,
+            "total_seats": tot,
+            "avg_seats": round(tot / sh, 1) if sh > 0 else 0,
+            "sold_seats": sold,
+        }
+
+    def total_of(dicts):
+        t = empty_agg()
+        for d in dicts:
+            t['theaters'].update(d['theaters'])
+            t['screens'].update(d['screens'])
+            t['shows'] += d['shows']
+            t['total_seats'] += d['total_seats']
+            t['sold_seats'] += d['sold_seats']
+        return t
+
+    # 계열사별
+    by_chain = []
+    included_c = []
+    for ch in CHAIN_ORDER:
+        if ch in chain_agg:
+            by_chain.append(make_row(ch, chain_agg[ch]))
+            included_c.append(chain_agg[ch])
+    if by_chain:
+        by_chain.append({**make_row("합계", total_of(included_c)), "is_total": True})
+
+    # 지역별
+    by_region = []
+    included_r = []
+    for rg in REGION_ORDER:
+        if rg in region_agg:
+            by_region.append(make_row(rg, region_agg[rg]))
+            included_r.append(region_agg[rg])
+    if '기타' in region_agg:
+        by_region.append(make_row('기타', region_agg['기타']))
+        included_r.append(region_agg['기타'])
+    if by_region:
+        by_region.append({**make_row("합계", total_of(included_r)), "is_total": True})
+
+    # 포맷별
+    by_format = []
+    included_f = []
+    fkeys = sorted(format_agg.keys(),
+                   key=lambda x: (CHAIN_ORDER.index(x[0]) if x[0] in CHAIN_ORDER else 99, x[1], x[2]))
+    for (bd, fmt, cls) in fkeys:
+        d = format_agg[(bd, fmt, cls)]
+        row = make_row(bd, d)
+        row['format'] = fmt
+        row['classification'] = cls
+        by_format.append(row)
+        included_f.append(d)
+    if by_format:
+        tr = make_row("합계", total_of(included_f))
+        tr['format'] = ""
+        tr['classification'] = ""
+        tr['is_total'] = True
+        by_format.append(tr)
+
+    # 시간대별
+    count_rows = []
+    pct_rows = []
+    grand_shows = 0
+    total_slots = defaultdict(int)
+    for ch in CHAIN_ORDER:
+        if ch not in slot_agg: continue
+        slots = slot_agg[ch]
+        ch_total = sum(slots.get(s, 0) for s in SLOT_NAMES)
+        if ch_total == 0: continue
+        grand_shows += ch_total
+        cr = {"label": ch, "total": ch_total}
+        pr = {"label": ch}
+        for sl in SLOT_NAMES:
+            cnt = slots.get(sl, 0)
+            cr[sl] = cnt
+            pr[sl] = round(cnt / ch_total * 100, 1) if ch_total > 0 else 0.0
+            total_slots[sl] += cnt
+        count_rows.append(cr)
+        pct_rows.append(pr)
+    if count_rows:
+        tcr = {"label": "합계", "total": grand_shows, "is_total": True}
+        tpr = {"label": "합계", "is_total": True}
+        for sl in SLOT_NAMES:
+            cnt = total_slots[sl]
+            tcr[sl] = cnt
+            tpr[sl] = round(cnt / grand_shows * 100, 1) if grand_shows > 0 else 0.0
+        count_rows.append(tcr)
+        pct_rows.append(tpr)
+
+    daily_chart = [{"date": d, "total_seats": v} for d, v in sorted(daily_agg.items())]
+
+    return Response({
+        "meta": {
+            "movie_title": movie.title_ko,
+            "release_date": str(movie.release_date) if movie.release_date else None,
+            "distributor_name": movie.distributor.client_name if movie.distributor else None,
+        },
+        "by_chain": by_chain,
+        "by_region": by_region,
+        "by_format": by_format,
+        "time_slots": {"count_rows": count_rows, "pct_rows": pct_rows},
+        "daily_chart": daily_chart,
+    })
+
+
+# ============================
+#  상세 부금 조회 API (배급사용)
+# ============================
+@api_view(["GET"])
+def score_settlement_detail(request):
+    """
+    상세 부금 조회 API (배급사용)
+    GET /Api/score/settlement/?movie_id=1&date_from=2025-01-01&date_to=2025-01-31
+    집계단위: (극장, 부율, 기금면제여부) 그룹
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+    from fund.models import DailyFund, MonthlyFund, Fund as FundModel
+    from rate.models import Rate, TheaterRate, DefaultRate
+    from client.models import Client, DistributorTheaterMap
+
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to 필수"}, status=400)
+
+    # 포맷 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids_list = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids_list)
+
+    if not movie_ids:
+        return Response({"meta": {}, "rows": []})
+
+    # 포맷 라벨 결정
+    if format_movie_ids_list:
+        fmt_movies = Movie.objects.filter(id__in=[int(x) for x in format_movie_ids_list if x.isdigit()])
+        labels = []
+        for m in fmt_movies:
+            parts = [m.viewing_dimension, m.screening_type, m.dx4_viewing_dimension, m.audio_mode]
+            lbl = " ".join(p for p in parts if p and p.strip()) or m.title_ko
+            labels.append(lbl)
+        format_display = " / ".join(labels) if labels else "전체"
+    else:
+        format_display = "전체"
+
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        primary = None
+
+    date_from_obj = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+    date_to_obj = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+
+    # 공통 필터
+    common_filter = Q(
+        movie_id__in=movie_ids,
+        entry_date__gte=date_from_obj,
+        entry_date__lte=date_to_obj,
+    )
+    region = request.query_params.get("region")
+    multi_p = request.query_params.get("multi")
+    theater_type = request.query_params.get("theater_type")
+    if region and region != "전체":
+        common_filter &= Q(client__region_code=region)
+    if multi_p and multi_p != "전체":
+        common_filter &= Q(client__theater_kind=multi_p)
+    if theater_type and theater_type != "전체":
+        common_filter &= Q(client__client_type=theater_type)
+
+    # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
+    qs = list(
+        Score.objects
+        .filter(common_filter)
+        .values("client_id", "fare", "entry_date", "auditorium")
+        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+        .order_by("entry_date")
+    )
+
+    if not qs:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(primary.release_date) if primary and primary.release_date else "",
+            "date_from": date_from_str,
+            "date_to": date_to_str,
+        }
+        return Response({"meta": meta, "rows": []})
+
+    client_ids_set = list({r["client_id"] for r in qs})
+    from_year = date_from_obj.year
+    to_year = date_to_obj.year
+
+    # 기금 맵 (daily → monthly → yearly 우선순위)
+    daily_fund_map = {
+        (f.client_id, f.yyyy, f.mm, f.dd): f.fund_yn
+        for f in DailyFund.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+    monthly_fund_map = {
+        (f.client_id, f.yyyy, f.mm): f.fund_yn
+        for f in MonthlyFund.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+    yearly_fund_map = {
+        (f.client_id, f.yyyy): f.fund_yn
+        for f in FundModel.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+
+    def get_fund_exempt(c_id, d):
+        v = daily_fund_map.get((c_id, d.year, d.month, d.day))
+        if v is not None:
+            return v
+        v = monthly_fund_map.get((c_id, d.year, d.month))
+        if v is not None:
+            return v
+        v = yearly_fund_map.get((c_id, d.year))
+        return v if v is not None else False
+
+    # 부율 맵 (날짜 범위 겹치는 Rate 레코드)
+    rates_qs = list(Rate.objects.filter(
+        movie_id=movie_id,
+        client_id__in=client_ids_set,
+        start_date__lte=date_to_obj,
+        end_date__gte=date_from_obj,
+    ))
+    rate_map_d = defaultdict(list)
+    for r in rates_qs:
+        rate_map_d[r.client_id].append(r)
+
+    theater_rate_map = {
+        (tr.rate_id, tr.theater.auditorium_name): tr.share_rate
+        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater")
+    } if rates_qs else {}
+
+    default_rate_map = {
+        (dr.region_code, dr.theater_kind): dr.share_rate
+        for dr in DefaultRate.objects.all()
+    }
+
+    def get_rate_value(c_id, entry_date, aud_name, client_info):
+        for r in rate_map_d.get(c_id, []):
+            if r.start_date <= entry_date <= r.end_date:
+                tr_val = theater_rate_map.get((r.id, aud_name))
+                return tr_val if tr_val is not None else r.share_rate
+        return default_rate_map.get(
+            (client_info.get("region_code"), client_info.get("theater_kind")),
+            Decimal("50.0")
+        )
+
+    # 클라이언트 정보
+    clients = {
+        c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
+            "id", "theater_name", "client_name", "excel_theater_name",
+            "region_code", "theater_kind", "classification"
+        )
+    }
+
+    # 배급사 극장명 맵
+    dist_theater_name_map = {}
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        for m in DistributorTheaterMap.objects.filter(
+            distributor_id=user.client_id, theater_id__in=client_ids_set
+        ).order_by("theater_id", "-apply_date"):
+            if m.theater_id not in dist_theater_name_map:
+                dist_theater_name_map[m.theater_id] = m.distributor_theater_name
+
+    def get_system_name(cid):
+        info = clients.get(cid, {})
+        return info.get("excel_theater_name") or info.get("theater_name") or info.get("client_name") or ""
+
+    # Python 집계: (client_id, share_rate_str, is_fund_exempt) 단위
+    aggregated = {}
+    for row in qs:
+        cid = row["client_id"]
+        entry_date = row["entry_date"]
+        aud = row["auditorium"] or ""
+        client_info = clients.get(cid, {})
+
+        share_rate = get_rate_value(cid, entry_date, aud, client_info)
+        is_fund_exempt = get_fund_exempt(cid, entry_date)
+
+        group_key = (cid, str(share_rate), is_fund_exempt)
+        if group_key not in aggregated:
+            aggregated[group_key] = {
+                "theater": get_system_name(cid),
+                "distributor_theater": dist_theater_name_map.get(cid, ""),
+                "format": format_display,
+                "region": client_info.get("region_code") or "",
+                "multi": client_info.get("theater_kind") or "",
+                "classification": client_info.get("classification") or "",
+                "share_rate": share_rate,
+                "is_fund_exempt": is_fund_exempt,
+                "visitor": 0,
+                "_raw_amt": 0,
+                "_excl_fund": Decimal("0"),
+                "_min_date": entry_date,
+                "_max_date": entry_date,
+            }
+
+        target = aggregated[group_key]
+        visitor = row["total_visitor"] or 0
+        try:
+            fare = Decimal(str(row["fare"] or 0))
+        except Exception:
+            fare = Decimal("0")
+
+        unit_excl_fund = fare if is_fund_exempt else (
+            fare / Decimal("1.03")
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+        target["visitor"] += visitor
+        target["_raw_amt"] += int(fare) * visitor
+        target["_excl_fund"] += unit_excl_fund * visitor
+        if entry_date < target["_min_date"]:
+            target["_min_date"] = entry_date
+        if entry_date > target["_max_date"]:
+            target["_max_date"] = entry_date
+
+    # 최종 계산
+    rows = []
+    for data in aggregated.values():
+        visitor = data["visitor"]
+        rate_d = Decimal(str(data["share_rate"]))
+        excl_fund = data["_excl_fund"]
+        excl_vat = (excl_fund / Decimal("1.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        supply_val = (excl_vat * (rate_d / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        vat_val = (supply_val * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        total_payment = int(supply_val + vat_val)
+        unit_price = round(int(supply_val) / visitor) if visitor > 0 else 0
+
+        rows.append({
+            "theater": data["theater"],
+            "distributor_theater": data["distributor_theater"],
+            "format": data["format"],
+            "region": data["region"],
+            "multi": data["multi"],
+            "classification": data["classification"],
+            "min_date": str(data["_min_date"]),
+            "max_date": str(data["_max_date"]),
+            "visitor": visitor,
+            "ticket_revenue": data["_raw_amt"],
+            "fund_excluded": int(excl_fund),
+            "vat_excluded": int(excl_vat),
+            "rate": float(data["share_rate"]),
+            "supply_value": int(supply_val),
+            "vat": int(vat_val),
+            "total_payment": total_payment,
+            "unit_price": unit_price,
+        })
+
+    # 정렬: 멀티순 → 직영/위탁 → 지역 → 극장명
+    _MULTI_ORD = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3}
+
+    def _skey(r):
+        m = r["multi"] or ""
+        mi = next((v for k, v in _MULTI_ORD.items() if k in m), 99)
+        ci = 0 if r["classification"] == "직영" else 1
+        return (mi, ci, r["region"], r["theater"])
+
+    rows.sort(key=_skey)
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(primary.release_date) if primary and primary.release_date else "",
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+    }
+    return Response({"meta": meta, "rows": rows})
+
+
+@api_view(["GET"])
+def score_movies_search(request):
+    """
+    영화명 검색 API (자동완성용)
+    GET /Api/score/movies-search/?q=keyword
+    """
+    q = request.query_params.get("q", "").strip()
+    if not q:
+        return Response([])
+    qs = Movie.objects.filter(title_ko__icontains=q, is_primary_movie=True).order_by("-release_date")
+    user = request.user
+    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+        qs = qs.filter(distributor_id=user.client_id)
+    return Response([{
+        "id": m.id,
+        "title_ko": m.title_ko,
+        "release_date": str(m.release_date) if m.release_date else "",
+        "year": m.release_date.year if m.release_date else None,
+    } for m in qs[:20]])
+
+
+# ============================
+#  주요작 좌석수 - 공통 헬퍼
+# ============================
+def _build_competitor_region_map():
+    """Client 모델 기반 (brand, theater_name) → region_code 매핑 테이블 구성"""
+    from client.models import Client
+
+    clients = list(Client.objects.values(
+        'theater_kind', 'excel_theater_name', 'theater_name', 'region_code'
+    ))
+
+    def norm_brand(kind):
+        if not kind: return None
+        k = kind.upper()
+        if 'CGV' in k: return 'CGV'
+        if 'LOTTE' in k or '롯데' in k: return 'LOTTE'
+        if 'MEGA' in k or '메가' in k: return 'MEGABOX'
+        return None
+
+    region_map = {}
+    for c in clients:
+        b = norm_brand(c['theater_kind'])
+        if not b: continue
+        region = c['region_code']
+        if not region: continue
+        for field in ('excel_theater_name', 'theater_name'):
+            name = c.get(field)
+            if name:
+                region_map[(b, name.replace(' ', ''))] = region
+    return region_map
+
+
+def _get_region(brand, theater, region_map):
+    """(brand, theater_name) → region_code 조회 (퍼지 매칭 포함)"""
+    def strip_prefix(s):
+        return (s.replace("CGV", "").replace("롯데시네마", "").replace("롯데", "")
+                  .replace("메가박스", "").replace("씨네큐", "").replace(" ", ""))
+
+    clean = theater.replace(" ", "")
+    r = region_map.get((brand, clean))
+    if r:
+        return r
+    crawl_pure = strip_prefix(theater)
+    for (mb, mn), mr in region_map.items():
+        if mb != brand: continue
+        cp = strip_prefix(mn)
+        if crawl_pure == cp or (len(cp) >= 2 and len(crawl_pure) >= 2 and
+                                (cp in crawl_pure or crawl_pure in cp)):
+            return mr
+    return '기타'
+
+
+# ============================
+#  주요작 영화 목록 API
+# ============================
+@api_view(["GET"])
+def score_competitor_movies(request):
+    """
+    주요작 영화 목록 (날짜 범위 내 크롤링 데이터 기준)
+    GET /Api/score/competitor/movies/?date_from=2025-01-01&date_to=2025-01-31&brands=CGV,LOTTE&regions=서울,경강
+    """
+    from crawler.models import MovieSchedule
+
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        return Response({"error": "date_from, date_to 필수"}, status=400)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식 오류 (YYYY-MM-DD)"}, status=400)
+
+    brands_param = request.query_params.get("brands", "")
+    brand_filter_map = {"CGV": "CGV", "롯데": "LOTTE", "메가박스": "MEGABOX"}
+    selected_brands = [brand_filter_map[b] for b in brands_param.split(",") if b in brand_filter_map] if brands_param else []
+
+    qs = MovieSchedule.objects.filter(play_date__gte=d_from, play_date__lte=d_to)
+    if selected_brands:
+        qs = qs.filter(brand__in=selected_brands)
+
+    regions_param = request.query_params.get("regions", "")
+    selected_regions = [r for r in regions_param.split(",") if r] if regions_param else []
+
+    if selected_regions:
+        region_map = _build_competitor_region_map()
+        schedules_with_region = qs.values_list('brand', 'theater_name', 'movie_title').distinct()
+        matched_titles = set()
+        for brand, theater, title in schedules_with_region:
+            region = _get_region(brand, theater, region_map)
+            if region in selected_regions:
+                matched_titles.add(title)
+        titles = sorted(matched_titles)
+    else:
+        titles = list(
+            qs.values_list('movie_title', flat=True).distinct().order_by('movie_title')
+        )
+
+    return Response({"movies": titles})
+
+
+# ============================
+#  주요작 좌석수 집계 API
+# ============================
+@api_view(["GET"])
+def score_competitor_seats(request):
+    """
+    주요작 좌석수 집계 API (당기 + 전주 비교)
+    GET /Api/score/competitor/seats/?date_from=2025-01-01&date_to=2025-01-07
+        &movies=영화A,영화B&brands=CGV,롯데&regions=서울,경강
+    """
+    from crawler.models import MovieSchedule
+
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        return Response({"error": "date_from, date_to 필수"}, status=400)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식 오류 (YYYY-MM-DD)"}, status=400)
+
+    lw_from = d_from - timedelta(days=7)
+    lw_to = d_to - timedelta(days=7)
+
+    # 브랜드 필터
+    brands_param = request.query_params.get("brands", "")
+    brand_filter_map = {"CGV": "CGV", "롯데": "LOTTE", "메가박스": "MEGABOX"}
+    selected_brands = [brand_filter_map[b] for b in brands_param.split(",") if b in brand_filter_map] if brands_param else []
+
+    # 영화 필터
+    movies_param = request.query_params.get("movies", "")
+    selected_movies = [m for m in movies_param.split(",") if m.strip()] if movies_param else []
+
+    # 지역 필터
+    regions_param = request.query_params.get("regions", "")
+    selected_regions = [r for r in regions_param.split(",") if r.strip()] if regions_param else []
+    region_map = _build_competitor_region_map() if selected_regions else {}
+
+    def build_qs(df, dt):
+        qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
+        if selected_brands:
+            qs = qs.filter(brand__in=selected_brands)
+        if selected_movies:
+            qs = qs.filter(movie_title__in=selected_movies)
+        return qs.values('movie_title', 'play_date', 'brand', 'theater_name', 'total_seats', 'remaining_seats')
+
+    def aggregate(schedules, date_offset_days=0):
+        """
+        schedules: iterable of dicts
+        date_offset_days: shift play_date by N days (for aligning last week to this week)
+        Returns: {title: {date_str: {total_seats, sold_seats}}}
+        """
+        agg = defaultdict(lambda: defaultdict(lambda: {"total_seats": 0, "sold_seats": 0}))
+        for s in schedules:
+            title = s['movie_title']
+            if not title: continue
+            play_date = s['play_date']
+            if not play_date: continue
+            if selected_regions:
+                region = _get_region(s['brand'], s['theater_name'], region_map)
+                if region not in selected_regions:
+                    continue
+            if date_offset_days:
+                from datetime import date as date_type
+                if hasattr(play_date, 'strftime'):
+                    play_date = play_date + timedelta(days=date_offset_days)
+                else:
+                    play_date = datetime.strptime(str(play_date), "%Y-%m-%d").date() + timedelta(days=date_offset_days)
+            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
+            ts = s['total_seats'] or 0
+            rem = s['remaining_seats'] or 0
+            sold = max(0, ts - rem)
+            agg[title][ds]["total_seats"] += ts
+            agg[title][ds]["sold_seats"] += sold
+        return agg
+
+    # 당기 집계
+    curr_schedules = list(build_qs(d_from, d_to))
+    curr_agg = aggregate(curr_schedules, date_offset_days=0)
+
+    # 전주 집계 (날짜를 +7하여 당기 날짜에 맞춤)
+    lw_schedules = list(build_qs(lw_from, lw_to))
+    lw_agg = aggregate(lw_schedules, date_offset_days=7)
+
+    # 날짜 목록 (당기 기준)
+    all_dates = sorted({
+        ds for title_data in curr_agg.values() for ds in title_data
+    })
+
+    # 영화 목록 결정 (선택된 영화 또는 데이터에 있는 모든 영화)
+    if selected_movies:
+        movie_titles = [m for m in selected_movies if m in curr_agg]
+    else:
+        movie_titles = sorted(curr_agg.keys())
+
+    # 응답 구성
+    movies_result = []
+    grand_total = 0
+    grand_sold = 0
+    grand_lw_total = 0
+    grand_daily = defaultdict(lambda: {"total_seats": 0, "sold_seats": 0})
+
+    for title in movie_titles:
+        daily_data = curr_agg.get(title, {})
+        lw_daily = lw_agg.get(title, {})
+        period_total = sum(d["total_seats"] for d in daily_data.values())
+        period_sold = sum(d["sold_seats"] for d in daily_data.values())
+        lw_period_total = sum(d["total_seats"] for d in lw_daily.values())
+
+        # 날짜별 병합
+        merged_daily = {}
+        for ds in all_dates:
+            curr_day = daily_data.get(ds, {})
+            lw_day = lw_daily.get(ds, {})
+            merged_daily[ds] = {
+                "total_seats": curr_day.get("total_seats", 0),
+                "sold_seats": curr_day.get("sold_seats", 0),
+                "lw_total_seats": lw_day.get("total_seats", 0),
+            }
+
+        movies_result.append({
+            "title": title,
+            "daily": merged_daily,
+            "period_total": period_total,
+            "period_sold": period_sold,
+            "lw_period_total": lw_period_total,
+        })
+
+        grand_total += period_total
+        grand_sold += period_sold
+        grand_lw_total += lw_period_total
+        for ds in all_dates:
+            grand_daily[ds]["total_seats"] += merged_daily[ds]["total_seats"]
+            grand_daily[ds]["sold_seats"] += merged_daily[ds]["sold_seats"]
+
+    return Response({
+        "dates": all_dates,
+        "movies": movies_result,
+        "grand": {
+            "period_total": grand_total,
+            "period_sold": grand_sold,
+            "lw_period_total": grand_lw_total,
+            "daily": {ds: dict(v) for ds, v in grand_daily.items()},
+        },
+    })
 

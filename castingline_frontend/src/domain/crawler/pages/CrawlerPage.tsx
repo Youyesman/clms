@@ -9,6 +9,7 @@ import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
 import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls, Gear, Lightning } from "@phosphor-icons/react";
 import { ScheduleExportModal } from "./ScheduleExportModal";
+import { useAppAlert } from "../../../atom/alertUtils";
 
 // --- Types ---
 interface IChoiceCompany {
@@ -126,9 +127,10 @@ const StatusBadge = styled.span<{ status: string }>`
     border-radius: 9999px;
     font-size: 11px;
     font-weight: 600;
-    
+
     ${({ status }) => {
         if (status === 'SUCCESS') return `background-color: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;`;
+        if (status === 'SUCCESS_PARTIAL') return `background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;`;
         if (status === 'FAILED') return `background-color: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;`;
         if (status === 'RUNNING') return `background-color: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe;`;
         return `background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;`;
@@ -195,6 +197,9 @@ const INITIAL_CONFIG: ICrawlerConfig = {
 };
 
 export const CrawlerPage = () => {
+    const toast = useToast();
+    const { showAlert } = useAppAlert();
+
     const [config, setConfig] = useState<ICrawlerConfig>(INITIAL_CONFIG);
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
 
@@ -206,6 +211,10 @@ export const CrawlerPage = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [quickMovieTitle, setQuickMovieTitle] = useState("");
 
+    // Pagination State
+    const [page, setPage] = useState(1);
+    const pageSize = 10;
+
     useEffect(() => {
         const saved = localStorage.getItem("quickDownloadMovieTitle");
         if (saved) setQuickMovieTitle(saved);
@@ -216,12 +225,6 @@ export const CrawlerPage = () => {
         setIsSettingsOpen(false);
         toast.success("설정이 저장되었습니다.");
     };
-
-    // Pagination State
-    const [page, setPage] = useState(1);
-    const pageSize = 10;
-
-    const toast = useToast();
 
     // -- Polling History --
     const fetchHistory = async () => {
@@ -295,16 +298,23 @@ export const CrawlerPage = () => {
             .catch(err => toast.error("다운로드 실패: " + err.message));
     };
 
-    const handleStop = async (historyId: number) => {
-        if (!window.confirm("크롤링 작업을 중단하시겠습니까?")) return;
-        try {
-            await AxiosPost(`crawler/stop/${historyId}`, {});
-            toast.success("중단 요청되었습니다.");
-            fetchHistory();
-        } catch (error: any) {
-            const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
-            toast.error(`중단 실패: ${msg}`);
-        }
+    const handleStop = (historyId: number) => {
+        showAlert(
+            "크롤링 중단",
+            "진행 중인 크롤링 작업을 중단하시겠습니까?",
+            "warning",
+            async () => {
+                try {
+                    await AxiosPost(`crawler/stop/${historyId}`, {});
+                    toast.success("중단 요청되었습니다.");
+                    fetchHistory();
+                } catch (error: any) {
+                    const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
+                    toast.error(`중단 실패: ${msg}`);
+                }
+            },
+            true
+        );
     };
 
     const formatDateTime = (isoString: string | null) => {
@@ -313,16 +323,23 @@ export const CrawlerPage = () => {
         return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     };
 
-    const handleTransform = async (historyId: number) => {
-        if (!window.confirm("선택한 이력의 데이터를 기반으로 스케줄을 생성하시겠습니까?\n(기존 데이터가 있다면 덮어쓰거나 무시될 수 있습니다.)")) return;
-        try {
-            await AxiosPost(`crawler/transform/${historyId}`, {});
-            toast.success("스케줄 생성 작업이 시작되었습니다.\n(실행 이력에서 진행 상태를 확인할 수 있습니다.)");
-            fetchHistory(); // Refresh to potentially show status update if we tracked it (we don't sync status for transform yet, but good practice)
-        } catch (error: any) {
-            const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
-            toast.error(`스케줄 생성 실패: ${msg}`);
-        }
+    const handleTransform = (historyId: number) => {
+        showAlert(
+            "스케줄 생성",
+            "선택한 이력을 기반으로 스케줄을 생성하시겠습니까?\n기존 데이터가 있다면 덮어쓰거나 무시될 수 있습니다.",
+            "warning",
+            async () => {
+                try {
+                    await AxiosPost(`crawler/transform/${historyId}`, {});
+                    toast.success("스케줄 생성 작업이 시작되었습니다. 실행 이력에서 진행 상태를 확인할 수 있습니다.");
+                    fetchHistory();
+                } catch (error: any) {
+                    const msg = error.response?.data?.error || error.message || "오류가 발생했습니다.";
+                    toast.error(`스케줄 생성 실패: ${msg}`);
+                }
+            },
+            true
+        );
     };
 
     const handleOpenExportModal = (item: ICrawlerHistory) => {
@@ -477,15 +494,24 @@ export const CrawlerPage = () => {
         {
             key: "status",
             label: "결과",
-            width: "80px",
-            renderCell: (val: string) => (
-                <StatusBadge status={val}>
-                    {val === 'RUNNING' && <CircleNotch className="spin" size={12} />}
-                    {val === 'SUCCESS' && <CheckCircle size={12} weight="fill" />}
-                    {val === 'FAILED' && <WarningCircle size={12} weight="fill" />}
-                    {val === 'SUCCESS' ? '성공' : val === 'FAILED' ? '오류' : val === 'RUNNING' ? '진행중' : '대기'}
-                </StatusBadge>
-            )
+            width: "120px",
+            renderCell: (val: string, item: ICrawlerHistory) => {
+                const totalFailures = item.result_summary?.total_failures ?? 0;
+                const isPartial = val === 'SUCCESS' && totalFailures > 0;
+                const displayStatus = isPartial ? 'SUCCESS_PARTIAL' : val;
+                return (
+                    <StatusBadge status={displayStatus} title={isPartial ? `${totalFailures}개 극장/날짜 수집 실패` : undefined}>
+                        {val === 'RUNNING' && <CircleNotch className="spin" size={12} />}
+                        {val === 'SUCCESS' && !isPartial && <CheckCircle size={12} weight="fill" />}
+                        {(val === 'FAILED' || isPartial) && <WarningCircle size={12} weight="fill" />}
+                        {isPartial
+                            ? `성공 (${totalFailures}건 실패)`
+                            : val === 'SUCCESS' ? '성공'
+                            : val === 'FAILED' ? '오류'
+                            : val === 'RUNNING' ? '진행중' : '대기'}
+                    </StatusBadge>
+                );
+            }
         },
         {
             key: "logs",

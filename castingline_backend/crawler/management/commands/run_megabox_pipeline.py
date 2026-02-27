@@ -3,7 +3,7 @@ import time
 import json
 import requests
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.conf import settings
 from django.db import close_old_connections
 from django.core.management.base import BaseCommand
@@ -191,18 +191,27 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                             try:
                                                 json_data = response.json()
                                                 close_old_connections()
-                                                
-                                                log = MegaboxScheduleLog.objects.create(
+
+                                                # 혹시 잔존 중복 레코드가 있으면 먼저 정리
+                                                dup_qs = MegaboxScheduleLog.objects.filter(
+                                                    query_date=scn_ymd, site_code=brch_no
+                                                )
+                                                if dup_qs.count() > 1:
+                                                    keep_id = dup_qs.order_by('-created_at').values_list('id', flat=True).first()
+                                                    dup_qs.exclude(id=keep_id).delete()
+
+                                                log, created = MegaboxScheduleLog.objects.update_or_create(
                                                     query_date=scn_ymd,
                                                     site_code=brch_no,
-                                                    theater_name=theater_name,
-                                                    response_json=json_data,
-                                                    status='success',
-                                                    crawler_run=crawler_run
+                                                    defaults={
+                                                        'theater_name': theater_name,
+                                                        'response_json': json_data,
+                                                        'status': 'success',
+                                                        'crawler_run': crawler_run
+                                                    }
                                                 )
-                                                # print(f"[{worker_id}]          ✅ Saved: {scn_ymd}")
                                                 collected_results.append({"log_id": log.id, "date": scn_ymd})
-                                                
+
                                             except Exception as e:
                                                 print(f"[{worker_id}]          ❌ Parse Error {scn_ymd}: {e}")
                                         else:
@@ -694,8 +703,6 @@ class Command(BaseCommand):
         else:
              target_dates = [datetime.now().strftime("%Y%m%d")]
 
-        from datetime import timedelta # Need import
-        
         # History Creation
         from crawler.models import CrawlerRunHistory
         from django.utils import timezone

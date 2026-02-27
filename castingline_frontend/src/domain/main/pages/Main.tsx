@@ -1,22 +1,22 @@
 import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { 
-    CalendarCheck, 
-    ShoppingCart, 
-    FilmStrip, 
-    ArrowRight, 
-    ChartLineUp, 
-    Buildings, 
-    Wallet, 
-    Handshake 
+import {
+    CalendarCheck,
+    ShoppingCart,
+    FilmStrip,
+    ArrowRight,
+    ChartLineUp,
+    Buildings,
 } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
+import { useRecoilState } from "recoil";
 import dayjs from "dayjs";
 import { AxiosGet } from "../../../axios/Axios";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
 import { FadeIn } from "../../../components/common/MotionWrapper";
+import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../../atom/TabState";
 
 const DashboardContainer = styled.div`
     padding: 24px;
@@ -153,7 +153,20 @@ const LinkButton = styled.button`
 
 export default function Main() {
     const navigate = useNavigate();
+    const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
+    const [, setActiveTabId] = useRecoilState(ActiveTabIdState);
     const today = dayjs().format("YYYY-MM-DD");
+
+    const handleNavClick = (path: string) => {
+        const label = PATH_TO_TAB_LABEL[path] || path;
+        const exists = openTabs.find((t) => t.id === path);
+        if (!exists) {
+            const newTab: Tab = { id: path, label, path, closable: true };
+            setOpenTabs((prev) => [...prev, newTab]);
+        }
+        setActiveTabId(path);
+        navigate(path);
+    };
     
     const [scoreCount, setScoreCount] = useState(0);
     const [todayOrderCount, setTodayOrderCount] = useState(0);
@@ -324,9 +337,9 @@ export default function Main() {
 
                 <MainContentGrid>
                     <CommonSectionCard height="450px" padding="0">
-                        <CommonListHeader 
-                            title="최근 생성 오더" 
-                            actions={<ArrowRight size={20} cursor="pointer" onClick={() => navigate("/order")} />}
+                        <CommonListHeader
+                            title="최근 생성 오더"
+                            actions={<ArrowRight size={20} cursor="pointer" onClick={() => handleNavClick("/manage/manage_order")} />}
                         />
                         <div style={{ flex: 1, overflow: 'auto' }}>
                             <GenericTable 
@@ -339,9 +352,9 @@ export default function Main() {
                     </CommonSectionCard>
 
                     <CommonSectionCard height="450px" padding="0">
-                        <CommonListHeader 
-                            title="최신 등록 영화" 
-                            actions={<ArrowRight size={20} cursor="pointer" onClick={() => navigate("/movie")} />}
+                        <CommonListHeader
+                            title="최신 등록 영화"
+                            actions={<ArrowRight size={20} cursor="pointer" onClick={() => handleNavClick("/manage/manage_movie")} />}
                         />
                         <div style={{ flex: 1, overflow: 'auto' }}>
                             <GenericTable 
@@ -360,22 +373,24 @@ export default function Main() {
                             title="🎬 알짜배기 상영관 찾기 (Top 10)" 
                             actions={
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <select 
-                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                                    <select
+                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
                                         value={selectedYear}
                                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                                     >
-                                        {[2026, 2025, 2024, 2023].map(y => <option key={y} value={y}>{y}년</option>)}
+                                        {Array.from({ length: 5 }, (_, i) => dayjs().year() - i).map(y => (
+                                            <option key={y} value={y}>{y}년</option>
+                                        ))}
                                     </select>
-                                    <select 
-                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                                    <select
+                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
                                         value={selectedMonth}
                                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                                     >
                                         {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}월</option>)}
                                     </select>
-                                    <select 
-                                        style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', minWidth: '180px', maxWidth: '300px' }}
+                                    <select
+                                        style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', minWidth: '180px', maxWidth: '300px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
                                         value={selectedMovieId}
                                         onChange={(e) => setSelectedMovieId(e.target.value)}
                                     >
@@ -411,7 +426,7 @@ export default function Main() {
                 
                 <QuickLinksGrid>
                     {quickLinks.map((link, idx) => (
-                        <LinkButton key={idx} onClick={() => navigate(link.path)}>
+                        <LinkButton key={idx} onClick={() => handleNavClick(link.path)}>
                             {link.icon}
                             <span>{link.label}</span>
                         </LinkButton>

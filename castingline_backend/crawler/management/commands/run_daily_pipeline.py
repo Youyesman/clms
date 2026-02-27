@@ -1,5 +1,6 @@
 import os
 import time
+import requests
 from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -11,6 +12,63 @@ from crawler.models import CrawlerRunHistory, MovieSchedule, LotteScheduleLog
 from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
 from crawler.management.commands.run_megabox_pipeline import MegaboxPipelineService
+
+
+def _send_daily_slack(target_dates=None, total_collected=0, total_created=0,
+                      cgv_created=0, lotte_created=0, mega_created=0,
+                      all_failures=None, success=True, error_msg=""):
+    """데일리 파이프라인 통합 결과 Slack 알림"""
+    token = getattr(settings, 'SLACK_BOT_TOKEN', '')
+    channel = getattr(settings, 'SLACK_CHANNEL_ID', '')
+    if not token or not channel:
+        print(f"[Daily Slack] {'✅ SUCCESS' if success else '❌ FAILED'} | collected={total_collected}, created={total_created}")
+        return
+
+    all_failures = all_failures or []
+    dates_str = ", ".join(target_dates) if target_dates else "Unknown"
+
+    if success:
+        fail_lines = ""
+        if all_failures:
+            samples = all_failures[:10]
+            fail_lines = "\n".join(f"• [{f.get('theater','?')}] {f.get('date','?')}: {f.get('reason','?')[:40]}" for f in samples)
+            if len(all_failures) > 10:
+                fail_lines += f"\n... 외 {len(all_failures) - 10}건"
+
+        text = (
+            f"✅ [Daily Pipeline] 완료\n"
+            f"📅 대상: {dates_str}\n"
+            f"📦 수집 로그: {total_collected}건 | 🎬 스케줄 생성: {total_created}건\n"
+            f"  CGV {cgv_created} / 롯데 {lotte_created} / 메가박스 {mega_created}\n"
+            f"⚠️ 실패: {len(all_failures)}건" + (f"\n{fail_lines}" if fail_lines else "")
+        )
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*✅ [Daily Pipeline] 수집 완료*\n📅 {dates_str}"}},
+            {"type": "section", "fields": [
+                {"type": "mrkdwn", "text": f"*수집 로그:*\n{total_collected}건"},
+                {"type": "mrkdwn", "text": f"*스케줄 생성:*\n{total_created}건"},
+                {"type": "mrkdwn", "text": f"*CGV:*\n{cgv_created}건"},
+                {"type": "mrkdwn", "text": f"*롯데:*\n{lotte_created}건"},
+                {"type": "mrkdwn", "text": f"*메가박스:*\n{mega_created}건"},
+                {"type": "mrkdwn", "text": f"*실패:*\n{len(all_failures)}건"},
+            ]},
+        ]
+        if fail_lines:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*⚠️ 실패 상세 (상위 10건):*\n{fail_lines}"}})
+    else:
+        text = f"❌ [Daily Pipeline] 실패\n📅 {dates_str}\n오류: {error_msg[:200]}"
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*❌ [Daily Pipeline] 파이프라인 실패*\n📅 {dates_str}\n```{error_msg[:300]}```"}}]
+
+    try:
+        requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"channel": channel, "text": text, "blocks": blocks},
+            timeout=10
+        )
+    except Exception as e:
+        print(f"[Daily Slack] 전송 실패: {e}")
+
 
 class Command(BaseCommand):
     help = 'Run Daily Schedule Pipeline (Crawl -> Log -> Transform) for 3 days starting Tomorrow'
@@ -48,44 +106,39 @@ class Command(BaseCommand):
         try:
             # --- CGV ---
             print("\n[Pipeline] 1. Running CGV...")
-            cgv_logs, cgv_total, cgv_failures = CGVPipelineService.collect_schedule_logs(dates=target_dates)
+            cgv_logs, cgv_total, cgv_failures = CGVPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
             total_collected += len(cgv_logs)
             all_failures.extend(cgv_failures)
-            
-            # Transform CGV
-            print(f"   ↳ Generating Schedules from {len(cgv_logs)} CGV logs...")
-            cgv_created, cgv_errors = CGVPipelineService.transform_logs_to_schedule(
-                log_ids=[l['log_id'] for l in cgv_logs if isinstance(l, dict) and 'log_id' in l]
-            )
+
+            # Transform CGV: crawler_run으로 연결된 로그를 직접 조회
+            from crawler.models import CGVScheduleLog
+            cgv_db_logs = CGVScheduleLog.objects.filter(crawler_run=history)
+            print(f"   ↳ Generating Schedules from {cgv_db_logs.count()} CGV logs...")
+            cgv_created = 0
+            cgv_errors = []
+            for log in cgv_db_logs:
+                try:
+                    cnt, errs = MovieSchedule.create_from_cgv_log(log)
+                    cgv_created += cnt
+                    cgv_errors.extend(errs)
+                except Exception as e:
+                    cgv_errors.append({'error': str(e)})
             total_created += cgv_created
             if cgv_errors:
-                 print(f"   ⚠️ CGV Transform Errors: {len(cgv_errors)}")
+                print(f"   ⚠️ CGV Transform Errors: {len(cgv_errors)}")
 
             # --- Lotte ---
             print("\n[Pipeline] 2. Running Lotte...")
-            # Pass crawler_run to link logs
             lotte_logs, lotte_total, lotte_failures = LottePipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
             total_collected += len(lotte_logs)
             all_failures.extend(lotte_failures)
-            
-            # Transform Lotte (Manual Call as Service method is disabled)
-            print(f"   ↳ Generating Schedules from {len(lotte_logs)} Lotte logs...")
+
+            # Transform Lotte: crawler_run으로 연결된 로그를 직접 조회
+            lotte_db_logs = LotteScheduleLog.objects.filter(crawler_run=history)
+            print(f"   ↳ Generating Schedules from {lotte_db_logs.count()} Lotte logs linked to this run.")
             lotte_created = 0
             lotte_errors = []
-            
-            # Extract Log IDs from result (LotteService returns list of dicts or objects? 
-            # It returns list of objects/dicts. In run_lotte_pipeline.py: collected_logs.extend(res_logs)
-            # res_logs are dicts if from 'saved' list? No, Lotte worker returns list of dicts usually?
-            # Let's check fetch_lotte_schedule_worker ret val.
-            # It returns `collected_results` list of dicts `{'log_id': 'saved', 'date': ...}`? 
-            # Wait, `fetch_lotte_schedule_worker` in `run_lotte_pipeline.py`: 
-            # `collected_results.append({'log_id': 'saved', 'date': target_ymd})` -> It doesn't return ID?
-            # Ah, `LotteScheduleLog.objects.create` is called inside. 
-            # I should query logs by history ID since I passed `crawler_run`.
-            
-            lotte_db_logs = LotteScheduleLog.objects.filter(crawler_run=history)
-            print(f"   ↳ Found {lotte_db_logs.count()} Lotte logs linked to this run.")
-            
+
             for log in lotte_db_logs:
                 try:
                     # Using static method from MovieSchedule if available, or class method from views?
@@ -142,17 +195,31 @@ class Command(BaseCommand):
                 'failures_count': len(all_failures)
             }
             history.save()
-            
+
             self.stdout.write(self.style.SUCCESS(f"\n✅ Pipeline Finished Successfully."))
             self.stdout.write(f"   - Logs Collected: {total_collected}")
             self.stdout.write(f"   - Schedules Created: {total_created}")
-            
+
+            # 통합 Slack 알림
+            _send_daily_slack(
+                target_dates=target_dates,
+                total_collected=total_collected,
+                total_created=total_created,
+                cgv_created=cgv_created,
+                lotte_created=lotte_created,
+                mega_created=mega_created,
+                all_failures=all_failures,
+                success=True
+            )
+
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.stdout.write(self.style.ERROR(f"\n❌ Pipeline Failed: {e}"))
-            
+
             history.status = 'FAILED'
             history.error_message = str(e)
             history.finished_at = timezone.now()
             history.save()
+
+            _send_daily_slack(target_dates=target_dates, success=False, error_msg=str(e))

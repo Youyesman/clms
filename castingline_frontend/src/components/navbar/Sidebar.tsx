@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, Coins, MapPin, Receipt,
-    SealCheck, Bank, Percent, SignOut, UserCircle, Bug
+    SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table
 } from "@phosphor-icons/react";
 import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
@@ -321,6 +321,15 @@ export function Sidebar() {
                     >
                         <Bug size={24} />
                         <span className="label">{t("크롤러 관리")}</span>
+                    </NavItem>
+                    <NavItem
+                        $isExpanded={isHovered}
+                        $isActive={isActive("/manage/crawler/schedules")}
+                        onClick={() => handleNavClick("/manage/crawler/schedules")}
+                        title={t("시간표 수집 현황")}
+                    >
+                        <Table size={24} />
+                        <span className="label">{t("시간표 수집 현황")}</span>
                     </NavItem>
                 </NavGroup>
 

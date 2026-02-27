@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Outlet } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useRecoilValue } from "recoil";
 import { AccountState } from "../atom/AccountState";
 import { BASE_URL } from "../axios/Axios";
 import axios from "axios";
 import { TabContentArea } from "../components/navbar/TabContentArea";
+import { useToast } from "../components/common/CustomToast";
+import { GlobalSkeleton } from "../components/common/GlobalSkeleton";
 
 const PrivateRouter = (): JSX.Element | null => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isChecking, setIsChecking] = useState(true);
     const account = useRecoilValue(AccountState);
     const navigate = useNavigate();
+    const toast = useToast();
 
     useEffect(() => {
         const checkTokenValidity = async (token: string) => {
@@ -23,10 +27,11 @@ const PrivateRouter = (): JSX.Element | null => {
         };
 
         const authenticateUser = async () => {
-            let token = localStorage.getItem("token");
+            const token = localStorage.getItem("token");
 
             if (!token) {
                 navigate("/login");
+                setIsChecking(false);
                 return;
             }
 
@@ -42,26 +47,29 @@ const PrivateRouter = (): JSX.Element | null => {
             } catch (error) {
                 localStorage.removeItem("token");
                 navigate("/login");
+            } finally {
+                setIsChecking(false);
             }
         };
 
         authenticateUser();
     }, [navigate]);
 
+    if (isChecking) {
+        return <GlobalSkeleton />;
+    }
+
     if (isAuthenticated) {
-        // ✅ account 정보가 있고, is_superuser가 true인 경우에만 TabContentArea 리턴
         if (account && account.is_superuser === true) {
             return <TabContentArea />;
         } else {
-            // 권한이 없는 경우 (일반 유저 등)
-            alert("관리자 권한이 필요한 페이지입니다.");
+            toast.error("관리자 권한이 필요한 페이지입니다.");
             navigate("/login");
             return null;
         }
     }
 
-    return null; // 인증 확인 중에는 빈 화면 유지
+    return null;
 };
 
 export default PrivateRouter;
-

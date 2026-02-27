@@ -13,6 +13,9 @@ class CGVScheduleLog(models.Model):
     status = models.CharField(max_length=20, default="success")
     crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='cgv_logs')
 
+    class Meta:
+        unique_together = [('query_date', 'site_code')]
+
     def __str__(self):
         return f"CGV Schedule Log - {self.query_date} ({self.theater_name} / {self.site_code})"
 
@@ -26,6 +29,9 @@ class MegaboxScheduleLog(models.Model):
     status = models.CharField(max_length=20, default='pending')
     crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='megabox_logs')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('query_date', 'site_code')]
 
     def __str__(self):
         return f"[Megabox] {self.theater_name} ({self.query_date})"
@@ -42,6 +48,9 @@ class LotteScheduleLog(models.Model):
     status = models.CharField(max_length=20, default='success')
     crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='lotte_logs')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('query_date', 'theater_name')]
 
     def __str__(self):
         return f"[Lotte] {self.theater_name} ({self.query_date})"
@@ -653,55 +662,62 @@ class MovieSchedule(models.Model):
                      parsed_play_date = None
 
                 # 만약 시간만 있다면 (length < 8 등) 날짜 붙여주기
+                start_dt = None
                 if len(start_dt_str) < 10:
-                    # play_date_str 사용 (RepresentationDate or QueryDate)
-                    # 만약 이것도 없으면 item['PlayDt'] 사용 시도
                     base_date = play_date_str
                     if not base_date and play_dt_val and len(play_dt_val) >= 10:
                         base_date = play_dt_val[:10]
-                        
+
                     if base_date:
-                        start_dt_str = f"{base_date} {start_dt_str}"
-                
-                # Format check & 24h logic (Lotte usually uses standard datetime string but check if needed)
-                # Lotte often gives "2026-01-31 25:30:00" ? -> Unlikely, usually standard. 
-                # But let's keep robust.
-                try:
-                    if "T" in start_dt_str:
-                        start_dt = datetime.fromisoformat(start_dt_str)
-                    else:
-                        start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M:%S")
-                except:
-                     # Lotte often uses YYYY-MM-DD HH:MM
-                     try:
-                        start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M")
-                     except:
-                        try: 
-                            # Try YYYYMMDD HH:MM (e.g. 20260202 11:45)
-                            start_dt = datetime.strptime(start_dt_str, "%Y%m%d %H:%M")
+                        # 24+ 시간 처리 (한국 영화관 자정 초과 표현: 24:00, 24:30 등)
+                        raw_time = start_dt_str.replace(":", "")
+                        if len(raw_time) >= 2 and raw_time[:2].isdigit() and int(raw_time[:2]) >= 24:
+                            shour = int(raw_time[:2])
+                            smin = int(raw_time[2:4]) if len(raw_time) >= 4 else 0
+                            bd_fmt = "%Y-%m-%d" if "-" in base_date else "%Y%m%d"
+                            base_naive = datetime.strptime(base_date, bd_fmt)
+                            start_dt = timezone.make_aware(base_naive + timedelta(hours=shour, minutes=smin))
+                        else:
+                            start_dt_str = f"{base_date} {start_dt_str}"
+
+                if start_dt is None:
+                    try:
+                        if "T" in start_dt_str:
+                            start_dt = datetime.fromisoformat(start_dt_str)
+                        else:
+                            start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M:%S")
+                    except:
+                        try:
+                            start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d %H:%M")
                         except:
-                            # Fallback: maybe just YYYY-MM-DD if time is missing?
                             try:
-                                start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d")
+                                start_dt = datetime.strptime(start_dt_str, "%Y%m%d %H:%M")
                             except:
-                                start_dt = datetime.strptime(start_dt_str, "%Y%m%d")
-                
-                start_dt = timezone.make_aware(start_dt)
+                                try:
+                                    start_dt = datetime.strptime(start_dt_str, "%Y-%m-%d")
+                                except:
+                                    start_dt = datetime.strptime(start_dt_str, "%Y%m%d")
+                    start_dt = timezone.make_aware(start_dt)
                 
                 if end_dt_str:
                     try:
-                        # EndTime도 시간만 있을 수 있음
+                        # EndTime이 "HH:MM" 형식일 때 (24:xx, 25:xx 같은 자정 초과 표현 처리)
                         if len(end_dt_str) < 10:
-                             base_date = start_dt.strftime("%Y-%m-%d")
-                             end_dt_str = f"{base_date} {end_dt_str}"
-                        
-                        if "T" in end_dt_str:
-                             end_dt = datetime.fromisoformat(end_dt_str)
+                            raw_time = end_dt_str.replace(":", "")
+                            ehour = int(raw_time[:2]) if len(raw_time) >= 2 else 0
+                            emin = int(raw_time[2:4]) if len(raw_time) >= 4 else 0
+                            base_date_str = play_dt_val[:10] if play_dt_val else start_dt.strftime("%Y-%m-%d")
+                            base_naive = datetime.strptime(base_date_str, "%Y-%m-%d")
+                            end_dt = timezone.make_aware(base_naive + timedelta(hours=ehour, minutes=emin))
+                        elif "T" in end_dt_str:
+                            end_dt = timezone.make_aware(datetime.fromisoformat(end_dt_str))
                         else:
-                             end_dt = datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M:%S")
+                            try:
+                                end_dt = timezone.make_aware(datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M:%S"))
+                            except:
+                                end_dt = timezone.make_aware(datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M"))
                     except:
-                         end_dt = datetime.strptime(end_dt_str, "%Y-%m-%d %H:%M")
-                    end_dt = timezone.make_aware(end_dt)
+                        end_dt = start_dt + timedelta(hours=2)
                 else:
                     end_dt = start_dt + timedelta(hours=2) # Default duration
                 

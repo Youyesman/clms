@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py run_megabox_pipeline --date 20260228)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(python -X utf8 manage.py run_megabox_pipeline --date 20260228)",
+      "Read(//c/Users/yyw02/AppData/Local/Temp/claude/c--clms/tasks/**)",
+      "Bash(python -X utf8 -c \":*)",
+      "Bash(python3 -c \":*)",
+      "Bash(python -X utf8 manage.py makemigrations crawler --name=\"megaboxschedulelog_unique_together\")",
+      "Bash(python -X utf8 manage.py migrate crawler)",
+      "Bash(python -X utf8 manage.py shell -c \":*)",
+      "Bash(python -X utf8 manage.py makemigrations crawler --name=\"lotteschedulelog_unique_together\")"
+    ],
+    "additionalDirectories": [
+      "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",
+      "C:\\Users\\yyw02\\.claude\\projects\\c--clms\\memory",
+      "C:\\Users\\yyw02\\.claude\\projects\\c--clms"
+    ]
+  }
+}
