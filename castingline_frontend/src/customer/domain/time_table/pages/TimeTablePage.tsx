@@ -483,6 +483,9 @@ export function TimeTablePage() {
             <NavTabBar>
                 <NavTab to="/time_table" $active={true}>집계작 시간표</NavTab>
                 <NavTab to="/time_table/seat-count">주요작 좌석수</NavTab>
+                <NavTab to="/time_table/theater-count">주요작 상영관수</NavTab>
+                <NavTab to="/time_table/screen-count">주요작 스크린수</NavTab>
+                <NavTab to="/time_table/show-count">주요작 상영회차수</NavTab>
             </NavTabBar>
 
             {/* ── 필터 ── */}

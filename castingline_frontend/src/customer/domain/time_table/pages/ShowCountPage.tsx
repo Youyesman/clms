@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { Link } from "react-router-dom";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, PieChart, Pie, Cell, Legend,
+    ResponsiveContainer, Legend,
 } from "recharts";
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
@@ -12,8 +12,6 @@ import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
     n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
-const fmtPct = (n: number | null | undefined) =>
-    n == null ? "-" : Number(n).toFixed(1) + "%";
 
 function yesterday(): string {
     const d = new Date();
@@ -23,29 +21,25 @@ function yesterday(): string {
 
 /* ── 타입 ── */
 interface DailyCell {
-    total_seats: number;
-    sold_seats: number;
-    lw_total_seats: number;
+    shows: number;
+    lw_shows: number;
 }
 
-interface MovieSeat {
+interface MovieShow {
     title: string;
     daily: Record<string, DailyCell>;
-    period_total: number;
-    period_sold: number;
-    lw_period_total: number;
+    period_shows: number;
+    lw_period_shows: number;
 }
 
 interface GrandTotal {
-    period_total: number;
-    period_sold: number;
-    lw_period_total: number;
-    daily: Record<string, { total_seats: number; sold_seats: number }>;
+    period_shows: number;
+    daily: Record<string, { shows: number }>;
 }
 
-interface CompetitorData {
+interface ShowData {
     dates: string[];
-    movies: MovieSeat[];
+    movies: MovieShow[];
     grand: GrandTotal;
 }
 
@@ -60,11 +54,11 @@ const PageWrapper = styled.div`
     gap: 16px;
 `;
 
-/* 탭 네비게이션 */
 const NavTabBar = styled.div`
     display: flex;
     gap: 0;
     border-bottom: 2px solid #e2e8f0;
+    flex-wrap: wrap;
 `;
 
 const NavTab = styled(Link)<{ $active?: boolean }>`
@@ -77,6 +71,7 @@ const NavTab = styled(Link)<{ $active?: boolean }>`
     text-decoration: none;
     cursor: pointer;
     transition: color 0.15s;
+    white-space: nowrap;
     &:hover { color: #3b82f6; }
 `;
 
@@ -197,19 +192,6 @@ const Tbl = styled.table`
     .lw-col { color: #94a3b8; }
 `;
 
-const ChartGrid = styled.div`
-    display: grid;
-    grid-template-columns: 1fr 380px;
-    gap: 16px;
-    @media (max-width: 1100px) { grid-template-columns: 1fr; }
-`;
-
-const PieStack = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-`;
-
 const EmptyMsg = styled.div`
     text-align: center;
     padding: 40px;
@@ -239,14 +221,17 @@ const HintText = styled.div`
     margin-top: 2px;
 `;
 
-/* ── 파이 차트 색상 ── */
-const PIE_COLORS = [
-    "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#84cc16", "#f97316", "#ec4899", "#6366f1",
+/* ── 공통 NavTabs 정의 (탭 5개) ── */
+const NAV_TABS = [
+    { to: "/time_table", label: "집계작 시간표" },
+    { to: "/time_table/seat-count", label: "주요작 좌석수" },
+    { to: "/time_table/theater-count", label: "주요작 상영관수" },
+    { to: "/time_table/screen-count", label: "주요작 스크린수" },
+    { to: "/time_table/show-count", label: "주요작 상영회차수" },
 ];
 
 /* ── 메인 컴포넌트 ── */
-export function SeatCountPage() {
+export function ShowCountPage() {
     const toast = useToast();
 
     const [dateFrom, setDateFrom] = useState(yesterday());
@@ -257,12 +242,12 @@ export function SeatCountPage() {
 
     const [movieOptions, setMovieOptions] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<CompetitorData | null>(null);
+    const [data, setData] = useState<ShowData | null>(null);
     const [fieldErrors, setFieldErrors] = useState({ dateFrom: false, dateTo: false });
 
     const [popover, setPopover] = useState<{ x: number; y: number; title: string; period: string; value: number } | null>(null);
 
-    /* 날짜 범위 변경 시 영화 목록 로드 */
+    /* 날짜 변경 시 영화 목록 로드 */
     const fetchMovies = useCallback(() => {
         if (!dateFrom || !dateTo) return;
         const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
@@ -292,7 +277,7 @@ export function SeatCountPage() {
         if (selectedBrands.length) params.brands = selectedBrands.join(",");
         if (selectedRegions.length) params.regions = selectedRegions.join(",");
 
-        AxiosGet("score/competitor/seats/", { params })
+        AxiosGet("score/competitor/shows/", { params })
             .then(res => setData(res.data))
             .catch(err => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
@@ -310,25 +295,8 @@ export function SeatCountPage() {
     const barData = data?.movies.map(m => ({
         title: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
         fullTitle: m.title,
-        period_total: m.period_total,
-        lw_period_total: m.lw_period_total,
-    })) ?? [];
-
-    /* 파이 차트 데이터 */
-    const rateData = data?.movies.map((m, i) => ({
-        name: m.title.length > 8 ? m.title.slice(0, 8) + "…" : m.title,
-        value: data.grand.period_sold > 0
-            ? Math.round(m.period_sold / data.grand.period_sold * 1000) / 10
-            : 0,
-        color: PIE_COLORS[i % PIE_COLORS.length],
-    })) ?? [];
-
-    const seatData = data?.movies.map((m, i) => ({
-        name: m.title.length > 8 ? m.title.slice(0, 8) + "…" : m.title,
-        value: data.grand.period_total > 0
-            ? Math.round(m.period_total / data.grand.period_total * 1000) / 10
-            : 0,
-        color: PIE_COLORS[i % PIE_COLORS.length],
+        period_shows: m.period_shows,
+        lw_period_shows: m.lw_period_shows,
     })) ?? [];
 
     const BRAND_OPTIONS = ["CGV", "롯데", "메가박스"];
@@ -338,11 +306,11 @@ export function SeatCountPage() {
         <PageWrapper onClick={() => setPopover(null)}>
             {/* ── 탭 네비게이션 ── */}
             <NavTabBar>
-                <NavTab to="/time_table">집계작 시간표</NavTab>
-                <NavTab to="/time_table/seat-count" $active={true}>주요작 좌석수</NavTab>
-                <NavTab to="/time_table/theater-count">주요작 상영관수</NavTab>
-                <NavTab to="/time_table/screen-count">주요작 스크린수</NavTab>
-                <NavTab to="/time_table/show-count">주요작 상영회차수</NavTab>
+                {NAV_TABS.map(t => (
+                    <NavTab key={t.to} to={t.to} $active={t.to === "/time_table/show-count"}>
+                        {t.label}
+                    </NavTab>
+                ))}
             </NavTabBar>
 
             {/* ── 필터 ── */}
@@ -441,149 +409,83 @@ export function SeatCountPage() {
             {/* ── 검색 결과 ── */}
             {data && data.movies.length > 0 && (
                 <>
-                    {/* 차트 영역 */}
-                    <ChartGrid onClick={e => e.stopPropagation()}>
-                        {/* 바 차트 */}
-                        <SectionCard>
-                            <SectionTitle>기간 총좌석수 비교 (전주 vs 당기)</SectionTitle>
-                            <div style={{ padding: "16px 8px 8px" }}>
-                                <ResponsiveContainer width="100%" height={280}>
-                                    <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                        <XAxis
-                                            dataKey="title"
-                                            tick={{ fontSize: 11, fill: "#64748b" }}
-                                            tickLine={false}
-                                            angle={-20}
-                                            textAnchor="end"
-                                        />
-                                        <YAxis
-                                            tick={{ fontSize: 11, fill: "#64748b" }}
-                                            tickLine={false}
-                                            axisLine={false}
-                                            tickFormatter={(v: number) => v.toLocaleString("ko-KR")}
-                                            width={70}
-                                        />
-                                        <Tooltip
-                                            formatter={(value: number | string | undefined, name: string | undefined) => [
-                                                Number(value ?? 0).toLocaleString("ko-KR") + "석",
-                                                name === "lw_period_total" ? "전주 총좌석수" : "당기 총좌석수",
-                                            ]}
-                                            labelFormatter={(label) => {
-                                                const l = String(label ?? "");
-                                                const item = barData.find(d => d.title === l);
-                                                return item?.fullTitle ?? l;
-                                            }}
-                                        />
-                                        <Bar
-                                            dataKey="lw_period_total"
-                                            name="전주"
-                                            fill="#94a3b8"
-                                            radius={[3, 3, 0, 0]}
-                                            cursor="pointer"
-                                            onClick={(d: any, _idx: number, e: any) => {
-                                                setPopover({
-                                                    x: e?.clientX ?? 0,
-                                                    y: e?.clientY ?? 0,
-                                                    title: d.fullTitle ?? d.title,
-                                                    period: "전주",
-                                                    value: d.lw_period_total ?? 0,
-                                                });
-                                            }}
-                                        />
-                                        <Bar
-                                            dataKey="period_total"
-                                            name="당기"
-                                            fill="#3b82f6"
-                                            radius={[3, 3, 0, 0]}
-                                            cursor="pointer"
-                                            onClick={(d: any, _idx: number, e: any) => {
-                                                setPopover({
-                                                    x: e?.clientX ?? 0,
-                                                    y: e?.clientY ?? 0,
-                                                    title: d.fullTitle ?? d.title,
-                                                    period: "당기",
-                                                    value: d.period_total ?? 0,
-                                                });
-                                            }}
-                                        />
-                                        <Legend
-                                            formatter={(value: string) =>
-                                                value === "lw_period_total" ? "전주" : "당기"
-                                            }
-                                        />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </SectionCard>
-
-                        {/* 파이 차트 2개 */}
-                        <PieStack>
-                            <SectionCard>
-                                <SectionTitle>실시간 예매율</SectionTitle>
-                                <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={160}>
-                                        <PieChart>
-                                            <Pie
-                                                data={rateData}
-                                                dataKey="value"
-                                                nameKey="name"
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={60}
-                                                label={({ name, value }) => `${name} ${value}%`}
-                                                labelLine={false}
-                                            >
-                                                {rateData.map((entry, index) => (
-                                                    <Cell key={index} fill={entry.color} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip
-                                                formatter={(value: number | string | undefined) => [
-                                                    `${Number(value ?? 0).toFixed(1)}%`,
-                                                    "예매율",
-                                                ]}
-                                            />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </SectionCard>
-
-                            <SectionCard>
-                                <SectionTitle>좌점율</SectionTitle>
-                                <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={160}>
-                                        <PieChart>
-                                            <Pie
-                                                data={seatData}
-                                                dataKey="value"
-                                                nameKey="name"
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={60}
-                                                label={({ name, value }) => `${name} ${value}%`}
-                                                labelLine={false}
-                                            >
-                                                {seatData.map((entry, index) => (
-                                                    <Cell key={index} fill={entry.color} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip
-                                                formatter={(value: number | string | undefined) => [
-                                                    `${Number(value ?? 0).toFixed(1)}%`,
-                                                    "좌점율",
-                                                ]}
-                                            />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </SectionCard>
-                        </PieStack>
-                    </ChartGrid>
+                    {/* 바 차트 */}
+                    <SectionCard onClick={e => e.stopPropagation()}>
+                        <SectionTitle>기간 총상영회차수 비교 (전주 vs 당기)</SectionTitle>
+                        <div style={{ padding: "16px 8px 8px" }}>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 50 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis
+                                        dataKey="title"
+                                        tick={{ fontSize: 11, fill: "#64748b" }}
+                                        tickLine={false}
+                                        angle={-20}
+                                        textAnchor="end"
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 11, fill: "#64748b" }}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickFormatter={(v: number) => v.toLocaleString("ko-KR")}
+                                        width={70}
+                                    />
+                                    <Tooltip
+                                        formatter={(value: number | string | undefined, name: string | undefined) => [
+                                            Number(value ?? 0).toLocaleString("ko-KR") + "회",
+                                            name === "lw_period_shows" ? "전주 총회차수" : "당기 총회차수",
+                                        ]}
+                                        labelFormatter={(label) => {
+                                            const l = String(label ?? "");
+                                            const item = barData.find(d => d.title === l);
+                                            return item?.fullTitle ?? l;
+                                        }}
+                                    />
+                                    <Bar
+                                        dataKey="lw_period_shows"
+                                        name="전주"
+                                        fill="#fb923c"
+                                        radius={[3, 3, 0, 0]}
+                                        cursor="pointer"
+                                        onClick={(d: any, _idx: number, e: any) => {
+                                            setPopover({
+                                                x: e?.clientX ?? 0,
+                                                y: e?.clientY ?? 0,
+                                                title: d.fullTitle ?? d.title,
+                                                period: "전주",
+                                                value: d.lw_period_shows ?? 0,
+                                            });
+                                        }}
+                                    />
+                                    <Bar
+                                        dataKey="period_shows"
+                                        name="당기"
+                                        fill="#f97316"
+                                        radius={[3, 3, 0, 0]}
+                                        cursor="pointer"
+                                        onClick={(d: any, _idx: number, e: any) => {
+                                            setPopover({
+                                                x: e?.clientX ?? 0,
+                                                y: e?.clientY ?? 0,
+                                                title: d.fullTitle ?? d.title,
+                                                period: "당기",
+                                                value: d.period_shows ?? 0,
+                                            });
+                                        }}
+                                    />
+                                    <Legend
+                                        formatter={(value: string) =>
+                                            value === "lw_period_shows" ? "전주" : "당기"
+                                        }
+                                    />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </SectionCard>
 
                     {/* 매트릭스 테이블 */}
                     <SectionCard>
-                        <SectionTitle>일자별 좌석수 현황</SectionTitle>
+                        <SectionTitle>일자별 상영회차수 현황</SectionTitle>
                         <TableWrap>
                             <Tbl>
                                 <thead>
@@ -613,13 +515,13 @@ export function SeatCountPage() {
                                                 const cell = m.daily[d];
                                                 return (
                                                     <React.Fragment key={d}>
-                                                        <td className="lw-col">{fmt(cell?.lw_total_seats)}</td>
-                                                        <td>{fmt(cell?.total_seats)}</td>
+                                                        <td className="lw-col">{fmt(cell?.lw_shows)}</td>
+                                                        <td>{fmt(cell?.shows)}</td>
                                                     </React.Fragment>
                                                 );
                                             })}
-                                            <td className="lw-col">{fmt(m.lw_period_total)}</td>
-                                            <td>{fmt(m.period_total)}</td>
+                                            <td className="lw-col">{fmt(m.lw_period_shows)}</td>
+                                            <td>{fmt(m.period_shows)}</td>
                                         </tr>
                                     ))}
                                     {/* 합계 행 */}
@@ -630,56 +532,12 @@ export function SeatCountPage() {
                                             return (
                                                 <React.Fragment key={d}>
                                                     <td>-</td>
-                                                    <td>{fmt(cell?.total_seats)}</td>
+                                                    <td>{fmt(cell?.shows)}</td>
                                                 </React.Fragment>
                                             );
                                         })}
                                         <td>-</td>
-                                        <td>{fmt(data.grand.period_total)}</td>
-                                    </tr>
-                                </tbody>
-                            </Tbl>
-                        </TableWrap>
-                    </SectionCard>
-
-                    {/* 예매율/좌점율 요약 테이블 */}
-                    <SectionCard>
-                        <SectionTitle>실시간 예매율 / 좌점율 현황</SectionTitle>
-                        <TableWrap>
-                            <Tbl>
-                                <thead>
-                                    <tr>
-                                        <th>영화명</th>
-                                        <th>기간 총좌석수</th>
-                                        <th>기간 판매좌석수</th>
-                                        <th>실시간 예매율</th>
-                                        <th>좌점율</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {data.movies.map((m, i) => (
-                                        <tr key={i}>
-                                            <td style={{ textAlign: "left" }}>{m.title}</td>
-                                            <td>{fmt(m.period_total)}</td>
-                                            <td>{fmt(m.period_sold)}</td>
-                                            <td>
-                                                {data.grand.period_sold > 0
-                                                    ? fmtPct(m.period_sold / data.grand.period_sold * 100)
-                                                    : "-"}
-                                            </td>
-                                            <td>
-                                                {data.grand.period_total > 0
-                                                    ? fmtPct(m.period_total / data.grand.period_total * 100)
-                                                    : "-"}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    <tr className="total-row">
-                                        <td style={{ textAlign: "left" }}>합계</td>
-                                        <td>{fmt(data.grand.period_total)}</td>
-                                        <td>{fmt(data.grand.period_sold)}</td>
-                                        <td>100%</td>
-                                        <td>100%</td>
+                                        <td>{fmt(data.grand.period_shows)}</td>
                                     </tr>
                                 </tbody>
                             </Tbl>
@@ -705,7 +563,7 @@ export function SeatCountPage() {
             {/* 바 차트 클릭 Popover */}
             {popover && (
                 <PopoverBox $x={popover.x} $y={popover.y}>
-                    {popover.title} ({popover.period}) | {popover.value.toLocaleString("ko-KR")}석
+                    {popover.title} ({popover.period}) | {popover.value.toLocaleString("ko-KR")}회
                 </PopoverBox>
             )}
         </PageWrapper>

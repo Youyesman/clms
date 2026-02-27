@@ -67,4 +67,20 @@ urlpatterns = [
     # 15. 주요작 좌석수 집계 API
     path('score/competitor/seats/', score_competitor_seats,
          name='score-competitor-seats'),
+
+    # 16. 주요작 상영관수 집계 API
+    path('score/competitor/theaters/', score_competitor_theaters,
+         name='score-competitor-theaters'),
+
+    # 17. 주요작 스크린수 집계 API
+    path('score/competitor/screens/', score_competitor_screens,
+         name='score-competitor-screens'),
+
+    # 18. 부금 공급가 API (날짜별 정산 집계)
+    path('score/supply-price/', score_supply_price,
+         name='score-supply-price'),
+
+    # 19. 주요작 상영회차수 집계 API
+    path('score/competitor/shows/', score_competitor_shows,
+         name='score-competitor-shows'),
 ]

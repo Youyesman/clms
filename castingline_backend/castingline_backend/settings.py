@@ -110,7 +110,7 @@ WSGI_APPLICATION = "castingline_backend.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "clms_db",
+        "NAME": "clms_db_new",
         "USER": "postgres",
         "PASSWORD": "wkahd88**",
         "HOST": "116.125.120.94",

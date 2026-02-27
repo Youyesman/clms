@@ -1,4 +1,5 @@
 import pandas as pd
+from datetime import date
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from client.models import Client, DistributorTheaterMap
@@ -12,10 +13,13 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("file_path", type=str, help="엑셀/CSV 파일 경로")
         parser.add_argument("distributor_id", type=int, help="배급사의 Client ID")
+        parser.add_argument("--apply-date", type=str, default=None, help="적용 시작일 (YYYY-MM-DD), 미입력 시 오늘 날짜")
 
     def handle(self, *args, **options):
         file_path = options["file_path"]
         dist_id = options["distributor_id"]
+        apply_date_str = options.get("apply_date")
+        apply_date = date.fromisoformat(apply_date_str) if apply_date_str else date.today()
 
         try:
             distributor = Client.objects.get(id=dist_id)
@@ -65,6 +69,7 @@ class Command(BaseCommand):
                         DistributorTheaterMap.objects.update_or_create(
                             distributor=distributor,
                             theater=theater,
+                            apply_date=apply_date,
                             defaults={"distributor_theater_name": dist_theater_name},
                         )
                         success_count += 1

@@ -2268,6 +2268,212 @@ def score_movies_search(request):
 
 
 # ============================
+#  부금 공급가 API (날짜별 정산 집계)
+# ============================
+@api_view(["GET"])
+def score_supply_price(request):
+    """
+    부금 공급가 API - 날짜별 정산 집계
+    GET /Api/score/supply-price/?movie_id=1&date_from=2025-03-01&date_to=2025-03-31
+    집계단위: entry_date
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+    from fund.models import DailyFund, MonthlyFund, Fund as FundModel
+    from rate.models import Rate, TheaterRate, DefaultRate
+    from client.models import Client
+
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to 필수"}, status=400)
+
+    # 포맷 필터
+    format_ids_str = request.query_params.get("format_movie_ids", "")
+    format_movie_ids_list = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
+    movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids_list)
+
+    if not movie_ids:
+        return Response({"meta": {}, "rows": []})
+
+    try:
+        primary = Movie.objects.get(id=movie_id)
+    except Movie.DoesNotExist:
+        primary = None
+
+    date_from_obj = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+    date_to_obj = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+
+    # 공통 필터
+    common_filter = Q(
+        movie_id__in=movie_ids,
+        entry_date__gte=date_from_obj,
+        entry_date__lte=date_to_obj,
+    )
+    region = request.query_params.get("region")
+    multi_p = request.query_params.get("multi")
+    theater_type = request.query_params.get("theater_type")
+    if region and region != "전체":
+        common_filter &= Q(client__region_code=region)
+    if multi_p and multi_p != "전체":
+        common_filter &= Q(client__theater_kind=multi_p)
+    if theater_type and theater_type != "전체":
+        common_filter &= Q(client__client_type=theater_type)
+
+    # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
+    qs = list(
+        Score.objects
+        .filter(common_filter)
+        .values("client_id", "fare", "entry_date", "auditorium")
+        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+        .order_by("entry_date")
+    )
+
+    if not qs:
+        meta = {
+            "movie_title": primary.title_ko if primary else "",
+            "release_date": str(primary.release_date) if primary and primary.release_date else "",
+        }
+        return Response({"meta": meta, "rows": []})
+
+    client_ids_set = list({r["client_id"] for r in qs})
+    from_year = date_from_obj.year
+    to_year = date_to_obj.year
+
+    # 기금 맵
+    daily_fund_map = {
+        (f.client_id, f.yyyy, f.mm, f.dd): f.fund_yn
+        for f in DailyFund.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+    monthly_fund_map = {
+        (f.client_id, f.yyyy, f.mm): f.fund_yn
+        for f in MonthlyFund.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+    yearly_fund_map = {
+        (f.client_id, f.yyyy): f.fund_yn
+        for f in FundModel.objects.filter(client_id__in=client_ids_set, yyyy__gte=from_year, yyyy__lte=to_year)
+    }
+
+    def get_fund_exempt(c_id, d):
+        v = daily_fund_map.get((c_id, d.year, d.month, d.day))
+        if v is not None:
+            return v
+        v = monthly_fund_map.get((c_id, d.year, d.month))
+        if v is not None:
+            return v
+        v = yearly_fund_map.get((c_id, d.year))
+        return v if v is not None else False
+
+    # 부율 맵
+    rates_qs = list(Rate.objects.filter(
+        movie_id=movie_id,
+        client_id__in=client_ids_set,
+        start_date__lte=date_to_obj,
+        end_date__gte=date_from_obj,
+    ))
+    rate_map_d = defaultdict(list)
+    for r in rates_qs:
+        rate_map_d[r.client_id].append(r)
+
+    theater_rate_map = {
+        (tr.rate_id, tr.theater.auditorium_name): tr.share_rate
+        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater")
+    } if rates_qs else {}
+
+    default_rate_map = {
+        (dr.region_code, dr.theater_kind): dr.share_rate
+        for dr in DefaultRate.objects.all()
+    }
+
+    def get_rate_value(c_id, entry_date, aud_name, client_info):
+        for r in rate_map_d.get(c_id, []):
+            if r.start_date <= entry_date <= r.end_date:
+                tr_val = theater_rate_map.get((r.id, aud_name))
+                return tr_val if tr_val is not None else r.share_rate
+        return default_rate_map.get(
+            (client_info.get("region_code"), client_info.get("theater_kind")),
+            Decimal("50.0")
+        )
+
+    clients = {
+        c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
+            "id", "region_code", "theater_kind"
+        )
+    }
+
+    # Python 집계: entry_date 단위
+    date_agg = {}
+    for row in qs:
+        cid = row["client_id"]
+        entry_date = row["entry_date"]
+        aud = row["auditorium"] or ""
+        client_info = clients.get(cid, {})
+
+        share_rate = get_rate_value(cid, entry_date, aud, client_info)
+        is_fund_exempt = get_fund_exempt(cid, entry_date)
+
+        visitor = row["total_visitor"] or 0
+        try:
+            fare = Decimal(str(row["fare"] or 0))
+        except Exception:
+            fare = Decimal("0")
+
+        unit_excl_fund = fare if is_fund_exempt else (
+            fare / Decimal("1.03")
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+        excl_fund_row = unit_excl_fund * visitor
+        excl_vat_row = (excl_fund_row / Decimal("1.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        supply_val_row = (excl_vat_row * (share_rate / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        vat_val_row = (supply_val_row * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+        if entry_date not in date_agg:
+            date_agg[entry_date] = {
+                "visitor": 0,
+                "ticket_revenue": 0,
+                "fund_excluded": Decimal("0"),
+                "vat_excluded": Decimal("0"),
+                "supply_value": Decimal("0"),
+                "vat": Decimal("0"),
+                "total_payment": Decimal("0"),
+            }
+
+        agg = date_agg[entry_date]
+        agg["visitor"] += visitor
+        agg["ticket_revenue"] += int(fare) * visitor
+        agg["fund_excluded"] += excl_fund_row
+        agg["vat_excluded"] += excl_vat_row
+        agg["supply_value"] += supply_val_row
+        agg["vat"] += vat_val_row
+        agg["total_payment"] += supply_val_row + vat_val_row
+
+    # 날짜 오름차순 정렬 후 응답
+    rows = []
+    for entry_date in sorted(date_agg.keys()):
+        agg = date_agg[entry_date]
+        visitor = agg["visitor"]
+        supply_val = int(agg["supply_value"])
+        rows.append({
+            "entry_date": str(entry_date),
+            "visitor": visitor,
+            "ticket_revenue": agg["ticket_revenue"],
+            "fund_excluded": int(agg["fund_excluded"]),
+            "vat_excluded": int(agg["vat_excluded"]),
+            "supply_value": supply_val,
+            "vat": int(agg["vat"]),
+            "total_payment": int(agg["total_payment"]),
+            "unit_price": round(supply_val / visitor) if visitor > 0 else 0,
+        })
+
+    meta = {
+        "movie_title": primary.title_ko if primary else "",
+        "release_date": str(primary.release_date) if primary and primary.release_date else "",
+    }
+    return Response({"meta": meta, "rows": rows})
+
+
+# ============================
 #  주요작 좌석수 - 공통 헬퍼
 # ============================
 def _build_competitor_region_map():
@@ -2514,6 +2720,371 @@ def score_competitor_seats(request):
             "period_sold": grand_sold,
             "lw_period_total": grand_lw_total,
             "daily": {ds: dict(v) for ds, v in grand_daily.items()},
+        },
+    })
+
+
+# ============================
+#  주요작 상영관수 집계 API
+# ============================
+@api_view(["GET"])
+def score_competitor_theaters(request):
+    """
+    주요작 상영관수 집계 API (당기 + 전주 비교)
+    GET /Api/score/competitor/theaters/?date_from=2025-01-01&date_to=2025-01-07
+        &movies=영화A,영화B&brands=CGV,롯데&regions=서울,경강
+    """
+    from crawler.models import MovieSchedule
+
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        return Response({"error": "date_from, date_to 필수"}, status=400)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식 오류 (YYYY-MM-DD)"}, status=400)
+
+    lw_from = d_from - timedelta(days=7)
+    lw_to = d_to - timedelta(days=7)
+
+    brands_param = request.query_params.get("brands", "")
+    brand_filter_map = {"CGV": "CGV", "롯데": "LOTTE", "메가박스": "MEGABOX"}
+    selected_brands = [brand_filter_map[b] for b in brands_param.split(",") if b in brand_filter_map] if brands_param else []
+
+    movies_param = request.query_params.get("movies", "")
+    selected_movies = [m for m in movies_param.split(",") if m.strip()] if movies_param else []
+
+    regions_param = request.query_params.get("regions", "")
+    selected_regions = [r for r in regions_param.split(",") if r.strip()] if regions_param else []
+    region_map = _build_competitor_region_map() if selected_regions else {}
+
+    def fetch_schedules(df, dt):
+        qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
+        if selected_brands:
+            qs = qs.filter(brand__in=selected_brands)
+        if selected_movies:
+            qs = qs.filter(movie_title__in=selected_movies)
+        return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name'))
+
+    def aggregate_theaters(schedules, date_offset_days=0):
+        """Returns {title: {date_str: set(theater_names)}}"""
+        agg = defaultdict(lambda: defaultdict(set))
+        for s in schedules:
+            title = s['movie_title']
+            if not title:
+                continue
+            play_date = s['play_date']
+            if not play_date:
+                continue
+            if selected_regions:
+                region = _get_region(s['brand'], s['theater_name'], region_map)
+                if region not in selected_regions:
+                    continue
+            if date_offset_days:
+                play_date = play_date + timedelta(days=date_offset_days)
+            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
+            agg[title][ds].add(s['theater_name'])
+        return agg
+
+    curr_schedules = fetch_schedules(d_from, d_to)
+    curr_agg = aggregate_theaters(curr_schedules, date_offset_days=0)
+
+    lw_schedules = fetch_schedules(lw_from, lw_to)
+    lw_agg = aggregate_theaters(lw_schedules, date_offset_days=7)
+
+    all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
+
+    if selected_movies:
+        movie_titles = [m for m in selected_movies if m in curr_agg]
+    else:
+        movie_titles = sorted(curr_agg.keys())
+
+    movies_result = []
+    grand_daily = defaultdict(set)  # date → set of unique theaters across all movies
+
+    for title in movie_titles:
+        daily_data = curr_agg.get(title, {})
+        lw_daily = lw_agg.get(title, {})
+
+        period_set = set()
+        for s in daily_data.values():
+            period_set.update(s)
+        lw_period_set = set()
+        for s in lw_daily.values():
+            lw_period_set.update(s)
+
+        merged_daily = {}
+        for ds in all_dates:
+            curr_th = daily_data.get(ds, set())
+            lw_th = lw_daily.get(ds, set())
+            merged_daily[ds] = {
+                "theaters": len(curr_th),
+                "lw_theaters": len(lw_th),
+            }
+            grand_daily[ds].update(curr_th)
+
+        movies_result.append({
+            "title": title,
+            "daily": merged_daily,
+            "period_theaters": len(period_set),
+            "lw_period_theaters": len(lw_period_set),
+        })
+
+    grand_period_set = set()
+    for s in grand_daily.values():
+        grand_period_set.update(s)
+
+    return Response({
+        "dates": all_dates,
+        "movies": movies_result,
+        "grand": {
+            "period_theaters": len(grand_period_set),
+            "daily": {ds: {"theaters": len(v)} for ds, v in grand_daily.items()},
+        },
+    })
+
+
+# ============================
+#  주요작 스크린수 집계 API
+# ============================
+@api_view(["GET"])
+def score_competitor_screens(request):
+    """
+    주요작 스크린수 집계 API (당기 + 전주 비교)
+    스크린수 = 고유 (theater_name, screen_name) 쌍의 수
+    GET /Api/score/competitor/screens/?date_from=2025-01-01&date_to=2025-01-07
+        &movies=영화A,영화B&brands=CGV,롯데&regions=서울,경강
+    """
+    from crawler.models import MovieSchedule
+
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        return Response({"error": "date_from, date_to 필수"}, status=400)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식 오류 (YYYY-MM-DD)"}, status=400)
+
+    lw_from = d_from - timedelta(days=7)
+    lw_to = d_to - timedelta(days=7)
+
+    brands_param = request.query_params.get("brands", "")
+    brand_filter_map = {"CGV": "CGV", "롯데": "LOTTE", "메가박스": "MEGABOX"}
+    selected_brands = [brand_filter_map[b] for b in brands_param.split(",") if b in brand_filter_map] if brands_param else []
+
+    movies_param = request.query_params.get("movies", "")
+    selected_movies = [m for m in movies_param.split(",") if m.strip()] if movies_param else []
+
+    regions_param = request.query_params.get("regions", "")
+    selected_regions = [r for r in regions_param.split(",") if r.strip()] if regions_param else []
+    region_map = _build_competitor_region_map() if selected_regions else {}
+
+    def fetch_schedules(df, dt):
+        qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
+        if selected_brands:
+            qs = qs.filter(brand__in=selected_brands)
+        if selected_movies:
+            qs = qs.filter(movie_title__in=selected_movies)
+        return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name', 'screen_name'))
+
+    def aggregate_screens(schedules, date_offset_days=0):
+        """Returns {title: {date_str: set((theater_name, screen_name))}}"""
+        agg = defaultdict(lambda: defaultdict(set))
+        for s in schedules:
+            title = s['movie_title']
+            if not title:
+                continue
+            play_date = s['play_date']
+            if not play_date:
+                continue
+            if selected_regions:
+                region = _get_region(s['brand'], s['theater_name'], region_map)
+                if region not in selected_regions:
+                    continue
+            if date_offset_days:
+                play_date = play_date + timedelta(days=date_offset_days)
+            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
+            agg[title][ds].add((s['theater_name'], s['screen_name'] or ''))
+        return agg
+
+    curr_schedules = fetch_schedules(d_from, d_to)
+    curr_agg = aggregate_screens(curr_schedules, date_offset_days=0)
+
+    lw_schedules = fetch_schedules(lw_from, lw_to)
+    lw_agg = aggregate_screens(lw_schedules, date_offset_days=7)
+
+    all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
+
+    if selected_movies:
+        movie_titles = [m for m in selected_movies if m in curr_agg]
+    else:
+        movie_titles = sorted(curr_agg.keys())
+
+    movies_result = []
+    grand_daily = defaultdict(set)
+
+    for title in movie_titles:
+        daily_data = curr_agg.get(title, {})
+        lw_daily = lw_agg.get(title, {})
+
+        period_set = set()
+        for s in daily_data.values():
+            period_set.update(s)
+        lw_period_set = set()
+        for s in lw_daily.values():
+            lw_period_set.update(s)
+
+        merged_daily = {}
+        for ds in all_dates:
+            curr_sc = daily_data.get(ds, set())
+            lw_sc = lw_daily.get(ds, set())
+            merged_daily[ds] = {
+                "screens": len(curr_sc),
+                "lw_screens": len(lw_sc),
+            }
+            grand_daily[ds].update(curr_sc)
+
+        movies_result.append({
+            "title": title,
+            "daily": merged_daily,
+            "period_screens": len(period_set),
+            "lw_period_screens": len(lw_period_set),
+        })
+
+    grand_period_set = set()
+    for s in grand_daily.values():
+        grand_period_set.update(s)
+
+    return Response({
+        "dates": all_dates,
+        "movies": movies_result,
+        "grand": {
+            "period_screens": len(grand_period_set),
+            "daily": {ds: {"screens": len(v)} for ds, v in grand_daily.items()},
+        },
+    })
+
+
+# ============================
+#  주요작 상영회차수 집계 API
+# ============================
+@api_view(["GET"])
+def score_competitor_shows(request):
+    """
+    주요작 상영회차수 집계 API (당기 + 전주 비교)
+    회차수 = MovieSchedule 행 수 (각 행이 하나의 상영 회차)
+    GET /Api/score/competitor/shows/?date_from=2025-01-01&date_to=2025-01-07
+        &movies=영화A,영화B&brands=CGV,롯데&regions=서울,경강
+    """
+    from crawler.models import MovieSchedule
+
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        return Response({"error": "date_from, date_to 필수"}, status=400)
+
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식 오류 (YYYY-MM-DD)"}, status=400)
+
+    lw_from = d_from - timedelta(days=7)
+    lw_to = d_to - timedelta(days=7)
+
+    brands_param = request.query_params.get("brands", "")
+    brand_filter_map = {"CGV": "CGV", "롯데": "LOTTE", "메가박스": "MEGABOX"}
+    selected_brands = [brand_filter_map[b] for b in brands_param.split(",") if b in brand_filter_map] if brands_param else []
+
+    movies_param = request.query_params.get("movies", "")
+    selected_movies = [m for m in movies_param.split(",") if m.strip()] if movies_param else []
+
+    regions_param = request.query_params.get("regions", "")
+    selected_regions = [r for r in regions_param.split(",") if r.strip()] if regions_param else []
+    region_map = _build_competitor_region_map() if selected_regions else {}
+
+    def fetch_schedules(df, dt):
+        qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
+        if selected_brands:
+            qs = qs.filter(brand__in=selected_brands)
+        if selected_movies:
+            qs = qs.filter(movie_title__in=selected_movies)
+        return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name'))
+
+    def aggregate_shows(schedules, date_offset_days=0):
+        """Returns {title: {date_str: show_count}}"""
+        agg = defaultdict(lambda: defaultdict(int))
+        for s in schedules:
+            title = s['movie_title']
+            if not title:
+                continue
+            play_date = s['play_date']
+            if not play_date:
+                continue
+            if selected_regions:
+                region = _get_region(s['brand'], s['theater_name'], region_map)
+                if region not in selected_regions:
+                    continue
+            if date_offset_days:
+                play_date = play_date + timedelta(days=date_offset_days)
+            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
+            agg[title][ds] += 1
+        return agg
+
+    curr_schedules = fetch_schedules(d_from, d_to)
+    curr_agg = aggregate_shows(curr_schedules, date_offset_days=0)
+
+    lw_schedules = fetch_schedules(lw_from, lw_to)
+    lw_agg = aggregate_shows(lw_schedules, date_offset_days=7)
+
+    all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
+
+    if selected_movies:
+        movie_titles = [m for m in selected_movies if m in curr_agg]
+    else:
+        movie_titles = sorted(curr_agg.keys())
+
+    movies_result = []
+    grand_daily = defaultdict(int)
+
+    for title in movie_titles:
+        daily_data = curr_agg.get(title, {})
+        lw_daily = lw_agg.get(title, {})
+
+        period_shows = sum(daily_data.values())
+        lw_period_shows = sum(lw_daily.values())
+
+        merged_daily = {}
+        for ds in all_dates:
+            curr_shows = daily_data.get(ds, 0)
+            lw_shows = lw_daily.get(ds, 0)
+            merged_daily[ds] = {
+                "shows": curr_shows,
+                "lw_shows": lw_shows,
+            }
+            grand_daily[ds] += curr_shows
+
+        movies_result.append({
+            "title": title,
+            "daily": merged_daily,
+            "period_shows": period_shows,
+            "lw_period_shows": lw_period_shows,
+        })
+
+    grand_period_shows = sum(grand_daily.values())
+
+    return Response({
+        "dates": all_dates,
+        "movies": movies_result,
+        "grand": {
+            "period_shows": grand_period_shows,
+            "daily": {ds: {"shows": v} for ds, v in grand_daily.items()},
         },
     })
 
