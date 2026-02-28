@@ -171,7 +171,7 @@ def run_crawler_background(history_id, data):
                 except Exception as e:
                     logger.error(f"Parallel Execution Error: {e}")
                 
-        # 4. Generate Excel
+        # 4. Generate Excel (raw crawl log)
         check_stop_signal()
         excel_path = export_schedules_to_excel(
             start_date_str=start_date_str,
@@ -180,7 +180,67 @@ def run_crawler_background(history_id, data):
             target_titles=target_titles_list,
             failures=all_failures
         )
-        
+
+        # 5. Auto Transform: 크롤 완료 후 자동으로 스케줄 생성
+        check_stop_signal()
+        transform_results = {}
+        total_created = 0
+
+        # 크롤 대상 영화 기반 target_titles 조회
+        from crawler.models import CrawlTargetMovie
+        active_targets = list(CrawlTargetMovie.objects.filter(is_active=True))
+        if active_targets:
+            crawl_target_titles = []
+            for tm in active_targets:
+                clean_t, _ = MovieSchedule.parse_and_normalize_title(tm.title)
+                crawl_target_titles.append(clean_t)
+        else:
+            crawl_target_titles = None
+
+        if run_cgv:
+            from crawler.models import CGVScheduleLog
+            cgv_logs = CGVScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
+            cnt = 0
+            for log in cgv_logs:
+                c, _ = MovieSchedule.create_from_cgv_log(log, target_titles=crawl_target_titles)
+                cnt += c
+            transform_results['CGV'] = cnt
+            total_created += cnt
+
+        if run_lotte:
+            from crawler.models import LotteScheduleLog
+            lotte_logs = LotteScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
+            cnt = 0
+            for log in lotte_logs:
+                c, _ = MovieSchedule.create_from_lotte_log(log, target_titles=crawl_target_titles)
+                cnt += c
+            transform_results['Lotte'] = cnt
+            total_created += cnt
+
+        if run_mega:
+            from crawler.models import MegaboxScheduleLog
+            mega_logs = MegaboxScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
+            cnt = 0
+            for log in mega_logs:
+                c, _ = MovieSchedule.create_from_megabox_log(log, target_titles=crawl_target_titles)
+                cnt += c
+            transform_results['Megabox'] = cnt
+            total_created += cnt
+
+        # 6. Export transformed schedules
+        from crawler.utils.excel_exporter import export_transformed_schedules
+        target_brands = []
+        if run_cgv: target_brands.append('CGV')
+        if run_lotte: target_brands.append('Lotte')
+        if run_mega: target_brands.append('Megabox')
+
+        schedule_qs = MovieSchedule.objects.filter(
+            play_date__gte=start_date,
+            play_date__lte=end_date,
+            brand__in=target_brands
+        )
+        transform_excel = export_transformed_schedules(schedule_qs)
+
         history.status = 'SUCCESS'
         history.finished_at = timezone.now()
         history.result_summary = {
@@ -196,9 +256,11 @@ def run_crawler_background(history_id, data):
                     "reason": f.get('reason')
                 }
                 for f in all_failures[:20]
-            ]
+            ],
+            "transform_results": transform_results,
+            "total_created": total_created,
         }
-        history.excel_file_path = excel_path
+        history.excel_file_path = transform_excel or excel_path
         history.save()
     
     except InterruptedError:
@@ -712,8 +774,15 @@ class CrawlerScheduleExportView(APIView):
             return Response({"error": "start_date/date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+            # Support both YYYYMMDD and YYYY-MM-DD formats
+            def parse_date(s):
+                s = s.strip()
+                if '-' in s:
+                    return datetime.strptime(s, "%Y-%m-%d").date()
+                return datetime.strptime(s, "%Y%m%d").date()
+
+            start_date = parse_date(start_date_str)
+            end_date = parse_date(end_date_str)
             
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
@@ -725,31 +794,42 @@ class CrawlerScheduleExportView(APIView):
             )
 
             # --- Flexible Title Filtering ---
-            if movie_title:
-                import re
-                def normalize_string(s):
-                    # Remove all whitespace and special characters (keep alphanumerics and Hangul)
-                    return re.sub(r'[^a-zA-Z0-9가-힣]', '', s)
+            import re
+            def normalize_string(s):
+                return re.sub(r'[^a-zA-Z0-9가-힣]', '', s)
 
-                clean_target = normalize_string(movie_title)
-                
-                # Filter in Python (since strict DB match requires extensive ORM or RawSQL for regex replace)
-                # Given the dataset size for 3 days isn't massive, this is acceptable.
+            def filter_by_title(base_qs, title):
+                clean_target = normalize_string(title)
                 matched_ids = []
-                for schedule in qs:
+                for schedule in base_qs:
                     clean_db_title = normalize_string(schedule.movie_title)
-                    # Check if target is contained in DB title (e.g. Input: "주토피아2" in DB: "주토피아2더빙")
                     if clean_target in clean_db_title:
                         matched_ids.append(schedule.id)
-                
-                qs = qs.filter(id__in=matched_ids)
-            
+                return base_qs.filter(id__in=matched_ids)
+
+            main_qs = filter_by_title(qs, movie_title) if movie_title else qs
+
+            # --- Competitor Data ---
+            from crawler.models import CrawlTargetMovie
+            competitor_titles = list(
+                CrawlTargetMovie.objects.filter(movie_type='competitor', is_active=True)
+                .values_list('title', flat=True)
+            )
+
+            competitor_querysets = {}
+            for comp_title in competitor_titles:
+                clean_title, _ = MovieSchedule.parse_and_normalize_title(comp_title)
+                comp_qs = filter_by_title(qs, clean_title)
+                if comp_qs.exists():
+                    competitor_querysets[comp_title] = comp_qs
+
             # Pass metadata for filename generation
             file_path = export_transformed_schedules(
-                qs, 
-                movie_title=movie_title, 
-                start_date=start_date, 
-                end_date=end_date
+                main_qs,
+                movie_title=movie_title,
+                start_date=start_date,
+                end_date=end_date,
+                competitor_querysets=competitor_querysets
             )
             
             if not file_path:
