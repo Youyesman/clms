@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
     ChartBar, Calendar, ListBullets, ChartLineUp, Armchair, Trophy,
+    CurrencyCircleDollar, Stack, Buildings, Tag,
 } from "@phosphor-icons/react";
 
 /* ── 사이드바 메뉴 정의 ── */
@@ -29,6 +30,16 @@ const MENU_GROUPS: MenuGroup[] = [
             { path: "/score/daily", label: "일현황", icon: <Calendar size={20} /> },
             { path: "/score/seat-rate", label: "좌석판매율현황", icon: <Armchair size={20} /> },
             { path: "/score/ranking", label: "누계순위", icon: <Trophy size={20} /> },
+        ],
+    },
+    {
+        title: "부금관리",
+        basePath: "/settlement",
+        items: [
+            { path: "/settlement/detail", label: "부금 상세", icon: <CurrencyCircleDollar size={20} /> },
+            { path: "/settlement/aggregate", label: "부금 집계", icon: <Stack size={20} /> },
+            { path: "/settlement/theater-total", label: "극장별 합계", icon: <Buildings size={20} /> },
+            { path: "/settlement/supply-price", label: "공급가", icon: <Tag size={20} /> },
         ],
     },
     {

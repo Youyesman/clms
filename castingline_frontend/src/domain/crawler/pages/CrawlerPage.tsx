@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { useToast } from "../../../components/common/CustomToast";
-import { AxiosPost, AxiosGet, BASE_URL } from "../../../axios/Axios";
+import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete, BASE_URL } from "../../../axios/Axios";
 import { CustomButton } from "../../../components/common/CustomButton";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
-import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls, Gear, Lightning } from "@phosphor-icons/react";
+import { Play, DownloadSimple, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, FileXls, Gear, Lightning, FilmStrip } from "@phosphor-icons/react";
 import { ScheduleExportModal } from "./ScheduleExportModal";
 import { useAppAlert } from "../../../atom/alertUtils";
 
@@ -34,6 +34,15 @@ export interface ICrawlerHistory {
     result_summary: any;
     error_message: string | null;
     excel_file_path: string | null;
+}
+
+interface CrawlTarget {
+    id: number;
+    title: string;
+    clean_title: string;
+    movie_type: 'main' | 'competitor';
+    is_active: boolean;
+    created_at: string;
 }
 
 // --- Styled Components (System Design) ---
@@ -173,6 +182,231 @@ const ModalActions = styled.div`
     margin-top: 8px;
 `;
 
+const SubSectionHeader = styled.div`
+    padding: 10px 24px;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #374151;
+    letter-spacing: 0.2px;
+`;
+
+// --- Crawl Target Styled Components ---
+const TargetFormSection = styled.div`
+    padding: 12px 24px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #fff;
+`;
+
+const TargetFormRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+`;
+
+const TypeToggleGroup = styled.div`
+    display: flex;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+`;
+
+const TypeToggleBtn = styled.button<{ $active: boolean }>`
+    height: 32px;
+    padding: 0 14px;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: "SUIT", sans-serif;
+    background: ${(p) => (p.$active ? "#1e293b" : "#fff")};
+    color: ${(p) => (p.$active ? "#fff" : "#64748b")};
+    transition: all 0.15s;
+`;
+
+
+
+
+const TargetInput = styled.input`
+    flex: 1;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    font-family: "SUIT", sans-serif;
+    &:focus { border-color: #3b82f6; }
+`;
+
+const TargetAddBtn = styled.button`
+    height: 32px;
+    padding: 0 16px;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: "SUIT", sans-serif;
+    &:disabled { background: #cbd5e1; cursor: default; }
+`;
+
+const TargetCountBar = styled.div`
+    padding: 8px 24px 10px;
+    font-size: 12px;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    strong { color: #1e293b; font-weight: 700; }
+    .sep { color: #cbd5e1; margin: 0 6px; }
+`;
+
+const TargetEmptyMsg = styled.div`
+    padding: 28px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+    margin: 0 24px 16px;
+    border: 1px dashed #e2e8f0;
+    border-radius: 6px;
+`;
+
+const TargetTable = styled.table`
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: "SUIT", sans-serif;
+
+    tbody tr {
+        transition: background-color 0.1s ease;
+    }
+    tbody tr:hover {
+        background-color: #f8fafc;
+    }
+    tbody tr:last-child td {
+        border-bottom: none;
+    }
+`;
+
+const TargetTh = styled.th`
+    padding: 9px 14px;
+    text-align: left;
+    background: #f1f5f9;
+    border-bottom: 2px solid #e2e8f0;
+    font-weight: 700;
+    color: #6b7280;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+`;
+
+const TargetTd = styled.td`
+    padding: 10px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    color: #374151;
+`;
+
+const TargetToggle = styled.button<{ $active: boolean }>`
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid ${(p) => (p.$active ? "#bbf7d0" : "#e5e7eb")};
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: "SUIT", sans-serif;
+    background: ${(p) => (p.$active ? "#dcfce7" : "#f9fafb")};
+    color: ${(p) => (p.$active ? "#15803d" : "#9ca3af")};
+    transition: all 0.15s;
+    &:hover {
+        background: ${(p) => (p.$active ? "#bbf7d0" : "#f1f5f9")};
+        border-color: ${(p) => (p.$active ? "#86efac" : "#d1d5db")};
+    }
+`;
+
+const TargetDeleteBtn = styled.button`
+    padding: 3px 10px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #9ca3af;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: "SUIT", sans-serif;
+    transition: all 0.15s;
+    &:hover {
+        background: #fef2f2;
+        border-color: #fca5a5;
+        color: #ef4444;
+    }
+`;
+
+const TargetInfoBox = styled.div`
+    margin: 4px 24px 16px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    font-size: 11.5px;
+    color: #6b7280;
+    line-height: 1.6;
+    code {
+        background: #e0f2fe;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 11px;
+        color: #0369a1;
+        font-family: monospace;
+    }
+`;
+
+const JsonInputArea = styled.textarea`
+    flex: 1;
+    min-height: 80px;
+    padding: 10px 12px;
+    border: 1px solid #3b82f6;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #1e293b;
+    resize: vertical;
+    outline: none;
+    background: #f8fafc;
+    line-height: 1.5;
+    &:focus { border-color: #2563eb; background: #fff; }
+`;
+
+const JsonToggleBtn = styled.button<{ $active: boolean }>`
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid ${(p) => (p.$active ? "#3b82f6" : "#cbd5e1")};
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: "SUIT", sans-serif;
+    background: ${(p) => (p.$active ? "#eff6ff" : "#fff")};
+    color: ${(p) => (p.$active ? "#3b82f6" : "#64748b")};
+    white-space: nowrap;
+    transition: all 0.15s;
+    &:hover { border-color: #3b82f6; color: #3b82f6; }
+`;
+
 // --- Initial State ---
 const getTomorrow = () => {
     const d = new Date();
@@ -211,6 +445,14 @@ export const CrawlerPage = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [quickMovieTitle, setQuickMovieTitle] = useState("");
 
+    // Crawl Target State
+    const [targets, setTargets] = useState<CrawlTarget[]>([]);
+    const [targetInput, setTargetInput] = useState("");
+    const [targetMovieType, setTargetMovieType] = useState<'main' | 'competitor'>('main');
+    const [targetLoading, setTargetLoading] = useState(false);
+    const [showJsonInput, setShowJsonInput] = useState(false);
+    const [jsonInput, setJsonInput] = useState("");
+
     // Pagination State
     const [page, setPage] = useState(1);
     const pageSize = 10;
@@ -226,6 +468,122 @@ export const CrawlerPage = () => {
         toast.success("설정이 저장되었습니다.");
     };
 
+    // -- Crawl Targets --
+    const fetchTargets = async () => {
+        try {
+            const res = await AxiosGet("crawler/targets/");
+            setTargets(res.data);
+        } catch {
+            toast.error("대상 영화 목록 불러오기 실패");
+        }
+    };
+
+    const handleAddTarget = async () => {
+        const title = targetInput.trim();
+        if (!title) return;
+        setTargetLoading(true);
+        try {
+            await AxiosPost("crawler/targets", {
+                title,
+                movie_type: targetMovieType,
+            });
+            setTargetInput("");
+            await fetchTargets();
+            toast.success(`'${title}' 추가 완료`);
+        } catch {
+            toast.error("추가 실패");
+        } finally {
+            setTargetLoading(false);
+        }
+    };
+
+    const handleBulkAddFromJson = async () => {
+        let parsed: any;
+        try {
+            const cleaned = jsonInput
+                .trim()
+                .replace(/,(\s*[}\]])/g, '$1')  // 객체/배열 내 trailing comma 제거
+                .replace(/,\s*$/, '');           // 맨 끝 trailing comma 제거
+            parsed = JSON.parse(cleaned);
+        } catch {
+            toast.error("JSON 파싱 오류. 형식을 확인해주세요.");
+            return;
+        }
+
+        const mainMovies: string[] = [];
+        const rivalMovies: string[] = [];
+
+        if (parsed.movieName) {
+            const val = parsed.movieName;
+            if (Array.isArray(val)) mainMovies.push(...val.filter(Boolean));
+            else if (typeof val === 'string' && val.trim()) mainMovies.push(val.trim());
+        }
+        if (parsed.rivalMovieNames) {
+            const val = parsed.rivalMovieNames;
+            if (Array.isArray(val)) rivalMovies.push(...val.filter(Boolean));
+            else if (typeof val === 'string' && val.trim()) rivalMovies.push(val.trim());
+        }
+
+        if (mainMovies.length === 0 && rivalMovies.length === 0) {
+            toast.error("추가할 영화가 없습니다. movieName 또는 rivalMovieNames 키를 확인하세요.");
+            return;
+        }
+
+        setTargetLoading(true);
+        try {
+            for (const title of mainMovies) {
+                await AxiosPost("crawler/targets", {
+                    title,
+                    movie_type: 'main',
+                });
+            }
+            for (const title of rivalMovies) {
+                await AxiosPost("crawler/targets", {
+                    title,
+                    movie_type: 'competitor',
+                });
+            }
+            await fetchTargets();
+            setJsonInput("");
+            setShowJsonInput(false);
+            toast.success(`주영화 ${mainMovies.length}편, 경쟁작 ${rivalMovies.length}편 추가 완료`);
+        } catch {
+            toast.error("일부 추가 실패. 중복 항목을 확인하세요.");
+            await fetchTargets();
+        } finally {
+            setTargetLoading(false);
+        }
+    };
+
+    const handleToggleTarget = async (id: number) => {
+        try {
+            await AxiosPatch(`crawler/targets`, {}, id);
+            setTargets((prev) =>
+                prev.map((t) => (t.id === id ? { ...t, is_active: !t.is_active } : t))
+            );
+        } catch {
+            toast.error("상태 변경 실패");
+        }
+    };
+
+    const handleDeleteTarget = (id: number, title: string) => {
+        showAlert(
+            "대상 영화 삭제",
+            `'${title}' 을(를) 삭제하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete("crawler/targets", id);
+                    setTargets((prev) => prev.filter((t) => t.id !== id));
+                    toast.success("삭제 완료");
+                } catch {
+                    toast.error("삭제 실패");
+                }
+            },
+            true
+        );
+    };
+
     // -- Polling History --
     const fetchHistory = async () => {
         try {
@@ -237,6 +595,7 @@ export const CrawlerPage = () => {
     };
 
     useEffect(() => {
+        fetchTargets();
         fetchHistory();
         const interval = setInterval(fetchHistory, 5000);
         return () => clearInterval(interval);
@@ -643,7 +1002,7 @@ export const CrawlerPage = () => {
                 {/* [상단] 실행 설정 */}
                 <DetailContainer>
                     <CommonListHeader
-                        title="크롤러 실행 (Manual Run)"
+                        title="크롤러 관리"
                         subtitle={null}
                     />
                     <CompactConfigBar>
@@ -707,17 +1066,159 @@ export const CrawlerPage = () => {
                             <Play size={16} weight="fill" style={{ marginRight: '6px' }} /> 크롤링 시작
                         </CustomButton>
                     </CompactConfigBar>
+
+                    <SubSectionHeader>
+                        <FilmStrip size={14} weight="fill" color="#6b7280" style={{ flexShrink: 0 }} />
+                        크롤 대상 영화
+                        <span style={{ fontSize: 11.5, fontWeight: 400, color: '#9ca3af', marginLeft: 2 }}>
+                            — 영화 추가 시 위 수집 설정(극장·기간)이 함께 적용됩니다
+                        </span>
+                    </SubSectionHeader>
+                    <TargetFormSection>
+                        <TargetFormRow>
+                            <FilmStrip size={18} color="#3b82f6" style={{ flexShrink: 0 }} />
+                            <TargetInput
+                                placeholder="영화 제목 입력 (예: 아바타: 불의 재)"
+                                value={targetInput}
+                                onChange={(e) => setTargetInput(e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && handleAddTarget()}
+                                style={{ minWidth: 220 }}
+                            />
+                            <TypeToggleGroup>
+                                <TypeToggleBtn
+                                    $active={targetMovieType === 'main'}
+                                    onClick={() => setTargetMovieType('main')}
+                                >주영화</TypeToggleBtn>
+                                <TypeToggleBtn
+                                    $active={targetMovieType === 'competitor'}
+                                    onClick={() => setTargetMovieType('competitor')}
+                                >경쟁작</TypeToggleBtn>
+                            </TypeToggleGroup>
+                            <JsonToggleBtn
+                                $active={showJsonInput}
+                                onClick={() => setShowJsonInput((v) => !v)}
+                                title="JSON 형식으로 일괄 추가"
+                            >
+                                JSON 일괄
+                            </JsonToggleBtn>
+                            <div style={{ flex: 1 }} />
+                            <TargetAddBtn onClick={handleAddTarget} disabled={targetLoading || !targetInput.trim()}>
+                                + 추가
+                            </TargetAddBtn>
+                        </TargetFormRow>
+                        {showJsonInput && (
+                            <TargetFormRow style={{ alignItems: 'flex-start' }}>
+                                <JsonInputArea
+                                    placeholder={`{\n  "movieName": "극장판엉덩이탐정:스타앤드문",\n  "rivalMovieNames": ["왕과사는남자", "휴민트", "초속5센티미터"]\n}`}
+                                    value={jsonInput}
+                                    onChange={(e) => setJsonInput(e.target.value)}
+                                />
+                                <TargetAddBtn
+                                    onClick={handleBulkAddFromJson}
+                                    disabled={targetLoading || !jsonInput.trim()}
+                                    style={{ alignSelf: 'flex-end', flexShrink: 0 }}
+                                >
+                                    일괄 추가
+                                </TargetAddBtn>
+                            </TargetFormRow>
+                        )}
+                    </TargetFormSection>
+                    <TargetCountBar>
+                        전체 <strong>{targets.length}</strong>편
+                        <span className="sep">·</span>
+                        주영화 <strong>{targets.filter(t => t.movie_type === 'main').length}</strong>편
+                        <span className="sep">·</span>
+                        경쟁작 <strong>{targets.filter(t => t.movie_type === 'competitor').length}</strong>편
+                        <span className="sep">·</span>
+                        활성 <strong style={{ color: '#15803d' }}>{targets.filter(t => t.is_active).length}</strong>편
+                    </TargetCountBar>
+                    {targets.length === 0 ? (
+                        <TargetEmptyMsg>
+                            등록된 대상 영화가 없습니다. 추가하면 해당 영화만 크롤링됩니다.
+                        </TargetEmptyMsg>
+                    ) : (
+                        <div style={{ overflowX: "auto", paddingBottom: "4px" }}>
+                            <TargetTable>
+                                <thead>
+                                    <tr>
+                                        <TargetTh style={{ width: 56 }}>상태</TargetTh>
+                                        <TargetTh style={{ width: 60 }}>구분</TargetTh>
+                                        <TargetTh>입력 제목</TargetTh>
+                                        <TargetTh>정규화 제목</TargetTh>
+                                        <TargetTh style={{ width: 130 }}>등록일</TargetTh>
+                                        <TargetTh style={{ width: 56 }}></TargetTh>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[...targets].sort((a, b) => {
+                                        if (a.movie_type === b.movie_type) return 0;
+                                        return a.movie_type === 'main' ? -1 : 1;
+                                    }).map((t) => (
+                                        <tr key={t.id}>
+                                            <TargetTd>
+                                                <TargetToggle
+                                                    $active={t.is_active}
+                                                    onClick={() => handleToggleTarget(t.id)}
+                                                    title={t.is_active ? "클릭하여 비활성화" : "클릭하여 활성화"}
+                                                >
+                                                    {t.is_active ? "활성" : "중지"}
+                                                </TargetToggle>
+                                            </TargetTd>
+                                            <TargetTd>
+                                                <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    padding: '2px 8px',
+                                                    borderRadius: 20,
+                                                    fontSize: 10.5,
+                                                    fontWeight: 700,
+                                                    letterSpacing: '0.3px',
+                                                    background: t.movie_type === 'main' ? '#fef9c3' : '#f0fdf4',
+                                                    color: t.movie_type === 'main' ? '#a16207' : '#15803d',
+                                                    border: `1px solid ${t.movie_type === 'main' ? '#fde68a' : '#bbf7d0'}`,
+                                                }}>
+                                                    {t.movie_type === 'main' ? '주영화' : '경쟁작'}
+                                                </span>
+                                            </TargetTd>
+                                            <TargetTd>
+                                                <span style={{ fontWeight: 500, color: t.is_active ? "#1e293b" : "#94a3b8" }}>
+                                                    {t.title}
+                                                </span>
+                                            </TargetTd>
+                                            <TargetTd>
+                                                <span style={{ color: "#3b82f6", fontSize: 12, fontFamily: "monospace" }}>
+                                                    {t.clean_title}
+                                                </span>
+                                            </TargetTd>
+                                            <TargetTd style={{ color: "#94a3b8", fontSize: 11 }}>{t.created_at}</TargetTd>
+                                            <TargetTd>
+                                                <TargetDeleteBtn onClick={() => handleDeleteTarget(t.id, t.title)}>
+                                                    삭제
+                                                </TargetDeleteBtn>
+                                            </TargetTd>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </TargetTable>
+                        </div>
+                    )}
+                    <TargetInfoBox>
+                        입력한 제목에서 특수문자·괄호·포맷 태그를 제거한 뒤 크롤된 제목과 비교합니다.{" "}
+                        <code>아바타: 불의 재</code> 입력 시 → <code>아바타- 불의재(3D)</code>,{" "}
+                        <code>아바타: 불의 재 [IMAX]</code> 도 모두 매칭됩니다.
+                    </TargetInfoBox>
                 </DetailContainer>
 
-                {/* [하단] 실행 이력 (GenericTable 사용) */}
+                {/* [하단] 실행 이력 */}
                 <div style={{
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid #e2e8f0',
                     borderRadius: '8px',
                     overflow: 'hidden',
-                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
+                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.06)',
+                    background: '#fff',
                 }}>
                     <CommonListHeader
-                        title="실행 이력 (History)"
+                        title="실행 이력"
                         subtitle={null}
                     />
                     <div style={{ height: '500px' }}>

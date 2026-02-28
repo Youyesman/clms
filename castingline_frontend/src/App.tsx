@@ -57,7 +57,7 @@ function App() {
     const isFullscreen = FULLSCREEN_PATHS.includes(location.pathname);
     const isManagePath = location.pathname.startsWith("/manage");
     // 고객용 사이드바를 표시할 경로
-    const isCustomerPath = location.pathname.startsWith("/score") || location.pathname.startsWith("/time_table");
+    const isCustomerPath = location.pathname.startsWith("/score") || location.pathname.startsWith("/time_table") || location.pathname.startsWith("/settlement");
 
     // URL 변경 시 → /manage 하위면 자동으로 탭 추가/활성화
     useEffect(() => {

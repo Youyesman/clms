@@ -163,9 +163,17 @@ class MovieSchedule(models.Model):
             
         clean_title = re.sub(paren_pattern, '', clean_title).strip()
 
-        # 3. Cleanup extra spaces
+        # 3. Normalize subtitle separator (한국 영화 제목 부제 구분자 통일: - → :)
+        # 한글 뒤 dash: '짱구는 못말려- 초화려', '씨너스-죄인들' → '짱구는 못말려: 초화려', '씨너스: 죄인들'
+        clean_title = re.sub(r'([가-힣])\s*-\s*', r'\1: ', clean_title)
+        # 공백-dash-공백: '호프 - 포썸' → '호프: 포썸'
+        clean_title = re.sub(r'\s+-\s+', ': ', clean_title)
+        # 콜론 앞뒤 공백 통일: 'A : B', 'A :B', 'A: B' → 'A: B'
+        clean_title = re.sub(r'\s*:\s*(?=\S)', ': ', clean_title)
+
+        # 4. Cleanup extra spaces
         clean_title = re.sub(r'\s+', ' ', clean_title).strip()
-        
+
         return clean_title, list(tags)
 
     @staticmethod
@@ -835,3 +843,27 @@ class CrawlerRunHistory(models.Model):
 
     def __str__(self):
         return f"Run #{self.id} - {self.status} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+
+class CrawlTargetMovie(models.Model):
+    """
+    크롤링 대상 영화 목록.
+    사용자가 입력한 제목과 정규화 매칭(normalize_title)으로 크롤된 영화 중
+    일치하는 것만 MovieSchedule에 저장한다.
+    """
+    MOVIE_TYPE_CHOICES = [('main', '주영화'), ('competitor', '경쟁작')]
+
+    title = models.CharField(max_length=200, verbose_name="영화 제목")
+    movie_type = models.CharField(
+        max_length=10, choices=MOVIE_TYPE_CHOICES, default='main', verbose_name="구분"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="활성화")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "크롤 대상 영화"
+
+    def __str__(self):
+        return f"{'✅' if self.is_active else '⏸'} [{self.get_movie_type_display()}] {self.title}"

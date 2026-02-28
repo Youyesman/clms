@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.conf import settings
 
 # Models
-from crawler.models import CrawlerRunHistory, MovieSchedule, LotteScheduleLog
+from crawler.models import CrawlerRunHistory, MovieSchedule, LotteScheduleLog, CrawlTargetMovie
 # Pipelines
 from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
@@ -99,10 +99,23 @@ class Command(BaseCommand):
         )
         print(f"✅ History Created: ID #{history.id}")
         
+        # 크롤 대상 영화 목록 조회 (활성화된 것만) - 모든 극장 공통 적용
+        active_targets = list(CrawlTargetMovie.objects.filter(is_active=True))
+        if active_targets:
+            target_titles = []
+            for tm in active_targets:
+                clean_t, _ = MovieSchedule.parse_and_normalize_title(tm.title)
+                target_titles.append(clean_t)
+            cgv_target_titles = lotte_target_titles = mega_target_titles = target_titles
+            print(f"🎬 크롤 대상 {len(target_titles)}편: {target_titles}")
+        else:
+            cgv_target_titles = lotte_target_titles = mega_target_titles = None
+            print("🎬 크롤 대상 영화 미지정 → 전체 저장")
+
         total_collected = 0
         total_created = 0
         all_failures = []
-        
+
         try:
             # --- CGV ---
             print("\n[Pipeline] 1. Running CGV...")
@@ -118,7 +131,7 @@ class Command(BaseCommand):
             cgv_errors = []
             for log in cgv_db_logs:
                 try:
-                    cnt, errs = MovieSchedule.create_from_cgv_log(log)
+                    cnt, errs = MovieSchedule.create_from_cgv_log(log, target_titles=cgv_target_titles)
                     cgv_created += cnt
                     cgv_errors.extend(errs)
                 except Exception as e:
@@ -146,7 +159,7 @@ class Command(BaseCommand):
                     # We can use MovieSchedule directly.
                     # Note: We need title_map for best results, but for automation we might skip or use simple one.
                     # Let's assume standard creation.
-                    cnt, errs = MovieSchedule.create_from_lotte_log(log) 
+                    cnt, errs = MovieSchedule.create_from_lotte_log(log, target_titles=lotte_target_titles)
                     lotte_created += cnt
                     lotte_errors.extend(errs)
                 except Exception as e:
@@ -173,7 +186,7 @@ class Command(BaseCommand):
             mega_errors = []
             for log in mega_db_logs:
                 try:
-                    cnt, errs = MovieSchedule.create_from_megabox_log(log)
+                    cnt, errs = MovieSchedule.create_from_megabox_log(log, target_titles=mega_target_titles)
                     mega_created += cnt
                     mega_errors.extend(errs)
                 except Exception as e:

@@ -5,15 +5,27 @@ from rest_framework import serializers
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     groups_display = serializers.SerializerMethodField()
+    client_name = serializers.SerializerMethodField()
+    client_type = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            "id", "username", "password", "nickname", "email", "team", 
-            "direct_call", "phone", "country", "is_active", "is_superuser", 
+            "id", "username", "password", "nickname", "email", "team",
+            "direct_call", "phone", "country", "is_active", "is_superuser",
             "groups", "groups_display", "last_login", "created_date",
-            "client", "client_id",
+            "client", "client_id", "client_name", "client_type",
         ]
+
+    def get_client_name(self, obj):
+        if obj.client:
+            return obj.client.client_name
+        return None
+
+    def get_client_type(self, obj):
+        if obj.client:
+            return obj.client.client_type
+        return None
 
     def get_groups_display(self, obj):
         return [group.name for group in obj.groups.all()]

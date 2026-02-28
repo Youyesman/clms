@@ -10,7 +10,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import Models & Pipeline Services
-from crawler.models import CrawlerRunHistory
+from crawler.models import CrawlerRunHistory, CrawlTargetMovie, MovieSchedule
 from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
 from crawler.management.commands.run_megabox_pipeline import MegaboxPipelineService
@@ -762,3 +762,61 @@ class CrawlerScheduleExportView(APIView):
         except Exception as e:
             logger.error(f"Schedule Export Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _serialize_target(t):
+    clean_title, _ = MovieSchedule.parse_and_normalize_title(t.title)
+    return {
+        "id": t.id,
+        "title": t.title,
+        "clean_title": clean_title,
+        "movie_type": t.movie_type,
+        "is_active": t.is_active,
+        "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+class CrawlTargetMovieView(APIView):
+    """
+    크롤 대상 영화 목록 관리
+    GET    /Api/crawler/targets/  - 전체 목록
+    POST   /Api/crawler/targets/  - 추가
+    """
+
+    def get(self, request):
+        targets = CrawlTargetMovie.objects.all()
+        return Response([_serialize_target(t) for t in targets])
+
+    def post(self, request):
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"error": "title 필드가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        movie_type = request.data.get("movie_type", "main")
+        if movie_type not in ('main', 'competitor'):
+            movie_type = 'main'
+
+        obj = CrawlTargetMovie.objects.create(
+            title=title, movie_type=movie_type,
+        )
+        return Response(_serialize_target(obj), status=status.HTTP_201_CREATED)
+
+
+class CrawlTargetMovieDetailView(APIView):
+
+    def patch(self, request, pk):
+        try:
+            obj = CrawlTargetMovie.objects.get(pk=pk)
+        except CrawlTargetMovie.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.is_active = not obj.is_active
+        obj.save()
+        return Response({"id": obj.id, "is_active": obj.is_active})
+
+    def delete(self, request, pk):
+        try:
+            obj = CrawlTargetMovie.objects.get(pk=pk)
+        except CrawlTargetMovie.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

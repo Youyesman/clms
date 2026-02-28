@@ -289,7 +289,7 @@ export function SeatRatePage() {
             <FilterBar>
                 <div>
                     <CustomSelect
-                        style={{ width: "120px" }}
+                        style={{ width: "160px" }}
                         label="연도"
                         options={yearOptions}
                         value={searchParams.yyyy}

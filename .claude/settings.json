@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python -X utf8 manage.py run_daily_pipeline)",
-      "Bash(python -X utf8 -c \":*)"
+      "Bash(python -X utf8 -c \":*)",
+      "Bash(where claude)"
     ]
   }
 }

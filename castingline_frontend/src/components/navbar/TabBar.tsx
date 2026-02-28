@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import styled from "styled-components";
 import { useRecoilState } from "recoil";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -88,6 +88,58 @@ const EmptyTabMessage = styled.div`
     font-weight: 500;
 `;
 
+const ContextMenuOverlay = styled.div`
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 10000;
+`;
+
+const ContextMenuContainer = styled.div<{ $x: number; $y: number }>`
+    position: fixed;
+    top: ${({ $y }) => $y}px;
+    left: ${({ $x }) => $x}px;
+    z-index: 10001;
+    min-width: 180px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 4px 0;
+    animation: fadeIn 0.1s ease;
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+
+const ContextMenuItem = styled.button<{ $disabled?: boolean }>`
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    font-size: 12.5px;
+    color: ${({ $disabled }) => ($disabled ? "#cbd5e1" : "#334155")};
+    cursor: ${({ $disabled }) => ($disabled ? "default" : "pointer")};
+    text-align: left;
+    transition: background-color 0.1s ease;
+
+    &:hover {
+        background-color: ${({ $disabled }) => ($disabled ? "transparent" : "#f1f5f9")};
+    }
+`;
+
+const ContextMenuDivider = styled.div`
+    height: 1px;
+    background-color: #e2e8f0;
+    margin: 4px 0;
+`;
+
 interface TabBarProps {
     $hasSidebar?: boolean;
 }
@@ -97,6 +149,11 @@ export function TabBar({ $hasSidebar }: TabBarProps) {
     const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
     const navigate = useNavigate();
     const location = useLocation();
+    const [contextMenu, setContextMenu] = useState<{
+        x: number;
+        y: number;
+        tab: Tab;
+    } | null>(null);
 
     const handleTabClick = (tab: Tab) => {
         setActiveTabId(tab.id);
@@ -126,6 +183,85 @@ export function TabBar({ $hasSidebar }: TabBarProps) {
         }
     };
 
+    // 탭 목록 변경 후 활성 탭 보정
+    const adjustActiveTab = useCallback(
+        (newTabs: Tab[]) => {
+            if (newTabs.length === 0) {
+                setActiveTabId(null);
+                navigate("/manage");
+            } else if (!newTabs.find((t) => t.id === activeTabId)) {
+                const last = newTabs[newTabs.length - 1];
+                setActiveTabId(last.id);
+                navigate(last.path);
+            }
+        },
+        [activeTabId, navigate, setActiveTabId]
+    );
+
+    const handleContextMenu = (e: React.MouseEvent, tab: Tab) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // 화면 경계 처리
+        const x = Math.min(e.clientX, window.innerWidth - 200);
+        const y = Math.min(e.clientY, window.innerHeight - 200);
+        setContextMenu({ x, y, tab });
+    };
+
+    const closeContextMenu = () => setContextMenu(null);
+
+    // 현재 탭 닫기
+    const handleCloseThis = () => {
+        if (!contextMenu || !contextMenu.tab.closable) return;
+        const tabIndex = openTabs.findIndex((t) => t.id === contextMenu.tab.id);
+        const newTabs = openTabs.filter((t) => t.id !== contextMenu.tab.id);
+        setOpenTabs(newTabs);
+        if (activeTabId === contextMenu.tab.id) {
+            adjustActiveTab(newTabs);
+        }
+        closeContextMenu();
+    };
+
+    // 다른 탭 모두 닫기
+    const handleCloseOthers = () => {
+        if (!contextMenu) return;
+        const newTabs = openTabs.filter(
+            (t) => t.id === contextMenu.tab.id || !t.closable
+        );
+        setOpenTabs(newTabs);
+        adjustActiveTab(newTabs);
+        closeContextMenu();
+    };
+
+    // 오른쪽 탭 닫기
+    const handleCloseRight = () => {
+        if (!contextMenu) return;
+        const idx = openTabs.findIndex((t) => t.id === contextMenu.tab.id);
+        const newTabs = openTabs.filter(
+            (t, i) => i <= idx || !t.closable
+        );
+        setOpenTabs(newTabs);
+        adjustActiveTab(newTabs);
+        closeContextMenu();
+    };
+
+    // 모든 탭 닫기
+    const handleCloseAll = () => {
+        const newTabs = openTabs.filter((t) => !t.closable);
+        setOpenTabs(newTabs);
+        adjustActiveTab(newTabs);
+        closeContextMenu();
+    };
+
+    // ESC 키로 메뉴 닫기
+    useEffect(() => {
+        if (!contextMenu) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") closeContextMenu();
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [contextMenu]);
+
     if (openTabs.length === 0) {
         return (
             <TabBarContainer $hasSidebar={$hasSidebar}>
@@ -134,23 +270,77 @@ export function TabBar({ $hasSidebar }: TabBarProps) {
         );
     }
 
+    // 비활성 조건 계산
+    const ctxTab = contextMenu?.tab;
+    const ctxIdx = ctxTab ? openTabs.findIndex((t) => t.id === ctxTab.id) : -1;
+    const disableClose = ctxTab ? !ctxTab.closable : true;
+    const disableCloseOthers = ctxTab
+        ? openTabs.filter((t) => t.id !== ctxTab.id && t.closable).length === 0
+        : true;
+    const disableCloseRight = ctxTab
+        ? openTabs.filter((t, i) => i > ctxIdx && t.closable).length === 0
+        : true;
+    const disableCloseAll = openTabs.filter((t) => t.closable).length === 0;
+
     return (
-        <TabBarContainer $hasSidebar={$hasSidebar}>
-            {openTabs.map((tab) => (
-                <TabItem
-                    key={tab.id}
-                    $isActive={activeTabId === tab.id}
-                    onClick={() => handleTabClick(tab)}
-                    title={tab.label}
-                >
-                    <TabLabel>{tab.label}</TabLabel>
-                    {tab.closable && (
-                        <CloseButton onClick={(e) => handleCloseTab(e, tab)}>
-                            <X size={12} weight="bold" />
-                        </CloseButton>
-                    )}
-                </TabItem>
-            ))}
-        </TabBarContainer>
+        <>
+            <TabBarContainer $hasSidebar={$hasSidebar}>
+                {openTabs.map((tab) => (
+                    <TabItem
+                        key={tab.id}
+                        $isActive={activeTabId === tab.id}
+                        onClick={() => handleTabClick(tab)}
+                        onContextMenu={(e) => handleContextMenu(e, tab)}
+                        title={tab.label}
+                    >
+                        <TabLabel>{tab.label}</TabLabel>
+                        {tab.closable && (
+                            <CloseButton onClick={(e) => handleCloseTab(e, tab)}>
+                                <X size={12} weight="bold" />
+                            </CloseButton>
+                        )}
+                    </TabItem>
+                ))}
+            </TabBarContainer>
+            {contextMenu && (
+                <>
+                    <ContextMenuOverlay
+                        onClick={closeContextMenu}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            closeContextMenu();
+                        }}
+                    />
+                    <ContextMenuContainer $x={contextMenu.x} $y={contextMenu.y}>
+                        <ContextMenuItem
+                            $disabled={disableClose}
+                            onClick={disableClose ? undefined : handleCloseThis}
+                        >
+                            닫기
+                        </ContextMenuItem>
+                        <ContextMenuDivider />
+                        <ContextMenuItem
+                            $disabled={disableCloseOthers}
+                            onClick={disableCloseOthers ? undefined : handleCloseOthers}
+                        >
+                            다른 탭 모두 닫기
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                            $disabled={disableCloseRight}
+                            onClick={disableCloseRight ? undefined : handleCloseRight}
+                        >
+                            오른쪽 탭 닫기
+                        </ContextMenuItem>
+                        <ContextMenuDivider />
+                        <ContextMenuItem
+                            $disabled={disableCloseAll}
+                            onClick={disableCloseAll ? undefined : handleCloseAll}
+                        >
+                            모든 탭 닫기
+                        </ContextMenuItem>
+                    </ContextMenuContainer>
+                </>
+            )}
+        </>
     );
 }

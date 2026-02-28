@@ -39,7 +39,10 @@
       "Bash(python manage.py import_share \"C:\\\\clms_export\\\\T_Share.csv\")",
       "Bash(python manage.py update_movie \"C:\\\\clms_export\\\\Title_M.csv\")",
       "Bash(python manage.py update_movies \"C:\\\\clms_export\\\\Title_M.csv\")",
-      "Bash(python manage.py shell -c \":*)"
+      "Bash(python manage.py shell -c \":*)",
+      "Bash(npm install -g @anthropic-ai/claude-code)",
+      "Bash(python -X utf8 manage.py makemigrations crawler --name crawltargetmovie)",
+      "Bash(/c/clms/castingline_backend/crawler/views.py:*)"
     ],
     "additionalDirectories": [
       "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",

@@ -369,6 +369,17 @@ def step7_create_superuser():
     log("슈퍼유저 생성 완료 (admin / 1)")
 
 
+# ── STEP 7b: Client별 User 계정 생성 ─────────────────────────────────────────
+
+def step7b_create_client_users():
+    log("STEP 7b: Client login_id/login_password → User 계정 생성", "STEP")
+    out = manage("create_client_users")
+    last = [l for l in out.splitlines() if l.strip()]
+    if last:
+        log(f"  → {last[-1]}")
+    log("Client User 계정 생성 완료")
+
+
 # ── STEP 8: 임시 SQL Server DB 삭제 ──────────────────────────────────────────
 
 def step8_cleanup_mssql():
@@ -408,6 +419,7 @@ def main():
     step5_migrate()
     step6_import_data()
     step7_create_superuser()
+    step7b_create_client_users()
     step8_cleanup_mssql()
 
     elapsed = int(time.time() - start)

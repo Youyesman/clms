@@ -588,7 +588,7 @@ export function SettlementAggregatePage() {
                 <FilterRow>
                     <FieldWrapper $error={validationErrors.yyyy}>
                         <CustomSelect
-                            style={{ width: "110px" }}
+                            style={{ width: "160px" }}
                             label="연도 *"
                             options={yearOptions}
                             value={searchParams.yyyy}

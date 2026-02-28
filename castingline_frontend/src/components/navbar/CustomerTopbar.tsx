@@ -160,7 +160,7 @@ function CustomerTopbar() {
 
                     <NavItem to="/time_table">{t("시간표")}</NavItem>
 
-                    <NavItem to="/localservice">{t("부금관리")}</NavItem>
+                    <NavItem to="/settlement/detail">{t("부금관리")}</NavItem>
                 </NavWrapper>
             </LeftSection>
 

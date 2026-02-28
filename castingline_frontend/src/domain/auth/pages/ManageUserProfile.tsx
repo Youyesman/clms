@@ -42,6 +42,25 @@ const ButtonGroup = styled.div`
     margin-top: 20px;
 `;
 
+const BADGE_COLORS: Record<string, { bg: string; color: string }> = {
+    "배급사": { bg: "#dbeafe", color: "#1e40af" },
+    "제작사": { bg: "#fce7f3", color: "#9d174d" },
+    "극장":   { bg: "#d1fae5", color: "#065f46" },
+    "매입처": { bg: "#fef3c7", color: "#92400e" },
+};
+
+const Badge = styled.span<{ $bg: string; $color: string }>`
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: ${(p) => p.$bg};
+    color: ${(p) => p.$color};
+    margin-right: 6px;
+    white-space: nowrap;
+`;
+
 interface Group {
     id: number;
     name: string;
@@ -62,6 +81,8 @@ interface UserFormData {
 
 interface UserRecord extends Omit<UserFormData, "password"> {
     id: number;
+    client_name?: string;
+    client_type?: string;
 }
 
 interface UserFormModalProps {
@@ -250,6 +271,20 @@ export function ManageUserProfile() {
         { key: "is_superuser", label: "계정 유형" },
         { key: "username", label: "아이디" },
         { key: "nickname", label: "닉네임" },
+        {
+            key: "client_name", label: "소속",
+            renderCell: (_: string, item: UserRecord) => {
+                if (!item.client_name) return "";
+                const type = item.client_type || "";
+                const colors = BADGE_COLORS[type] || { bg: "#f1f5f9", color: "#475569" };
+                return (
+                    <span style={{ display: "flex", alignItems: "center" }}>
+                        {type && <Badge $bg={colors.bg} $color={colors.color}>{type}</Badge>}
+                        {item.client_name}
+                    </span>
+                );
+            },
+        },
         { key: "email", label: "이메일" },
         { key: "team", label: "팀" },
         { key: "direct_call", label: "직통전화" },
