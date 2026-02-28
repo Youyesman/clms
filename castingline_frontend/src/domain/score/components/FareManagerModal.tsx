@@ -2,6 +2,7 @@ import { PencilSimple, Plus, Trash, WarningCircle, Coins, Money } from "@phospho
 import { useEffect, useState } from "react";
 import styled from "styled-components";
 import { useToast } from "../../../components/common/CustomToast";
+import { useAppAlert } from "../../../atom/alertUtils";
 import { AxiosDelete, AxiosGet, AxiosPost } from "../../../axios/Axios";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../components/common/CustomInput";
@@ -131,17 +132,26 @@ const EmptyWrapper = styled.div`
     }
 `;
 
+/* --- 인터페이스 정의 --- */
+interface FareItem {
+    id: number;
+    fare: string;
+    fare_remark?: string;
+    client: number;
+}
+
 /* --- 요금 관리 모달 본문 --- */
 export function FareManagerModal({ clientId, onRefresh }: { clientId: number, onRefresh: () => void }) {
-    const [fares, setFares] = useState<any[]>([]);
+    const [fares, setFares] = useState<FareItem[]>([]);
     const [newFare, setNewFare] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const toast = useToast();
+    const { showAlert } = useAppAlert();
 
     const fetchFares = async () => {
         try {
             const res = await AxiosGet(`fares/?client_id=${clientId}`);
-            setFares(res.data.results.sort((a: any, b: any) => a.fare - b.fare));
+            setFares(res.data.results.sort((a: FareItem, b: FareItem) => Number(a.fare) - Number(b.fare)));
         } catch (e) { toast.error("요금 목록 로드 실패"); }
     };
 
@@ -156,23 +166,30 @@ export function FareManagerModal({ clientId, onRefresh }: { clientId: number, on
             await fetchFares();
             onRefresh();
             toast.success("요금이 추가되었습니다.");
-        } catch (e: any) {
+        } catch (e) {
             toast.error(handleBackendErrors(e));
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!window.confirm("이 요금을 삭제하시겠습니까?\n요금을 삭제해도 스코어는 삭제되지 않습니다.")) return;
-        try {
-            await AxiosDelete("fares", id);
-            await fetchFares();
-            onRefresh();
-            toast.success("요금이 삭제되었습니다.");
-        } catch (e) {
-            toast.error("삭제 실패 (사용 중인 요금일 수 있습니다)");
-        }
+    const handleDelete = (id: number) => {
+        showAlert(
+            "이 요금을 삭제하시겠습니까?",
+            "요금을 삭제해도 스코어는 삭제되지 않습니다.",
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete("fares", id);
+                    await fetchFares();
+                    onRefresh();
+                    toast.success("요금이 삭제되었습니다.");
+                } catch (e) {
+                    toast.error(handleBackendErrors(e));
+                }
+            },
+            true
+        );
     };
 
     return (

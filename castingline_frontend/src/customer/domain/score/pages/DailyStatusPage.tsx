@@ -7,6 +7,7 @@ import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
+import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 
 /* ── 유틸 ── */
 const fmt = (n: number) => n.toLocaleString("ko-KR");
@@ -261,6 +262,7 @@ export function DailyStatusPage() {
 
     return (
         <PageWrapper>
+            <PageNavTabs tabs={SCORE_TABS} />
             <FilterBar>
                 <FilterRow>
                     <div>

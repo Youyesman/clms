@@ -7,6 +7,7 @@ import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
+import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
@@ -281,6 +282,7 @@ export function RankingPage() {
 
     return (
         <PageWrapper>
+            <PageNavTabs tabs={SCORE_TABS} />
             {/* ── 필터 ── */}
             <FilterBar>
                 <div>

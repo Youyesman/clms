@@ -900,3 +900,13 @@ class CrawlTargetMovieDetailView(APIView):
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CrawlTargetMovieBulkDeleteView(APIView):
+
+    def post(self, request):
+        ids = request.data.get("ids", [])
+        if not ids:
+            return Response({"error": "ids required"}, status=status.HTTP_400_BAD_REQUEST)
+        deleted, _ = CrawlTargetMovie.objects.filter(pk__in=ids).delete()
+        return Response({"deleted": deleted})

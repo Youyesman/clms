@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import styled from "styled-components";
 import { AxiosDelete, AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
@@ -149,23 +149,45 @@ const EmptyState = styled.div`
 
 /* ---------------- Logic & Types ---------------- */
 
-type Score = {
-    id: number;
-    fare: number;
-    show_count: any;
-    visitor: number;
-    client: { id: any; client_name: any };
-    movie: { id: any; title_ko: any };
-    auditorium: string;
-    entry_date: string;
-};
+interface ClientInfo {
+    id: number | null;
+    client_name: string;
+    client_code?: string;
+}
 
-type Props = {
-    selectedScore: any;
-    allScores: Score[];
+interface MovieInfo {
+    id: number | null;
+    title_ko: string;
+    movie_code?: string;
+}
+
+interface ScoreItem {
+    id: number | null;
+    fare: number | string | null;
+    show_count?: string;
+    visitor: number | string;
+    client: ClientInfo;
+    movie: MovieInfo;
+    auditorium: string;
+    auditorium_name: string;
+    entry_date: string;
+    is_order_only?: boolean;
+    ids?: number[];
+}
+
+interface TheaterItem {
+    id: number;
+    auditorium: string;
+    auditorium_name: string;
+    seat_count: number;
+}
+
+interface Props {
+    selectedScore: ScoreItem | null;
+    allScores: ScoreItem[];
     setScores: (preserveId?: number) => void;
-    setSelectedScore: any;
-};
+    setSelectedScore: (score: ScoreItem | null) => void;
+}
 
 export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSelectedScore }: Props) {
     const { openModal } = useGlobalModal();
@@ -176,9 +198,9 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     const [editValue, setEditValue] = useState<string>("");
     const [saving, setSaving] = useState(false);
     const [dynamicFareList, setDynamicFareList] = useState<number[]>([]);
-    const [theaterList, setTheaterList] = useState<any[]>([]);
+    const [theaterList, setTheaterList] = useState<TheaterItem[]>([]);
 
-    const getID = (val: any) => (val && typeof val === "object" ? val.id : val);
+    const getID = (val: ClientInfo | MovieInfo | null | undefined) => val?.id ?? null;
     const showCounts = useMemo(() => Array.from({ length: 13 }, (_, i) => i), []);
 
     // ✅ 매트릭스 데이터 계산 로직
@@ -207,8 +229,8 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     }, [selectedScore, allScores]);
 
     // ✅ 극장 정보(관 리스트, 요금 리스트) 페칭
+    const clientId = getID(selectedScore?.client);
     useEffect(() => {
-        const clientId = getID(selectedScore?.client);
         if (!clientId) return;
         const fetchData = async () => {
             try {
@@ -218,21 +240,21 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 ]);
                 setTheaterList(tRes.data.results || []);
                 const fares = fRes.data.results
-                    .map((f: any) => parseInt(f.fare))
+                    .map((f: { fare: string }) => parseInt(f.fare))
                     .filter((v: number) => !isNaN(v))
                     .sort((a: number, b: number) => a - b);
                 setDynamicFareList(fares);
             } catch (error) {
-                console.error(error);
+                toast.error(handleBackendErrors(error));
             }
         };
         fetchData();
-    }, [getID(selectedScore?.client)]);
+    }, [clientId]);
 
     // ✅ 관 변경/추가 드롭다운 선택 시 로직
     const handleAuditoriumSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
-        if (!code) return;
+        if (!code || !selectedScore) return;
 
         const theater = theaterList.find((t) => t.auditorium === code);
         if (!theater) return;
@@ -251,13 +273,23 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 setScores(selectedScore.id);
                 toast.success("관 정보가 업데이트되었습니다.");
             } catch (err) {
-                toast.error("관 설정 실패");
+                toast.error(handleBackendErrors(err));
             }
         }
     };
 
+    // Ref로 최신 상태 참조 (키보드 이벤트 핸들러의 stale closure 방지)
+    const matrixRef = useRef(matrix);
+    matrixRef.current = matrix;
+    const savingRef = useRef(saving);
+    savingRef.current = saving;
+    const filteredScoresRef = useRef(filteredScores);
+    filteredScoresRef.current = filteredScores;
+    const selectedScoreRef = useRef(selectedScore);
+    selectedScoreRef.current = selectedScore;
+
     // 방향키 이동
-    const moveSelection = (direction: string) => {
+    const moveSelection = useCallback((direction: string) => {
         if (!selectedCell) return;
         const currentFareIdx = dynamicFareList.indexOf(selectedCell.fare);
         const currentShowIdx = showCounts.indexOf(selectedCell.show);
@@ -279,22 +311,27 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 break;
         }
         setSelectedCell({ fare: dynamicFareList[nextFareIdx], show: showCounts[nextShowIdx] });
-    };
+    }, [dynamicFareList, showCounts]);
 
     // 데이터 저장 (POST/PATCH)
-    const handleSave = async (cellToSave: { fare: number; show: number }, valueToSave: string) => {
+    const handleSave = useCallback(async (cellToSave: { fare: number; show: number }, valueToSave: string) => {
         const { fare, show } = cellToSave;
         const trimmedValue = valueToSave.trim();
-        const originalVal = matrix[fare]?.[show] ?? 0;
+        const currentMatrix = matrixRef.current;
+        const currentFilteredScores = filteredScoresRef.current;
+        const currentSelectedScore = selectedScoreRef.current;
+        const originalVal = currentMatrix[fare]?.[show] ?? 0;
         const newVal = trimmedValue === "" ? 0 : Number(trimmedValue);
 
-        if (originalVal === newVal || saving) {
+        if (originalVal === newVal || savingRef.current) {
             setEditingCell(null);
             return;
         }
 
+        if (!currentSelectedScore) return;
+
         const searchShow = show === 0 ? "특회" : String(show).padStart(2, "0");
-        let target = filteredScores.find(
+        const target = currentFilteredScores.find(
             (s) => Number(s.fare) === fare && (String(s.show_count) === searchShow || Number(s.show_count) === show)
         );
 
@@ -310,17 +347,17 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 // 수정
                 await AxiosPatch(
                     "scores",
-                    { visitor: newVal, fare, show_count: searchShow, auditorium: selectedScore.auditorium },
+                    { visitor: newVal, fare, show_count: searchShow, auditorium: currentSelectedScore.auditorium },
                     target.id
                 );
                 await setScores(target.id);
             } else {
                 // 신규 생성
                 const res = await AxiosPost("scores", {
-                    client: getID(selectedScore.client),
-                    movie: getID(selectedScore.movie),
-                    auditorium: selectedScore.auditorium,
-                    entry_date: selectedScore.entry_date,
+                    client: getID(currentSelectedScore.client),
+                    movie: getID(currentSelectedScore.movie),
+                    auditorium: currentSelectedScore.auditorium,
+                    entry_date: currentSelectedScore.entry_date,
                     fare,
                     show_count: searchShow,
                     visitor: newVal,
@@ -328,13 +365,13 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 await setScores(res.data.id);
             }
             toast.success("저장되었습니다.");
-        } catch (err: any) {
+        } catch (err) {
             toast.error(handleBackendErrors(err));
         } finally {
             setSaving(false);
             setEditingCell(null);
         }
-    };
+    }, [setScores, toast]);
 
     // 전역 키보드 이벤트
     useEffect(() => {
@@ -348,7 +385,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 setEditValue(e.key);
             } else if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                const val = matrix[selectedCell.fare]?.[selectedCell.show] ?? 0;
+                const val = matrixRef.current[selectedCell.fare]?.[selectedCell.show] ?? 0;
                 setEditingCell(selectedCell);
                 setEditValue(val !== 0 ? String(val) : "");
             } else if (e.key === "Backspace" || e.key === "Delete") {
@@ -358,12 +395,11 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [selectedCell, editingCell, dynamicFareList, showCounts, matrix]);
+    }, [selectedCell, editingCell, moveSelection, handleSave]);
 
     const handleEditFares = () => {
-        const clientId = getID(selectedScore?.client);
-        if (!clientId) return;
-        openModal(<FareManagerModal clientId={clientId} onRefresh={() => setScores(selectedScore.id)} />, {
+        if (!clientId || !selectedScore) return;
+        openModal(<FareManagerModal clientId={clientId} onRefresh={() => setScores(selectedScore.id ?? undefined)} />, {
             title: "요금 체계 관리",
             width: "600px",
         });

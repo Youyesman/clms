@@ -11,12 +11,55 @@ import { MagnifyingGlass, Trash, UploadIcon, CheckSquare, Square, PlusIcon } fro
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { useAppAlert } from "../../../atom/alertUtils";
+import { GlobalSkeleton } from "../../../components/common/GlobalSkeleton";
 import { ScoreExcelUploader } from "./ScoreExcelUploader";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 
 // 도메인 컴포넌트
 import { ScoreDetailMatrix } from "../components/ScoreDetailMatrix";
+
+/* ---------------- Interfaces ---------------- */
+
+interface ClientInfo {
+    id: number | null;
+    client_name: string;
+    client_code?: string;
+}
+
+interface MovieInfo {
+    id: number | null;
+    title_ko: string;
+    movie_code?: string;
+}
+
+interface ScoreItem {
+    id: number | null;
+    client: ClientInfo;
+    movie: MovieInfo;
+    entry_date: string;
+    auditorium: string;
+    auditorium_name: string;
+    fare: number | string | null;
+    visitor: number | string;
+    show_count?: string;
+    is_order_only?: boolean;
+    ids?: number[];
+}
+
+interface MovieGroup {
+    movie_name: string;
+    movie_code: string;
+    items: ScoreItem[];
+    subtotal_visitor: number;
+}
+
+interface SearchParams {
+    entry_date: string;
+    client: ClientInfo;
+    movie: MovieInfo;
+}
 
 /* ---------------- Styled Components ---------------- */
 
@@ -110,18 +153,29 @@ const MovieTotalRow = styled.tr`
     }
 `;
 
+const EmptyState = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: #94a3b8;
+    font-size: 13px;
+    background-color: #f8fafc;
+`;
+
 /* ---------------- Main Component ---------------- */
 
 export function ManageScore() {
     const toast = useToast();
     const { openModal } = useGlobalModal();
+    const { showAlert } = useAppAlert();
 
-    const [groupedScores, setGroupedScores] = useState<any[]>([]);
+    const [groupedScores, setGroupedScores] = useState<MovieGroup[]>([]);
     const [loading, setLoading] = useState(false);
-    const [selectedScore, setSelectedScore] = useState<any>(null);
+    const [selectedScore, setSelectedScore] = useState<ScoreItem | null>(null);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
-    const [searchParams, setSearchParams] = useState({
+    const [searchParams, setSearchParams] = useState<SearchParams>({
         entry_date: new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().split("T")[0],
         client: { id: null, client_name: "" },
         movie: { id: null, title_ko: "" },
@@ -145,15 +199,15 @@ export function ManageScore() {
 
         try {
             const res = await AxiosGet(`scores/?${params.toString()}`);
-            const newData = res.data.grouped_data || [];
+            const newData: MovieGroup[] = res.data.grouped_data || [];
             setGroupedScores(newData);
 
             if (preserveId) {
-                const found = newData.flatMap((g: any) => g.items).find((i: any) => i.id === preserveId);
+                const found = newData.flatMap((g) => g.items).find((i) => i.id === preserveId);
                 if (found) setSelectedScore(found);
             }
         } catch (error) {
-            toast.error("조회 중 오류 발생");
+            toast.error(handleBackendErrors(error));
         } finally {
             setLoading(false);
             setSelectedIds([]);
@@ -174,21 +228,27 @@ export function ManageScore() {
         }
     };
 
-    const handleBulkDelete = async () => {
+    const handleBulkDelete = () => {
         if (selectedIds.length === 0) {
             toast.warning("삭제할 항목을 선택해주세요.");
             return;
         }
 
-        if (window.confirm(`선택한 ${selectedIds.length}건의 데이터를 삭제하시겠습니까?`)) {
-            try {
-                await AxiosPost("scores/bulk-delete", { ids: selectedIds });
-                toast.success("성공적으로 삭제되었습니다.");
-                handleSearch();
-            } catch (error: any) {
-                toast.error(handleBackendErrors(error));
-            }
-        }
+        showAlert(
+            `선택한 ${selectedIds.length}건의 데이터를 삭제하시겠습니까?`,
+            "삭제된 데이터는 복구할 수 없습니다.",
+            "warning",
+            async () => {
+                try {
+                    await AxiosPost("scores/bulk-delete", { ids: selectedIds });
+                    toast.success("성공적으로 삭제되었습니다.");
+                    handleSearch();
+                } catch (error) {
+                    toast.error(handleBackendErrors(error));
+                }
+            },
+            true
+        );
     };
 
     const handleAddScore = async () => {
@@ -209,7 +269,7 @@ export function ManageScore() {
             const res = await AxiosPost("scores", payload);
             toast.success("새 스코어가 생성되었습니다.");
             await handleSearch(res.data.id);
-        } catch (error: any) {
+        } catch (error) {
             toast.error(handleBackendErrors(error));
         }
     };
@@ -236,7 +296,7 @@ export function ManageScore() {
                     label="입회일자"
                     inputType="date"
                     value={searchParams.entry_date}
-                    setValue={(v) => setSearchParams((p: any) => ({ ...p, entry_date: v }))}
+                    setValue={(v) => setSearchParams((p) => ({ ...p, entry_date: v }))}
                     labelWidth="60px"
                 />
                 <div style={{ width: "300px" }}>
@@ -287,6 +347,11 @@ export function ManageScore() {
                         }
                     />
                     <TableWrapper>
+                        {loading ? (
+                            <GlobalSkeleton />
+                        ) : groupedScores.length === 0 ? (
+                            <EmptyState>조회된 스코어 데이터가 없습니다.</EmptyState>
+                        ) : (
                         <ScoreTable>
                             <thead>
                                 <tr>
@@ -300,65 +365,68 @@ export function ManageScore() {
                             </thead>
                             <tbody>
                                 {groupedScores.map((movieGroup) => {
-                                    const clientGroups = movieGroup.items.reduce((acc: any, item: any) => {
-                                        const cId = item.client?.id || "unknown";
-                                        if (!acc[cId])
-                                            acc[cId] = { name: item.client?.client_name, items: [], total: 0, ids: [] };
-                                        acc[cId].items.push(item);
-                                        // 극장 레벨에서도 모든 ID를 수집해야 함
-                                        if (item.id) acc[cId].ids.push(item.id);
-                                        acc[cId].total += Number(item.visitor) || 0;
-                                        return acc;
-                                    }, {});
+                                    const clientGroups: Record<string, { name: string; items: ScoreItem[]; total: number; ids: number[] }> = {};
+                                    movieGroup.items.forEach((item) => {
+                                        const cId = String(item.client?.id || "unknown");
+                                        if (!clientGroups[cId])
+                                            clientGroups[cId] = { name: item.client?.client_name, items: [], total: 0, ids: [] };
+                                        clientGroups[cId].items.push(item);
+                                        if (item.id) clientGroups[cId].ids.push(item.id);
+                                        clientGroups[cId].total += Number(item.visitor) || 0;
+                                    });
+
+                                    // 영화 레벨 전체 ID 수집
+                                    const movieAllIds = movieGroup.items
+                                        .filter((item) => item.id !== null)
+                                        .map((item) => item.id as number);
+                                    const isMovieAllSelected =
+                                        movieAllIds.length > 0 &&
+                                        movieAllIds.every((id) => selectedIds.includes(id));
 
                                     return (
                                         <React.Fragment key={movieGroup.movie_code}>
                                             {Object.keys(clientGroups).map((cId) => {
                                                 const clientData = clientGroups[cId];
 
-                                                // 2. 관별 그룹화
-                                                const audiGroups = clientData.items.reduce(
-                                                    (acc: Record<string, any>, item: any) => {
-                                                        const aKey = item.auditorium || "none";
-                                                        if (!acc[aKey]) {
-                                                            acc[aKey] = {
-                                                                name: item.auditorium_name,
-                                                                items: [],
-                                                                total: 0,
-                                                                ids: [] as number[], // ✅ number 배열로 강제
-                                                            };
-                                                        }
+                                                // 관별 그룹화
+                                                const audiGroups: Record<string, { name: string; items: ScoreItem[]; total: number; ids: number[] }> = {};
+                                                clientData.items.forEach((item) => {
+                                                    const aKey = item.auditorium || "none";
+                                                    if (!audiGroups[aKey]) {
+                                                        audiGroups[aKey] = {
+                                                            name: item.auditorium_name,
+                                                            items: [],
+                                                            total: 0,
+                                                            ids: [],
+                                                        };
+                                                    }
 
-                                                        const fareKey = `${item.auditorium}-${item.fare}`;
-                                                        const existing = acc[aKey].items.find(
-                                                            (ex: any) => `${ex.auditorium}-${ex.fare}` === fareKey,
+                                                    const fareKey = `${item.auditorium}-${item.fare}`;
+                                                    const existing = audiGroups[aKey].items.find(
+                                                        (ex) => `${ex.auditorium}-${ex.fare}` === fareKey,
+                                                    );
+
+                                                    if (existing && item.id) {
+                                                        existing.visitor =
+                                                            (Number(existing.visitor) || 0) +
+                                                            (Number(item.visitor) || 0);
+                                                        existing.ids = Array.from(
+                                                            new Set([...(existing.ids || []), item.id]),
                                                         );
+                                                    } else {
+                                                        audiGroups[aKey].items.push({
+                                                            ...item,
+                                                            ids: item.id
+                                                                ? [item.id]
+                                                                : [],
+                                                        });
+                                                    }
 
-                                                        if (existing && item.id) {
-                                                            existing.visitor =
-                                                                (Number(existing.visitor) || 0) +
-                                                                (Number(item.visitor) || 0);
-                                                            existing.ids = Array.from(
-                                                                new Set([...(existing.ids || []), item.id]),
-                                                            );
-                                                        } else {
-                                                            acc[aKey].items.push({
-                                                                ...item,
-                                                                ids: item.id
-                                                                    ? ([item.id] as number[])
-                                                                    : ([] as number[]),
-                                                            });
-                                                        }
+                                                    if (item.id) audiGroups[aKey].ids.push(item.id);
+                                                    audiGroups[aKey].total += Number(item.visitor) || 0;
+                                                });
 
-                                                        if (item.id) acc[aKey].ids.push(item.id);
-                                                        acc[aKey].total += Number(item.visitor) || 0;
-                                                        return acc;
-                                                    },
-                                                    {} as Record<string, any>,
-                                                );
-
-                                                // ✅ 타입 단언을 통해 unknown 에러 해결
-                                                const clientIds = clientData.ids as number[];
+                                                const clientIds = clientData.ids;
                                                 const isClientAllSelected =
                                                     clientIds.length > 0 &&
                                                     clientIds.every((id) => selectedIds.includes(id));
@@ -367,19 +435,18 @@ export function ManageScore() {
                                                     <React.Fragment key={cId}>
                                                         {Object.keys(audiGroups).map((aKey) => {
                                                             const audi = audiGroups[aKey];
-                                                            const audiIds = audi.ids as number[]; // ✅ 타입 단언
+                                                            const audiIds = audi.ids;
                                                             const isAudiAllSelected =
                                                                 audiIds.length > 0 &&
                                                                 audiIds.every((id) => selectedIds.includes(id));
                                                             return (
                                                                 <React.Fragment key={aKey}>
-                                                                    {audi.items.map((item: any, idx: number) => {
+                                                                    {audi.items.map((item, idx) => {
                                                                         const virtualKey = `virtual-${cId}-${aKey}-${idx}`;
-                                                                        // [수정] 병합된 행의 모든 ID가 선택되어 있는지 확인
                                                                         const isItemAllSelected =
                                                                             item.ids &&
                                                                             item.ids.length > 0 &&
-                                                                            item.ids.every((id: number) =>
+                                                                            item.ids.every((id) =>
                                                                                 selectedIds.includes(id),
                                                                             );
 
@@ -409,7 +476,6 @@ export function ManageScore() {
                                                                                     className="check-col"
                                                                                     onClick={(e) => {
                                                                                         e.stopPropagation();
-                                                                                        // ✅ [핵심수정] 단일 ID가 아니라 병합된 ids 전체를 토글
                                                                                         if (
                                                                                             item.ids &&
                                                                                             item.ids.length > 0
@@ -503,7 +569,20 @@ export function ManageScore() {
                                                 );
                                             })}
                                             <MovieTotalRow>
-                                                <td className="check-col"></td>
+                                                <td
+                                                    className="check-col"
+                                                    onClick={() => toggleSelectIds(movieAllIds)}>
+                                                    {movieAllIds.length > 0 &&
+                                                        (isMovieAllSelected ? (
+                                                            <CheckSquare
+                                                                size={18}
+                                                                weight="fill"
+                                                                color="#1e293b"
+                                                            />
+                                                        ) : (
+                                                            <Square size={18} color="#1e293b" />
+                                                        ))}
+                                                </td>
                                                 <td colSpan={4} style={{ textAlign: "right" }}>
                                                     {movieGroup.movie_name} 총계 :
                                                 </td>
@@ -516,6 +595,7 @@ export function ManageScore() {
                                 })}
                             </tbody>
                         </ScoreTable>
+                        )}
                     </TableWrapper>
                 </ListSection>
 

@@ -5,12 +5,12 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { X } from "@phosphor-icons/react";
 import { OpenTabsState, ActiveTabIdState, Tab } from "../../atom/TabState";
 
-const TabBarContainer = styled.div<{ $hasSidebar?: boolean }>`
+const TabBarContainer = styled.div<{ $sidebarWidth: number }>`
     position: fixed;
     top: 60px;
-    left: ${({ $hasSidebar }) => ($hasSidebar ? "72px" : "0")};
+    left: ${({ $sidebarWidth }) => $sidebarWidth}px;
     z-index: 999;
-    width: ${({ $hasSidebar }) => ($hasSidebar ? "calc(100% - 72px)" : "100%")};
+    width: calc(100% - ${({ $sidebarWidth }) => $sidebarWidth}px);
     height: 36px;
     display: flex;
     align-items: stretch;
@@ -141,10 +141,10 @@ const ContextMenuDivider = styled.div`
 `;
 
 interface TabBarProps {
-    $hasSidebar?: boolean;
+    $sidebarWidth: number;
 }
 
-export function TabBar({ $hasSidebar }: TabBarProps) {
+export function TabBar({ $sidebarWidth }: TabBarProps) {
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
     const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
     const navigate = useNavigate();
@@ -264,7 +264,7 @@ export function TabBar({ $hasSidebar }: TabBarProps) {
 
     if (openTabs.length === 0) {
         return (
-            <TabBarContainer $hasSidebar={$hasSidebar}>
+            <TabBarContainer $sidebarWidth={$sidebarWidth}>
                 <EmptyTabMessage>사이드바에서 메뉴를 선택하세요</EmptyTabMessage>
             </TabBarContainer>
         );
@@ -284,7 +284,7 @@ export function TabBar({ $hasSidebar }: TabBarProps) {
 
     return (
         <>
-            <TabBarContainer $hasSidebar={$hasSidebar}>
+            <TabBarContainer $sidebarWidth={$sidebarWidth}>
                 {openTabs.map((tab) => (
                     <TabItem
                         key={tab.id}

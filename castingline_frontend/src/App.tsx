@@ -15,22 +15,21 @@ import { CustomerSidebar } from "./components/navbar/CustomerSidebar";
 import { GlobalSkeleton } from "./components/common/GlobalSkeleton";
 import { TabBar } from "./components/navbar/TabBar";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "./atom/TabState";
+import { SIDEBAR_WIDTH } from "./components/navbar/Sidebar";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 // AppContainer의 prop 타입 정의
 interface AppContainerProps {
-    $hasSidebar?: boolean; // 사이드바 유무에 따른 마진 조절
-    $hasTabBar?: boolean;  // 탭바 유무에 따른 상단 패딩 조절
+    $sidebarWidth: number;
+    $hasTabBar?: boolean;
 }
 
 const AppContainer = styled.div<AppContainerProps>`
     box-sizing: border-box;
-    width: 100%; /* 100vw 대신 100% 사용 */
+    width: 100%;
     display: flex;
-    /* 사이드바가 확장되었을 때 220px, 접혔을 때 72px, 없으면 0 */
-    padding-left: ${({ $hasSidebar }) => ($hasSidebar ? "72px" : "0")};
-    /* GNB(Topbar) 높이 + TabBar 높이 */
+    padding-left: ${({ $sidebarWidth }) => $sidebarWidth}px;
     padding-top: ${({ $hasTabBar }) => ($hasTabBar ? "96px" : "60px")};
     transition: padding-left 0.3s ease;
 
@@ -53,6 +52,7 @@ function App() {
 
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
     const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
+    const sidebarWidth = showStaffUI ? SIDEBAR_WIDTH : 0;
 
     const isFullscreen = FULLSCREEN_PATHS.includes(location.pathname);
     const isManagePath = location.pathname.startsWith("/manage");
@@ -105,14 +105,14 @@ function App() {
                 {showStaffUI ? (
                     <>
                         <Sidebar />
-                        <StaffTopbar $hasSidebar={showStaffUI} />
-                        <TabBar $hasSidebar={showStaffUI} />
+                        <StaffTopbar $sidebarWidth={sidebarWidth} />
+                        <TabBar $sidebarWidth={sidebarWidth} />
                     </>
                 ) : (
                     <CustomerTopbar />
                 )}
                 <AppContainer
-                    $hasSidebar={showStaffUI}
+                    $sidebarWidth={sidebarWidth}
                     $hasTabBar={showStaffUI && isManagePath}
                 >
                     {/* 고객용 사이드바: 관리자가 아니고, 고객 경로일 때만 */}

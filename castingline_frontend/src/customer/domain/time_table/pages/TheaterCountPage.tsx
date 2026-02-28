@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
+import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, Legend,
@@ -52,25 +52,6 @@ const PageWrapper = styled.div`
     min-height: calc(100vh - 60px);
     padding: 20px;
     gap: 16px;
-`;
-
-const NavTabBar = styled.div`
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #e2e8f0;
-`;
-
-const NavTab = styled(Link)<{ $active?: boolean }>`
-    padding: 8px 20px;
-    font-size: 13px;
-    font-weight: ${p => (p.$active ? 700 : 500)};
-    color: ${p => (p.$active ? "#3b82f6" : "#64748b")};
-    border-bottom: 2px solid ${p => (p.$active ? "#3b82f6" : "transparent")};
-    margin-bottom: -2px;
-    text-decoration: none;
-    cursor: pointer;
-    transition: color 0.15s;
-    &:hover { color: #3b82f6; }
 `;
 
 const FilterCard = styled.div`
@@ -294,13 +275,7 @@ export function TheaterCountPage() {
     return (
         <PageWrapper onClick={() => setPopover(null)}>
             {/* ── 탭 네비게이션 ── */}
-            <NavTabBar>
-                <NavTab to="/time_table">집계작 시간표</NavTab>
-                <NavTab to="/time_table/seat-count">주요작 좌석수</NavTab>
-                <NavTab to="/time_table/theater-count" $active={true}>주요작 상영관수</NavTab>
-                <NavTab to="/time_table/screen-count">주요작 스크린수</NavTab>
-                <NavTab to="/time_table/show-count">주요작 상영회차수</NavTab>
-            </NavTabBar>
+            <PageNavTabs tabs={TIME_TABLE_TABS} />
 
             {/* ── 필터 ── */}
             <FilterCard>

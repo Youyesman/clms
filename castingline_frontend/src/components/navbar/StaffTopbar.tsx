@@ -8,12 +8,12 @@ import UserInform from "./UserInform";
 import { useTokenTimer } from "../../hooks/useTokenTimer";
 
 /** 1. 전체 컨테이너 **/
-const TopbarContainer = styled.header<{ $hasSidebar?: boolean }>`
+const TopbarContainer = styled.header<{ $sidebarWidth: number }>`
     position: fixed;
     top: 0;
-    left: ${({ $hasSidebar }) => ($hasSidebar ? "72px" : "0")};
+    left: ${({ $sidebarWidth }) => $sidebarWidth}px;
     z-index: 1000;
-    width: ${({ $hasSidebar }) => ($hasSidebar ? "calc(100% - 72px)" : "100%")};
+    width: calc(100% - ${({ $sidebarWidth }) => $sidebarWidth}px);
     height: 60px;
     display: flex;
     align-items: center;
@@ -113,7 +113,7 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/time_table": { group: "대시보드", name: "시간표 조회" },
 };
 
-function StaffTopbar({ $hasSidebar }: { $hasSidebar?: boolean }) {
+function StaffTopbar({ $sidebarWidth }: { $sidebarWidth: number }) {
     const { t } = useTranslation();
     const location = useLocation();
     const { timeLeft, isExpired, refreshToken } = useTokenTimer();
@@ -135,7 +135,7 @@ function StaffTopbar({ $hasSidebar }: { $hasSidebar?: boolean }) {
     };
 
     return (
-        <TopbarContainer $hasSidebar={$hasSidebar}>
+        <TopbarContainer $sidebarWidth={$sidebarWidth}>
             <LeftSection>
                 <PageTitle>
                     <div className="breadcrumb">{currentPage.group}</div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
+import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid,
     Tooltip, ResponsiveContainer,
@@ -223,26 +223,6 @@ const EmptyMsg = styled.div`
     padding: 40px;
     color: #94a3b8;
     font-size: 13px;
-`;
-
-/* ── 탭 네비게이션 ── */
-const NavTabBar = styled.div`
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #e2e8f0;
-`;
-
-const NavTab = styled(Link)<{ $active?: boolean }>`
-    padding: 8px 20px;
-    font-size: 13px;
-    font-weight: ${p => (p.$active ? 700 : 500)};
-    color: ${p => (p.$active ? "#3b82f6" : "#64748b")};
-    border-bottom: 2px solid ${p => (p.$active ? "#3b82f6" : "transparent")};
-    margin-bottom: -2px;
-    text-decoration: none;
-    cursor: pointer;
-    transition: color 0.15s;
-    &:hover { color: #3b82f6; }
 `;
 
 const SLOT_NAMES: (keyof SlotRow)[] = ["조조", "오전", "오후", "저녁", "심야"];
@@ -480,13 +460,7 @@ export function TimeTablePage() {
     return (
         <PageWrapper onClick={() => setPopover(null)}>
             {/* ── 탭 네비게이션 ── */}
-            <NavTabBar>
-                <NavTab to="/time_table" $active={true}>집계작 시간표</NavTab>
-                <NavTab to="/time_table/seat-count">주요작 좌석수</NavTab>
-                <NavTab to="/time_table/theater-count">주요작 상영관수</NavTab>
-                <NavTab to="/time_table/screen-count">주요작 스크린수</NavTab>
-                <NavTab to="/time_table/show-count">주요작 상영회차수</NavTab>
-            </NavTabBar>
+            <PageNavTabs tabs={TIME_TABLE_TABS} />
 
             {/* ── 필터 ── */}
             <FilterCard>

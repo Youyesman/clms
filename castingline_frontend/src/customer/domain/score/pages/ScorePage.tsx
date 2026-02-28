@@ -10,6 +10,7 @@ import type { FormatGroup } from "../../../../components/common/CustomMultiSelec
 import { GenericTable } from "../../../../components/GenericTable";
 import { ComparisonChart } from "../../../../components/common/ComparisonChart";
 import LogoImg from "../../../../assets/img/logo/logo.png";
+import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 
 
 /** 스타일 정의 **/
@@ -314,6 +315,7 @@ export function ScorePage() {
     }, [activeFilters.sort_by]);
     return (
         <ScorePageWrapper>
+            <PageNavTabs tabs={SCORE_TABS} />
             <MainSection>
                 <FilterBar>
                     {/* 0열: 분류 탭 */}

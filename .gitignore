@@ -33,3 +33,5 @@ gh_deploy_key*
 temp/
 tmp/
 *.log
+nul
+*.xlsx

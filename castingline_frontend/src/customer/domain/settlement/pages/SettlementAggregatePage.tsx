@@ -13,6 +13,7 @@ import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
+import { PageNavTabs, SETTLEMENT_TABS } from "../../../../components/common/PageNavTabs";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
@@ -537,6 +538,7 @@ export function SettlementAggregatePage() {
 
     return (
         <PageWrapper>
+            <PageNavTabs tabs={SETTLEMENT_TABS} />
             {/* ── 필터 ── */}
             <FilterBar>
                 {/* Row 1: 토글 + 검색 */}

@@ -1,168 +1,211 @@
 import React, { useState } from "react";
 import styled from "styled-components";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
-    ClipboardText, TrendUp, Coins, MapPin, Receipt,
-    SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table
+    ClipboardText, TrendUp, MapPin, Receipt,
+    SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table,
+    CurrencyDollar,
 } from "@phosphor-icons/react";
 import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
 import { AxiosGet } from "../../axios/Axios";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../atom/TabState";
-import LogoImg from "../../assets/img/logo/logo.png";
-import LogoVerticalImg from "../../assets/img/logo/logo_vertical.png";
+import LogoIconImg from "../../assets/img/logo/logo-icon-white.png";
+import LogoHorizontalImg from "../../assets/img/logo/logo-horizontal-white.png";
 
-const SidebarContainer = styled.aside<{ $isExpanded: boolean }>`
-    width: ${({ $isExpanded }) => ($isExpanded ? "220px" : "72px")};
+/* ================================================================
+   상수
+   ================================================================ */
+const COLLAPSED = 56;
+const EXPANDED = 200;
+
+/** 레이아웃(App, Topbar, TabBar)이 참조하는 너비 */
+export const SIDEBAR_WIDTH = COLLAPSED;
+
+/* ================================================================
+   메뉴 데이터
+   ================================================================ */
+interface NavMenuItem {
+    path: string;
+    label: string;
+    icon: React.ReactNode;
+}
+interface NavMenuGroup {
+    title: string;
+    items: NavMenuItem[];
+}
+
+const MENU: NavMenuGroup[] = [
+    {
+        title: "대시보드",
+        items: [
+            { path: "/manage", label: "대시보드", icon: <ChartBar /> },
+        ],
+    },
+    {
+        title: "기준 정보",
+        items: [
+            { path: "/manage/manage_user", label: "사용자 관리", icon: <Users /> },
+            { path: "/manage/manage_client", label: "거래처 관리", icon: <Buildings /> },
+            { path: "/manage/manage_movie", label: "영화 관리", icon: <FilmSlate /> },
+            { path: "/manage/manage_theater_map", label: "극장명 매핑", icon: <MapPin /> },
+            { path: "/manage/crawler", label: "크롤러 관리", icon: <Bug /> },
+            { path: "/manage/crawler/schedules", label: "시간표 수집", icon: <Table /> },
+        ],
+    },
+    {
+        title: "운영",
+        items: [
+            { path: "/manage/manage_order", label: "오더 관리", icon: <ClipboardText /> },
+            { path: "/manage/manage_score", label: "스코어 관리", icon: <TrendUp /> },
+            { path: "/manage/manage_fund", label: "기금 관리", icon: <Bank /> },
+        ],
+    },
+    {
+        title: "정산",
+        items: [
+            { path: "/manage/manage_rate", label: "부율 관리", icon: <Percent /> },
+            { path: "/manage/manage_settlement", label: "부금 정산", icon: <Receipt /> },
+            { path: "/manage/manage_special_settlement", label: "지정 부금", icon: <SealCheck /> },
+        ],
+    },
+    {
+        title: "배급사 뷰",
+        items: [
+            { path: "/manage/score", label: "스코어 현황", icon: <ChartBar /> },
+            { path: "/manage/settlement/detail", label: "정산 조회", icon: <CurrencyDollar /> },
+            { path: "/manage/time_table", label: "시간표 조회", icon: <Calendar /> },
+        ],
+    },
+];
+
+/* ================================================================
+   스타일
+   ================================================================ */
+const Wrapper = styled.aside<{ $open: boolean }>`
+    width: ${({ $open }) => ($open ? EXPANDED : COLLAPSED)}px;
     height: 100vh;
-    background-color: #0f172a;
-    color: #f8fafc;
-    display: flex;
-    flex-direction: column;
     position: fixed;
     top: 0;
     left: 0;
     z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    background: #0f172a;
     border-right: 1px solid #1e293b;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    transition: width 0.2s ease;
 `;
 
-const LogoWrapper = styled.div<{ $isExpanded: boolean }>`
-    height: 64px;
+/* ── 로고 ── */
+const Logo = styled.div<{ $open: boolean }>`
+    height: 60px;
     display: flex;
     align-items: center;
-    justify-content: ${({ $isExpanded }) => ($isExpanded ? "flex-start" : "center")};
-    padding: 0 ${({ $isExpanded }) => ($isExpanded ? "18px" : "0")};
-    border-bottom: 1px solid #1e293b;
-    white-space: nowrap;
-    overflow: hidden;
-    cursor: pointer;
-`;
-
-const CollapsedLogo = styled.div`
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
+    gap: 10px;
+    padding: 0;
     justify-content: center;
+    border-bottom: 1px solid #1e293b;
+    cursor: pointer;
+    flex-shrink: 0;
 
-    img {
-        width: 36px;
-        height: 36px;
-        object-fit: contain;
-        border-radius: 6px;
+    .logo-icon {
+        width: 26px; height: 26px; border-radius: 4px;
+        display: ${({ $open }) => ($open ? "none" : "block")};
+    }
+    .logo-horizontal {
+        height: 28px;
+        width: auto;
+        display: ${({ $open }) => ($open ? "block" : "none")};
     }
 `;
 
-const FullLogo = styled.div`
-    display: flex;
-    align-items: center;
-    animation: fadeIn 0.3s ease;
-    overflow: hidden;
-    height: 48px;
-
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateX(-10px); }
-        to { opacity: 1; transform: translateX(0); }
-    }
-
-    img {
-        height: 140px;
-        object-fit: contain;
-        filter: brightness(0) invert(1);
-        margin: -46px 0;
-    }
-`;
-
-const NavSection = styled.nav`
+/* ── 메뉴 영역 ── */
+const Nav = styled.nav`
     flex: 1;
     overflow-y: auto;
-    overflow-x: hidden;
-    padding: 20px 0;
-    
-    &::-webkit-scrollbar { width: 0px; }
+    padding: 8px 0;
+    &::-webkit-scrollbar { width: 0; }
 `;
 
-const NavGroup = styled.div`
-    margin-bottom: 24px;
+const Group = styled.div`
+    & + & { margin-top: 4px; }
 `;
 
-const GroupTitle = styled.div<{ $isExpanded: boolean }>`
-    padding: 0 24px;
-    margin-bottom: 10px;
+const GroupLabel = styled.div<{ $open: boolean }>`
+    padding: 8px 16px 4px;
     font-size: 10px;
     font-weight: 700;
     color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    opacity: ${({ $isExpanded }) => ($isExpanded ? 1 : 0)};
-    transition: opacity 0.2s ease;
+    letter-spacing: 0.5px;
     white-space: nowrap;
+    overflow: hidden;
+    height: ${({ $open }) => ($open ? "auto" : "0")};
+    padding: ${({ $open }) => ($open ? "8px 16px 4px" : "0")};
+    opacity: ${({ $open }) => ($open ? 1 : 0)};
+    transition: all 0.15s ease;
 `;
 
-const NavItem = styled.div<{ $isExpanded: boolean; $isActive: boolean }>`
+const Item = styled.div<{ $active: boolean; $open: boolean }>`
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 24px;
-    color: ${({ $isActive }) => ($isActive ? "#3b82f6" : "#94a3b8")};
-    text-decoration: none;
-    font-size: 13.5px;
-    font-weight: 600;
-    transition: all 0.2s ease;
-    white-space: nowrap;
+    gap: ${({ $open }) => ($open ? "8px" : "0")};
+    margin: 1px ${({ $open }) => ($open ? "8px" : "4px")};
+    padding: 8px ${({ $open }) => ($open ? "10px" : "0")};
+    justify-content: center;
+    border-radius: 6px;
     cursor: pointer;
+    transition: all 0.15s ease;
+
+    font-size: 12.5px;
+    font-weight: ${({ $active }) => ($active ? 700 : 500)};
+    color: ${({ $active }) => ($active ? "#e2e8f0" : "#94a3b8")};
+    background: ${({ $active }) => ($active ? "#1e293b" : "transparent")};
+    white-space: nowrap;
+
+    ${({ $active }) => $active && "box-shadow: inset 3px 0 0 #3b82f6;"}
 
     svg {
-        min-width: 24px;
+        width: 18px;
+        height: 18px;
         flex-shrink: 0;
+        color: ${({ $active }) => ($active ? "#3b82f6" : "#64748b")};
+        transition: color 0.15s ease;
     }
 
     .label {
-        opacity: ${({ $isExpanded }) => ($isExpanded ? 1 : 0)};
-        transition: opacity 0.2s ease;
+        display: ${({ $open }) => ($open ? "inline" : "none")};
     }
 
     &:hover {
-        background-color: #1e293b;
-        color: #f8fafc;
+        background: #1e293b;
+        color: #e2e8f0;
+        svg { color: #94a3b8; }
     }
-
-    ${({ $isActive }) =>
-        $isActive &&
-        `
-        background-color: #1e293b;
-        border-left: 4px solid #3b82f6;
-        padding-left: 20px;
-    `}
 `;
 
-const UserSection = styled.div<{ $isExpanded: boolean }>`
-    padding: 16px 20px;
+/* ── 하단 유저 ── */
+const UserArea = styled.div<{ $open: boolean }>`
+    padding: ${({ $open }) => ($open ? "12px" : "12px 8px")};
     border-top: 1px solid #1e293b;
-    background-color: #1e293b;
     display: flex;
     align-items: center;
-    gap: 12px;
-    height: 72px;
-    overflow: hidden;
+    justify-content: ${({ $open }) => ($open ? "flex-start" : "center")};
+    gap: 8px;
+    flex-shrink: 0;
 `;
 
-const UserInfo = styled.div<{ $isExpanded: boolean }>`
+const UserMeta = styled.div<{ $open: boolean }>`
     flex: 1;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
     cursor: pointer;
-    opacity: ${({ $isExpanded }) => ($isExpanded ? 1 : 0)};
-    transition: opacity 0.2s ease;
+    display: ${({ $open }) => ($open ? "flex" : "none")};
+    flex-direction: column;
     .name {
-        font-size: 13.5px;
+        font-size: 12px;
         font-weight: 700;
-        color: #f8fafc;
+        color: #e2e8f0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -173,239 +216,89 @@ const UserInfo = styled.div<{ $isExpanded: boolean }>`
     }
 `;
 
-const LogoutButton = styled.button<{ $isExpanded: boolean }>`
+const LogoutBtn = styled.button<{ $open: boolean }>`
     background: none;
     border: none;
     color: #64748b;
     cursor: pointer;
-    display: ${({ $isExpanded }) => ($isExpanded ? "flex" : "none")};
+    display: ${({ $open }) => ($open ? "flex" : "none")};
     align-items: center;
     padding: 4px;
     border-radius: 4px;
-    &:hover {
-        background-color: #334155;
-        color: #ef4444;
-    }
+    &:hover { background: #334155; color: #ef4444; }
 `;
 
+/* ================================================================
+   컴포넌트
+   ================================================================ */
 export function Sidebar() {
-    const { t } = useTranslation();
     const navigate = useNavigate();
     const location = useLocation();
     const nowAccount = useRecoilValue(AccountState);
     const resetAccount = useResetRecoilState(AccountState);
-    const [isHovered, setIsHovered] = useState(false);
-
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
-    const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
+    const [, setActiveTabId] = useRecoilState(ActiveTabIdState);
+    const [hovered, setHovered] = useState(false);
 
     const handleLogout = async () => {
-        try {
-            await AxiosGet("logout");
-        } catch (e) { }
+        try { await AxiosGet("logout"); } catch { }
         resetAccount();
-        setOpenTabs([]); // 탭 초기화
+        setOpenTabs([]);
         setActiveTabId(null);
         localStorage.clear();
         navigate("/login");
     };
 
-    /** 사이드바 메뉴 클릭 → 탭 추가 + 활성화 + navigate */
     const handleNavClick = (path: string) => {
         const label = PATH_TO_TAB_LABEL[path] || path;
-        const tabId = path;
-
-        // 이미 열려있지 않으면 탭 추가
-        const exists = openTabs.find((t) => t.id === tabId);
-        if (!exists) {
-            const newTab: Tab = {
-                id: tabId,
-                label,
-                path,
-                closable: true,
-            };
-            setOpenTabs((prev) => [...prev, newTab]);
+        if (!openTabs.find((t) => t.id === path)) {
+            setOpenTabs((prev) => [...prev, { id: path, label, path, closable: true }]);
         }
-
-        // 활성 탭 설정 + 라우팅
-        setActiveTabId(tabId);
+        setActiveTabId(path);
         navigate(path);
     };
 
-    const isActive = (path: string) => location.pathname === path;
-
     return (
-        <SidebarContainer
-            $isExpanded={isHovered}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+        <Wrapper
+            $open={hovered}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
         >
-            <LogoWrapper $isExpanded={isHovered} onClick={() => navigate("/manage")}>
-                {isHovered ? (
-                    <FullLogo>
-                        <img src={LogoVerticalImg} alt="Castingline" />
-                    </FullLogo>
-                ) : (
-                    <CollapsedLogo>
-                        <img src={LogoImg} alt="C" />
-                    </CollapsedLogo>
-                )}
-            </LogoWrapper>
+            <Logo $open={hovered} onClick={() => navigate("/manage")}>
+                <img className="logo-icon" src={LogoIconImg} alt="CL" />
+                <img className="logo-horizontal" src={LogoHorizontalImg} alt="CASTING LINE" />
+            </Logo>
 
-            <NavSection>
-                <NavGroup>
-                    <GroupTitle $isExpanded={isHovered}>{t("DASHBOARD")}</GroupTitle>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/score")}
-                        onClick={() => handleNavClick("/manage/score")}
-                        title={t("스코어 현황")}
-                    >
-                        <ChartBar size={24} />
-                        <span className="label">{t("스코어 현황")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/time_table")}
-                        onClick={() => handleNavClick("/manage/time_table")}
-                        title={t("시간표 조회")}
-                    >
-                        <Calendar size={24} />
-                        <span className="label">{t("시간표 조회")}</span>
-                    </NavItem>
-                </NavGroup>
+            <Nav>
+                {MENU.map((group) => (
+                    <Group key={group.title}>
+                        <GroupLabel $open={hovered}>{group.title}</GroupLabel>
+                        {group.items.map((item) => (
+                            <Item
+                                key={item.path}
+                                $active={location.pathname === item.path}
+                                $open={hovered}
+                                onClick={() => handleNavClick(item.path)}
+                                title={item.label}
+                            >
+                                {item.icon}
+                                <span className="label">{item.label}</span>
+                            </Item>
+                        ))}
+                    </Group>
+                ))}
+            </Nav>
 
-                <NavGroup>
-                    <GroupTitle $isExpanded={isHovered}>{t("CORE INFO")}</GroupTitle>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_user")}
-                        onClick={() => handleNavClick("/manage/manage_user")}
-                        title={t("사용자 관리")}
-                    >
-                        <Users size={24} />
-                        <span className="label">{t("사용자 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_client")}
-                        onClick={() => handleNavClick("/manage/manage_client")}
-                        title={t("거래처 관리")}
-                    >
-                        <Buildings size={24} />
-                        <span className="label">{t("거래처 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_movie")}
-                        onClick={() => handleNavClick("/manage/manage_movie")}
-                        title={t("영화 관리")}
-                    >
-                        <FilmSlate size={24} />
-                        <span className="label">{t("영화 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_theater_map")}
-                        onClick={() => handleNavClick("/manage/manage_theater_map")}
-                        title={t("극장명 매핑")}
-                    >
-                        <MapPin size={24} />
-                        <span className="label">{t("극장명 매핑")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/crawler")}
-                        onClick={() => handleNavClick("/manage/crawler")}
-                        title={t("크롤러 관리")}
-                    >
-                        <Bug size={24} />
-                        <span className="label">{t("크롤러 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/crawler/schedules")}
-                        onClick={() => handleNavClick("/manage/crawler/schedules")}
-                        title={t("시간표 수집 현황")}
-                    >
-                        <Table size={24} />
-                        <span className="label">{t("시간표 수집 현황")}</span>
-                    </NavItem>
-                </NavGroup>
-
-                <NavGroup>
-                    <GroupTitle $isExpanded={isHovered}>{t("OPERATIONS")}</GroupTitle>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_order")}
-                        onClick={() => handleNavClick("/manage/manage_order")}
-                        title={t("오더 관리")}
-                    >
-                        <ClipboardText size={24} />
-                        <span className="label">{t("오더 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_score")}
-                        onClick={() => handleNavClick("/manage/manage_score")}
-                        title={t("스코어 관리")}
-                    >
-                        <TrendUp size={24} />
-                        <span className="label">{t("스코어 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_fund")}
-                        onClick={() => handleNavClick("/manage/manage_fund")}
-                        title={t("기금 관리")}
-                    >
-                        <Bank size={24} />
-                        <span className="label">{t("기금 관리")}</span>
-                    </NavItem>
-                </NavGroup>
-
-                <NavGroup>
-                    <GroupTitle $isExpanded={isHovered}>{t("SETTLEMENT")}</GroupTitle>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_rate")}
-                        onClick={() => handleNavClick("/manage/manage_rate")}
-                        title={t("부율 관리")}
-                    >
-                        <Percent size={24} />
-                        <span className="label">{t("부율 관리")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_settlement")}
-                        onClick={() => handleNavClick("/manage/manage_settlement")}
-                        title={t("부금 정산")}
-                    >
-                        <Receipt size={24} />
-                        <span className="label">{t("부금 정산")}</span>
-                    </NavItem>
-                    <NavItem
-                        $isExpanded={isHovered}
-                        $isActive={isActive("/manage/manage_special_settlement")}
-                        onClick={() => handleNavClick("/manage/manage_special_settlement")}
-                        title={t("지정 부금")}
-                    >
-                        <SealCheck size={24} />
-                        <span className="label">{t("지정 부금")}</span>
-                    </NavItem>
-                </NavGroup>
-            </NavSection>
-
-            <UserSection $isExpanded={isHovered}>
-                <UserCircle size={32} weight="duotone" color="#3b82f6" style={{ minWidth: "32px" }} />
-                <UserInfo $isExpanded={isHovered} onClick={() => handleNavClick("/manage/my_profile")}>
+            <UserArea $open={hovered}>
+                <UserCircle size={26} weight="duotone" color="#3b82f6" style={{ flexShrink: 0 }} />
+                <UserMeta $open={hovered} onClick={() => handleNavClick("/manage/my_profile")}>
                     <div className="name">{nowAccount?.username || "Guest"}</div>
-                    <div className="role">{nowAccount?.is_superuser ? "Administrator" : "Staff"}</div>
-                </UserInfo>
-                <LogoutButton $isExpanded={isHovered} onClick={handleLogout} title="Logout">
-                    <SignOut size={20} weight="bold" />
-                </LogoutButton>
-            </UserSection>
-        </SidebarContainer>
+                    <div className="role">{nowAccount?.is_superuser ? "Admin" : "Staff"}</div>
+                </UserMeta>
+                <LogoutBtn $open={hovered} onClick={handleLogout} title="로그아웃">
+                    <SignOut size={16} weight="bold" />
+                </LogoutBtn>
+            </UserArea>
+        </Wrapper>
     );
 }

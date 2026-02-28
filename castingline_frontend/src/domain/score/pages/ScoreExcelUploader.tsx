@@ -5,6 +5,8 @@ import { AxiosPost } from "../../../axios/Axios";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { useAppAlert } from "../../../atom/alertUtils";
+import { CustomIconButton } from "../../../components/common/CustomIconButton";
 
 /* ---------------- Styled Components ---------------- */
 
@@ -116,11 +118,29 @@ const TotalRow = styled.tr`
     }
 `;
 
+const StyledButton = styled.button<{ $primary?: boolean; $disabled?: boolean }>`
+    padding: 8px ${({ $primary }) => ($primary ? "24px" : "16px")};
+    background: ${({ $primary, $disabled }) => ($disabled ? "#cbd5e1" : $primary ? "#2563eb" : "#ffffff")};
+    color: ${({ $primary }) => ($primary ? "#ffffff" : "#475569")};
+    border: ${({ $primary }) => ($primary ? "none" : "1px solid #cbd5e1")};
+    border-radius: 4px;
+    font-weight: 800;
+    font-size: 13px;
+    cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
+    transition: all 0.2s;
+    &:hover:not(:disabled) {
+        opacity: 0.9;
+    }
+`;
+
+const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+
 /* ---------------- Main Component ---------------- */
 
 export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () => void }) {
     const toast = useToast();
-    const { closeModal } = useGlobalModal()
+    const { closeModal } = useGlobalModal();
+    const { showAlert } = useAppAlert();
     const [previewData, setPreviewData] = useState<any[]>([]);
     const [dragging, setDragging] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -153,7 +173,17 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
         previewData.filter(d => (parseInt(d.visitor) || 0) < 0).length
         , [previewData]);
 
+    const validateFile = (file: File): boolean => {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+            toast.error("엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.");
+            return false;
+        }
+        return true;
+    };
+
     const handleFileProcess = async (file: File) => {
+        if (!validateFile(file)) return;
         const formData = new FormData();
         formData.append("file", file);
         setLoading(true);
@@ -163,25 +193,33 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
             });
             setPreviewData(res.data.data);
             toast.info("분석이 완료되었습니다. 마이너스 관객 및 에러를 확인하세요.");
-        } catch (err: any) {
+        } catch (err) {
             toast.error(handleBackendErrors(err));
         } finally {
             setLoading(false);
         }
     };
 
-    const handleConfirmSave = async () => {
-        setLoading(true);
-        try {
-            await AxiosPost("score/confirm_save", { data: previewData });
-            toast.success("데이터가 성공적으로 저장되었습니다.");
-            onUploadSuccess();
-            closeModal()
-        } catch (err: any) {
-            toast.error(handleBackendErrors(err));
-        } finally {
-            setLoading(false);
-        }
+    const handleConfirmSave = () => {
+        showAlert(
+            `${previewData.length}건의 데이터를 저장하시겠습니까?`,
+            "저장 후에는 기존 데이터에 반영됩니다.",
+            "warning",
+            async () => {
+                setLoading(true);
+                try {
+                    await AxiosPost("score/confirm_save", { data: previewData });
+                    toast.success("데이터가 성공적으로 저장되었습니다.");
+                    onUploadSuccess();
+                    closeModal();
+                } catch (err) {
+                    toast.error(handleBackendErrors(err));
+                } finally {
+                    setLoading(false);
+                }
+            },
+            true
+        );
     };
 
     const hasMatchError = previewData.some((d) => !d.is_matched);
@@ -202,7 +240,12 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                     onClick={() => {
                         const input = document.createElement("input");
                         input.type = "file";
-                        input.onchange = (e: any) => handleFileProcess(e.target.files[0]);
+                        input.accept = ".xlsx,.xls";
+                        input.onchange = (e: Event) => {
+                            const target = e.target as HTMLInputElement;
+                            const file = target.files?.[0];
+                            if (file) handleFileProcess(file);
+                        };
                         input.click();
                     }}>
                     <CloudArrowUp size={48} weight="duotone" color="#2563eb" />
@@ -310,23 +353,16 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                     </PreviewWrapper>
 
                     <ActionFooter>
-                        <button onClick={() => setPreviewData([])} style={{ padding: "8px 16px", cursor: "pointer" }}>
+                        <StyledButton onClick={() => setPreviewData([])}>
                             다시 업로드
-                        </button>
-                        <button
+                        </StyledButton>
+                        <StyledButton
+                            $primary
+                            $disabled={loading || hasMatchError}
                             disabled={loading || hasMatchError}
-                            onClick={handleConfirmSave}
-                            style={{
-                                padding: "8px 24px",
-                                background: hasMatchError ? "#cbd5e1" : "#2563eb",
-                                color: "white",
-                                border: "none",
-                                borderRadius: "4px",
-                                fontWeight: 800,
-                                cursor: hasMatchError ? "not-allowed" : "pointer",
-                            }}>
+                            onClick={handleConfirmSave}>
                             {loading ? "저장 중..." : `${previewData.length}건 확정 저장`}
-                        </button>
+                        </StyledButton>
                     </ActionFooter>
                     {hasMatchError && (
                         <div style={{ color: "#ef4444", fontSize: "12px", textAlign: "right" }}>

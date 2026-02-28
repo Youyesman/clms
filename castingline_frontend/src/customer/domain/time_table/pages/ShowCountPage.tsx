@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
+import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, Legend,
@@ -52,27 +52,6 @@ const PageWrapper = styled.div`
     min-height: calc(100vh - 60px);
     padding: 20px;
     gap: 16px;
-`;
-
-const NavTabBar = styled.div`
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #e2e8f0;
-    flex-wrap: wrap;
-`;
-
-const NavTab = styled(Link)<{ $active?: boolean }>`
-    padding: 8px 20px;
-    font-size: 13px;
-    font-weight: ${p => (p.$active ? 700 : 500)};
-    color: ${p => (p.$active ? "#3b82f6" : "#64748b")};
-    border-bottom: 2px solid ${p => (p.$active ? "#3b82f6" : "transparent")};
-    margin-bottom: -2px;
-    text-decoration: none;
-    cursor: pointer;
-    transition: color 0.15s;
-    white-space: nowrap;
-    &:hover { color: #3b82f6; }
 `;
 
 const FilterCard = styled.div`
@@ -221,15 +200,6 @@ const HintText = styled.div`
     margin-top: 2px;
 `;
 
-/* ── 공통 NavTabs 정의 (탭 5개) ── */
-const NAV_TABS = [
-    { to: "/time_table", label: "집계작 시간표" },
-    { to: "/time_table/seat-count", label: "주요작 좌석수" },
-    { to: "/time_table/theater-count", label: "주요작 상영관수" },
-    { to: "/time_table/screen-count", label: "주요작 스크린수" },
-    { to: "/time_table/show-count", label: "주요작 상영회차수" },
-];
-
 /* ── 메인 컴포넌트 ── */
 export function ShowCountPage() {
     const toast = useToast();
@@ -305,13 +275,7 @@ export function ShowCountPage() {
     return (
         <PageWrapper onClick={() => setPopover(null)}>
             {/* ── 탭 네비게이션 ── */}
-            <NavTabBar>
-                {NAV_TABS.map(t => (
-                    <NavTab key={t.to} to={t.to} $active={t.to === "/time_table/show-count"}>
-                        {t.label}
-                    </NavTab>
-                ))}
-            </NavTabBar>
+            <PageNavTabs tabs={TIME_TABLE_TABS} />
 
             {/* ── 필터 ── */}
             <FilterCard>

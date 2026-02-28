@@ -323,20 +323,24 @@ function formatTime(dt: string | null): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-const today = toDateInputValue(new Date());
+const tomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return toDateInputValue(d);
+})();
 
 export function ScheduleViewerPage() {
     const toast = useToast();
 
-    const [startDate, setStartDate] = useState(today);
-    const [endDate, setEndDate] = useState(today);
+    const [startDate, setStartDate] = useState(tomorrow);
+    const [endDate, setEndDate] = useState(tomorrow);
     const [brand, setBrand] = useState("");
     const [theaterName, setTheaterName] = useState("");
     const [movieTitle, setMovieTitle] = useState("");
 
     const [appliedFilters, setAppliedFilters] = useState({
-        start_date: today,
-        end_date: today,
+        start_date: tomorrow,
+        end_date: tomorrow,
         brand: "",
         theater_name: "",
         movie_title: "",
@@ -384,13 +388,13 @@ export function ScheduleViewerPage() {
     };
 
     const handleReset = () => {
-        setStartDate(today);
-        setEndDate(today);
+        setStartDate(tomorrow);
+        setEndDate(tomorrow);
         setBrand("");
         setTheaterName("");
         setMovieTitle("");
         setPage(1);
-        setAppliedFilters({ start_date: today, end_date: today, brand: "", theater_name: "", movie_title: "" });
+        setAppliedFilters({ start_date: tomorrow, end_date: tomorrow, brand: "", theater_name: "", movie_title: "" });
     };
 
     const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
@@ -478,19 +482,6 @@ export function ScheduleViewerPage() {
                         <div className="value">{stats.movie_count.toLocaleString()}</div>
                         <div className="sub">종목</div>
                     </StatCard>
-                    {["CGV", "LOTTE", "MEGABOX"].map((b) => {
-                        const rawCnt = stats.raw_logs[b];
-                        const scheduleCnt = stats.by_brand[b] ?? 0;
-                        return (
-                            <StatCard key={b} $accent={brandColors[b]}>
-                                <div className="label">{brandLabels[b]}</div>
-                                <div className="value">{scheduleCnt.toLocaleString()}</div>
-                                <div className="sub">
-                                    Raw 로그: {rawCnt !== null && rawCnt !== undefined ? `${rawCnt.toLocaleString()}건` : "-"}
-                                </div>
-                            </StatCard>
-                        );
-                    })}
                 </StatsGrid>
             )}
 

@@ -18,7 +18,19 @@ import { MyProfile } from "../../domain/auth/pages/MyProfile";
 import { CrawlerPage } from "../../domain/crawler/pages/CrawlerPage";
 import { ScheduleViewerPage } from "../../domain/crawler/pages/ScheduleViewerPage";
 import { ScorePage } from "../../customer/domain/score/pages/ScorePage";
+import { CriteriaPage } from "../../customer/domain/score/pages/CriteriaPage";
+import { DailyStatusPage } from "../../customer/domain/score/pages/DailyStatusPage";
+import { SeatRatePage } from "../../customer/domain/score/pages/SeatRatePage";
+import { RankingPage } from "../../customer/domain/score/pages/RankingPage";
+import { SettlementDetailPage } from "../../customer/domain/settlement/pages/SettlementDetailPage";
+import { SettlementAggregatePage } from "../../customer/domain/settlement/pages/SettlementAggregatePage";
+import { TheaterTotalPage } from "../../customer/domain/settlement/pages/TheaterTotalPage";
+import { SupplyPricePage } from "../../customer/domain/settlement/pages/SupplyPricePage";
 import { TimeTablePage } from "../../customer/domain/time_table/pages/TimeTablePage";
+import { SeatCountPage } from "../../customer/domain/time_table/pages/SeatCountPage";
+import { TheaterCountPage } from "../../customer/domain/time_table/pages/TheaterCountPage";
+import { ScreenCountPage } from "../../customer/domain/time_table/pages/ScreenCountPage";
+import { ShowCountPage } from "../../customer/domain/time_table/pages/ShowCountPage";
 import { ScoreOverview } from "../../domain/dashboard/ScoreOverview";
 import { CumulativeRanking } from "../../domain/dashboard/CumulativeRanking";
 import Main from "../../domain/main/pages/Main";
@@ -43,7 +55,19 @@ const PATH_TO_COMPONENT: Record<string, React.ComponentType> = {
     "/manage/manage_settlement": ManageSettlement,
     "/manage/manage_special_settlement": ManageSpecialSettlement,
     "/manage/score": ScorePage,
+    "/manage/score/criteria": CriteriaPage,
+    "/manage/score/daily": DailyStatusPage,
+    "/manage/score/seat-rate": SeatRatePage,
+    "/manage/score/ranking": RankingPage,
+    "/manage/settlement/detail": SettlementDetailPage,
+    "/manage/settlement/aggregate": SettlementAggregatePage,
+    "/manage/settlement/theater-total": TheaterTotalPage,
+    "/manage/settlement/supply-price": SupplyPricePage,
     "/manage/time_table": TimeTablePage,
+    "/manage/time_table/seat-count": SeatCountPage,
+    "/manage/time_table/theater-count": TheaterCountPage,
+    "/manage/time_table/screen-count": ScreenCountPage,
+    "/manage/time_table/show-count": ShowCountPage,
     "/manage/dashboard/score": ScoreOverview,
     "/manage/dashboard/ranking": CumulativeRanking,
 };

@@ -57,6 +57,8 @@ BLUE_FILL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="sol
 YELLOW_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 YELLOW_LIGHT = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")
 BLACK_FILL = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+PINK_FILL = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+TOTAL_BLUE_FILL = PatternFill(start_color="0033CC", end_color="0033CC", fill_type="solid")
 
 THIN_BORDER = Border(
     left=Side(style='thin'), right=Side(style='thin'),
@@ -293,6 +295,26 @@ def _calc_summary(rows):
     }
 
 
+def _write_subtotal_row(ws, ri, max_col, label, theater_count, show_sum, screen_sum, seats_sum, sold_sum, fill, font):
+    """Write a subtotal or grand total row in the schedule sheet."""
+    # Column indices (1-based): C1=지역(극장수), C2=극장명(label), then stats at end
+    stat_start = max_col - 3  # 총회차, 총스크린, 총좌석수, 판매좌석수
+
+    for ci in range(1, max_col + 1):
+        cell = ws.cell(row=ri, column=ci)
+        cell.fill = fill
+        cell.font = font
+        cell.border = THIN_BORDER
+        cell.alignment = CENTER
+
+    ws.cell(row=ri, column=1, value=theater_count)
+    ws.cell(row=ri, column=2, value=label)
+    ws.cell(row=ri, column=stat_start, value=_fmt_number(show_sum))
+    ws.cell(row=ri, column=stat_start + 1, value=_fmt_number(screen_sum))
+    ws.cell(row=ri, column=stat_start + 2, value=_fmt_number(seats_sum))
+    ws.cell(row=ri, column=stat_start + 3, value=_fmt_number(sold_sum))
+
+
 def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, gen_info):
     """Write a single schedule sheet (상영시간표)."""
     date_str = proc_date.strftime("%Y-%m-%d")
@@ -303,6 +325,8 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
     stat_cols = ['총회차', '총스크린', '총좌석수', '판매좌석수']
     all_cols = base_cols + show_cols + stat_cols
     max_col = len(all_cols)
+
+    SUBTOTAL_FONT = Font(name='맑은 고딕', size=10, bold=True, color="000000")
 
     # Row 2: Movie Title (Row 1 empty for spacing)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
@@ -330,33 +354,85 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
             cell.fill = YELLOW_FILL
             cell.font = HEADER_FONT
 
-    # Row 5+: Data
-    for ri, row in enumerate(rows, 5):
-        vals = [
-            row['region'], row['theater'], row['format'], row['sub_type'],
-            row['screen'], row['capacity']
-        ]
-        for i in range(display_max_shows):
-            vals.append(row['show_times'][i] if i < len(row['show_times']) else "")
-        vals.extend([row['show_count'], 1, row['total_seats'], row['sold_seats']])
+    # Group rows by brand for subtotals
+    brand_groups = {}
+    for row in rows:
+        b = row['brand']
+        if b not in brand_groups:
+            brand_groups[b] = []
+        brand_groups[b].append(row)
 
-        for ci, val in enumerate(vals, 1):
-            cell = ws.cell(row=ri, column=ci, value=val)
-            cell.border = THIN_BORDER
-            cell.alignment = CENTER
-            cell.font = DATA_FONT
+    # Write data rows grouped by brand, with subtotal after each brand
+    ri = 5
+    brand_display_map = {'CGV': 'CGV', 'LOTTE': 'LOTTE', 'MEGABOX': 'MEGA'}
+    ordered_brands = [b for b in BRAND_ORDER if b in brand_groups]
+    other_brands = [b for b in brand_groups if b not in BRAND_ORDER]
 
-    # Merge theater name cells (column B) for same theater
-    if rows:
-        last_row = 4 + len(rows)
-        start_merge = 5
-        for ri in range(6, last_row + 2):
-            current = ws.cell(row=ri, column=2).value if ri <= last_row else None
-            prev = ws.cell(row=ri - 1, column=2).value
-            if current != prev or ri > last_row:
-                if ri - 1 > start_merge:
-                    ws.merge_cells(start_row=start_merge, start_column=2, end_row=ri - 1, end_column=2)
-                start_merge = ri
+    grand_theaters = set()
+    grand_shows = 0
+    grand_screens = 0
+    grand_seats = 0
+    grand_sold = 0
+
+    for brand in ordered_brands + other_brands:
+        brand_rows = brand_groups[brand]
+        merge_start = ri
+
+        for row in brand_rows:
+            vals = [
+                row['region'], row['theater'], row['format'], row['sub_type'],
+                row['screen'], row['capacity']
+            ]
+            for i in range(display_max_shows):
+                vals.append(row['show_times'][i] if i < len(row['show_times']) else "")
+            vals.extend([row['show_count'], 1, row['total_seats'], row['sold_seats']])
+
+            for ci, val in enumerate(vals, 1):
+                cell = ws.cell(row=ri, column=ci, value=val)
+                cell.border = THIN_BORDER
+                cell.alignment = CENTER
+                cell.font = DATA_FONT
+
+            ri += 1
+
+        # Merge theater name cells (column B) within this brand group
+        if len(brand_rows) > 1:
+            merge_b_start = merge_start
+            for check_ri in range(merge_start + 1, ri + 1):
+                current = ws.cell(row=check_ri, column=2).value if check_ri < ri else None
+                prev = ws.cell(row=check_ri - 1, column=2).value
+                if current != prev or check_ri >= ri:
+                    if check_ri - 1 > merge_b_start:
+                        ws.merge_cells(start_row=merge_b_start, start_column=2, end_row=check_ri - 1, end_column=2)
+                    merge_b_start = check_ri
+
+        # Calculate brand subtotal
+        s = _calc_summary(brand_rows)
+        brand_label = brand_display_map.get(brand, brand)
+        if brand in BRAND_ORDER:
+            label = f"{brand_label}소계"
+        else:
+            label = "기타 소계"
+
+        _write_subtotal_row(ws, ri, max_col, label,
+                            s['theater_count'], s['show_count'], s['screen_count'],
+                            s['total_seats'], s['sold_seats'],
+                            PINK_FILL, SUBTOTAL_FONT)
+
+        # Accumulate grand total
+        grand_theaters.update(r['theater'] for r in brand_rows)
+        grand_shows += s['show_count']
+        grand_screens += s['screen_count']
+        grand_seats += s['total_seats']
+        grand_sold += s['sold_seats']
+
+        ri += 1
+
+    # Grand total row (총 계)
+    _write_subtotal_row(ws, ri, max_col, "총 계",
+                        len(grand_theaters), grand_shows, grand_screens,
+                        grand_seats, grand_sold,
+                        TOTAL_BLUE_FILL, WHITE_FONT)
 
     ws.sheet_view.showGridLines = False
     _auto_width(ws, min_row=4)

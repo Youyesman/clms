@@ -4,12 +4,15 @@
  * @returns 형식화된 에러 메시지
  */
 
-import { AxiosError } from "axios";
+import axios, { AxiosError } from "axios";
 
-export const handleBackendErrors = (error: AxiosError): string => {
-    console.log(error);
+export const handleBackendErrors = (error: unknown): string => {
+    if (!axios.isAxiosError(error)) {
+        return String(error);
+    }
+
     if (!error.response) {
-        return `${error}`;
+        return error.message || String(error);
     }
 
     const { status, data } = error.response;
