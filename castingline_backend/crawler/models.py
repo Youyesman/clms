@@ -192,6 +192,43 @@ class MovieSchedule(models.Model):
         return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(title)).lower()
 
     @staticmethod
+    def title_matches(target_title, crawled_title):
+        """
+        영화 제목 매칭 (유연한 비교):
+        1. 정규화 후 부분 문자열 매칭 (기존 방식)
+        2. 토큰 기반 매칭: 짧은 쪽의 모든 토큰이 긴 쪽에 포함되면 매칭
+           예) "BTS WORLD TOUR ARIRANG LIVE VIEWING" vs
+               "BTS WORLD TOUR 'ARIRANG' IN JAPAN- LIVE VIEWING"
+               → 짧은 쪽 토큰 {bts,world,tour,arirang,live,viewing} ⊆ 긴 쪽 → 매칭
+        """
+        import re
+        norm_target = MovieSchedule.normalize_title(target_title)
+        norm_crawled = MovieSchedule.normalize_title(crawled_title)
+
+        # 1. 기존 부분 문자열 매칭
+        if norm_target in norm_crawled or norm_crawled in norm_target:
+            return True
+
+        # 2. 토큰 기반 매칭
+        # 특수문자를 공백으로 치환 후 소문자 토큰 분리
+        def tokenize(title):
+            cleaned = re.sub(r'[^a-zA-Z0-9가-힣\s]', ' ', str(title)).lower()
+            return set(cleaned.split())
+
+        target_tokens = tokenize(target_title)
+        crawled_tokens = tokenize(crawled_title)
+
+        if not target_tokens or not crawled_tokens:
+            return False
+
+        # 짧은 쪽의 모든 토큰이 긴 쪽에 포함되면 매칭
+        shorter, longer = (target_tokens, crawled_tokens) if len(target_tokens) <= len(crawled_tokens) else (crawled_tokens, target_tokens)
+        if shorter <= longer:
+            return True
+
+        return False
+
+    @staticmethod
     def normalize_screen_name(name):
         """
         상영관 이름 정규화
@@ -264,17 +301,16 @@ class MovieSchedule(models.Model):
                 
                 # [Filtering Logic]
                 if target_titles:
-                    norm_crawled = cls.normalize_title(movie_title)
                     is_target = False
-                    
+                    matched_target = None
+
                     for t in target_titles:
-                        norm_target = cls.normalize_title(t)
-                        # 정확히 일치하는 경우만 허용 (부분 일치 X) -> 다시 포함 관계로 변경 (사용자 요청)
-                        # "주토피아" 입력 시 "주토피아 (자막)", "주토피아 (더빙)" 모두 수집되어야 함
-                        # DB에는 원본 제목 그대로 저장되므로 서로 다른 영화로 구분됨
-                        if norm_target in norm_crawled:
+                        if cls.title_matches(t, movie_title):
                              is_target = True
+                             matched_target = t
                              break
+                    if is_target and matched_target != movie_title:
+                        print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
                     if not is_target:
                         continue
                 
@@ -446,18 +482,19 @@ class MovieSchedule(models.Model):
             movie_title = movie.get("movieNm", "제목없음")
             
             # [Filtering Logic]
-            # [Filtering Logic]
             if target_titles:
-                norm_crawled = cls.normalize_title(movie_title)
                 is_target = False
+                matched_target = None
                 for t in target_titles:
-                    norm_target = cls.normalize_title(t)
-                    if norm_target in norm_crawled:
+                    if cls.title_matches(t, movie_title):
                             is_target = True
+                            matched_target = t
                             break
+                if is_target and matched_target != movie_title:
+                    print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
                 if not is_target:
                     continue
-            
+
             # 메가박스 필드명 추정: 
             # playStartTime, playEndTime, playDe, brchNo, theatNo, seatAttrCd...
             
@@ -641,16 +678,18 @@ class MovieSchedule(models.Model):
                 
                 # [Filtering Logic]
                 if target_titles:
-                    norm_crawled = cls.normalize_title(movie_title)
                     is_target = False
+                    matched_target = None
                     for t in target_titles:
-                        norm_target = cls.normalize_title(t)
-                        if norm_target in norm_crawled:
+                        if cls.title_matches(t, movie_title):
                                 is_target = True
+                                matched_target = t
                                 break
+                    if is_target and matched_target != movie_title:
+                        print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
                     if not is_target:
                         continue
-                
+
                 # 시간 파싱
                 start_tm_str = item.get("StartTime")
                 play_dt_val = item.get("PlayDt") 

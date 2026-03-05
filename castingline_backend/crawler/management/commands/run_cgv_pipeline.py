@@ -246,17 +246,58 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                     # Retry 모드면 해당 극장의 실패했던 날짜들만 로드
                                     current_target_dates = list(retry_targets[region_name].get(theater_name, []))
 
+                                # ===================== [DATE BUTTON MAP BUILD] =====================
+                                # 버튼별 실제 날짜(YYYYMMDD) 매핑 구축
+                                # CGV 날짜 피커: "05","06",...,"31","4.1","02",... 형식
+                                # "M.D" 형식이 월 전환 마커임
+                                date_btn_map = {}  # {YYYYMMDD: button_index}
+                                try:
+                                    ensure_modal_open()
+                                    date_btns_all = page.locator("button:has(span[class*='dayScroll_number'])")
+                                    btn_count = date_btns_all.count()
+
+                                    # 첫 버튼은 오늘 날짜 기준
+                                    today = datetime.now()
+                                    current_year = today.year
+                                    current_month = today.month
+                                    current_day = today.day
+
+                                    for k in range(btn_count):
+                                        btn_el = date_btns_all.nth(k)
+                                        span_text = btn_el.locator("span[class*='dayScroll_number']").inner_text().strip()
+
+                                        if '.' in span_text:
+                                            # 월 전환 마커: "4.1" → month=4, day=1
+                                            parts = span_text.split('.')
+                                            current_month = int(parts[0])
+                                            current_day = int(parts[1])
+                                            # 연도 전환 (12→1)
+                                            if current_month == 1 and today.month == 12:
+                                                current_year = today.year + 1
+                                        else:
+                                            new_day = int(span_text)
+                                            # 월 전환 감지 (31→1, 30→1 등)
+                                            if new_day < current_day and new_day <= 3:
+                                                current_month += 1
+                                                if current_month > 12:
+                                                    current_month = 1
+                                                    current_year += 1
+                                            current_day = new_day
+
+                                        ymd = f"{current_year}{current_month:02d}{current_day:02d}"
+                                        date_btn_map[ymd] = k
+                                except Exception as e:
+                                    print(f"      ⚠️ 날짜 버튼 맵 구축 실패: {e}")
+
                                 for target_ymd in current_target_dates:
                                     if stop_signal: stop_signal()
-                                    
+
                                     target_date_obj = datetime.strptime(target_ymd, "%Y%m%d")
-                                    target_day = f"{target_date_obj.day:02d}" 
-                                    target_day_variant = f"{target_date_obj.month}.{target_date_obj.day}" if target_date_obj.day == 1 else None
 
                                     # 1단계: 캐시 확인
                                     json_data = response_cache.get(target_ymd)
                                     skip_reason = None
-                                    
+
                                     if json_data:
                                         print(f"      ⚡ 캐시된 데이터 즉시 사용 ({target_ymd})")
                                     else:
@@ -265,20 +306,20 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                         for attempt in range(3):
                                             try:
                                                 ensure_modal_open()
-                                                
-                                                # 버튼 찾기
+
+                                                # 버튼 찾기 (날짜 맵 기반)
                                                 date_btns = page.locator("button:has(span[class*='dayScroll_number'])")
                                                 target_btn = None
-                                                cnt = date_btns.count()
-                                                for k in range(cnt):
-                                                    btn = date_btns.nth(k)
-                                                    span_text = btn.locator("span[class*='dayScroll_number']").inner_text().strip()
-                                                    if span_text == target_day or (target_day_variant and span_text == target_day_variant):
-                                                        target_btn = btn
-                                                        break
+
+                                                if target_ymd in date_btn_map:
+                                                    btn_idx = date_btn_map[target_ymd]
+                                                    if btn_idx < date_btns.count():
+                                                        target_btn = date_btns.nth(btn_idx)
+                                                else:
+                                                    print(f"      ⚠️ 날짜 맵에 없음: {target_ymd} (범위 밖)")
                                                 
                                                 if not target_btn:
-                                                    print(f"      ⚠️ 날짜 버튼 없음: {target_day}")
+                                                    print(f"      ⚠️ 날짜 버튼 없음: {target_ymd}")
                                                     skip_reason = "Date Button Not Found"
                                                     break
                                                 
@@ -298,7 +339,7 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
                                                 
                                                 # 클릭
                                                 if is_active:
-                                                    print(f"      🗓 날짜 {target_ymd} ({target_day}) 이미 활성화됨 (Title: {title_attr}). 클릭 갱신 시도.")
+                                                    print(f"      🗓 날짜 {target_ymd} 이미 활성화됨 (Title: {title_attr}). 클릭 갱신 시도.")
                                                 else:
                                                     print(f"      🗓 날짜 클릭 시도: {target_ymd} (시도 {attempt+1})")
                                                 

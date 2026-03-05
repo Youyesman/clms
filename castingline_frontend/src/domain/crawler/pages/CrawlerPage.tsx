@@ -459,19 +459,21 @@ export const CrawlerPage = () => {
             width: "110px",
             renderCell: (val: string, item: ICrawlerHistory) => {
                 const totalFailures = item.result_summary?.total_failures ?? 0;
+                const totalSkipped = item.result_summary?.total_skipped ?? 0;
                 const isPartial = val === 'SUCCESS' && totalFailures > 0;
                 const displayStatus = isPartial ? 'SUCCESS_PARTIAL' : val;
+                const successLabel = totalSkipped > 0 ? `성공 (스킵${totalSkipped})` : '성공';
                 return (
                     <StatusBadge
                         status={displayStatus}
-                        title={isPartial ? `${totalFailures}개 실패 — 클릭하여 상세 보기` : undefined}
+                        title={isPartial ? `${totalFailures}개 실패 — 클릭하여 상세 보기` : totalSkipped > 0 ? `${totalSkipped}개 극장 날짜 미등록 스킵` : undefined}
                         style={isPartial ? { cursor: 'pointer' } : undefined}
                         onClick={isPartial ? () => setFailureModalItem(item) : undefined}
                     >
                         {val === 'RUNNING' && <CircleNotch className="spin" size={12} />}
                         {val === 'SUCCESS' && !isPartial && <CheckCircle size={12} weight="fill" />}
                         {(val === 'FAILED' || isPartial) && <WarningCircle size={12} weight="fill" />}
-                        {isPartial ? `일부실패(${totalFailures})` : val === 'SUCCESS' ? '성공' : val === 'FAILED' ? '오류' : val === 'RUNNING' ? '진행중' : '대기'}
+                        {isPartial ? `일부실패(${totalFailures})` : val === 'SUCCESS' ? successLabel : val === 'FAILED' ? '오류' : val === 'RUNNING' ? '진행중' : '대기'}
                     </StatusBadge>
                 );
             }

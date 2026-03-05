@@ -243,11 +243,18 @@ def run_crawler_background(history_id, data):
 
         history.status = 'SUCCESS'
         history.finished_at = timezone.now()
+
+        # 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
+        SKIP_REASONS = {"Date Button Disabled", "Date Button Not Found"}
+        real_failures = [f for f in all_failures if f.get('reason') not in SKIP_REASONS]
+        skipped = [f for f in all_failures if f.get('reason') in SKIP_REASONS]
+
         history.result_summary = {
             "executed_companies": executed_companies,
             "target_dates": date_list,
             "target_movies": target_titles_list,
-            "total_failures": len(all_failures),
+            "total_failures": len(real_failures),
+            "total_skipped": len(skipped),
             "failure_summary": [
                 {
                     "brand": f.get('brand'),
@@ -255,7 +262,7 @@ def run_crawler_background(history_id, data):
                     "date": f.get('date'),
                     "reason": f.get('reason')
                 }
-                for f in all_failures[:20]
+                for f in real_failures[:20]
             ],
             "transform_results": transform_results,
             "total_created": total_created,
@@ -739,6 +746,24 @@ class CrawlerScheduleListView(APIView):
         offset = (page - 1) * page_size
         page_qs = qs[offset:offset + page_size]
 
+        # 타겟 영화 목록 로드 (매칭용)
+        from crawler.models import CrawlTargetMovie
+        active_targets = list(CrawlTargetMovie.objects.filter(is_active=True).values_list('title', flat=True))
+
+        # 타이틀별 매칭 캐시 (동일 제목 반복 매칭 방지)
+        _target_cache = {}
+
+        def find_target_title(crawled_title):
+            if crawled_title in _target_cache:
+                return _target_cache[crawled_title]
+            matched = None
+            for t in active_targets:
+                if MovieSchedule.title_matches(t, crawled_title):
+                    matched = t
+                    break
+            _target_cache[crawled_title] = matched
+            return matched
+
         results = []
         for s in page_qs:
             results.append({
@@ -746,6 +771,7 @@ class CrawlerScheduleListView(APIView):
                 "brand": s.brand,
                 "theater_name": s.theater_name,
                 "movie_title": s.movie_title,
+                "target_title": find_target_title(s.movie_title),
                 "screen_name": s.screen_name,
                 "start_time": s.start_time.strftime("%Y-%m-%d %H:%M") if s.start_time else None,
                 "end_time": s.end_time.strftime("%H:%M") if s.end_time else None,
@@ -804,17 +830,11 @@ class CrawlerScheduleExportView(APIView):
                 play_date__lte=end_date
             )
 
-            # --- Flexible Title Filtering ---
-            import re
-            def normalize_string(s):
-                return re.sub(r'[^a-zA-Z0-9가-힣]', '', s)
-
+            # --- Flexible Title Filtering (토큰 매칭 지원) ---
             def filter_by_title(base_qs, title):
-                clean_target = normalize_string(title)
                 matched_ids = []
                 for schedule in base_qs:
-                    clean_db_title = normalize_string(schedule.movie_title)
-                    if clean_target in clean_db_title:
+                    if MovieSchedule.title_matches(title, schedule.movie_title):
                         matched_ids.append(schedule.id)
                 return base_qs.filter(id__in=matched_ids)
 

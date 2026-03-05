@@ -258,62 +258,18 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                     
                                     
                                     date_btn = None
-                                    
-                                    # "YYYY-MM-DD" data attribute search
-                                    try_data_attr = page.locator(f".owl-item [data-date='{full_date_hyphen}']").first
-                                    if try_data_attr.count() > 0:
-                                        date_btn = try_data_attr
-                                    else:
-                                        # Text Match Strategy
-                                        # We need to find "29" distinct from "12/29" or "29일"
-                                        # But Lotte text seems to be "1월 29 오늘" or just "29"
-                                        
-                                        # Use regex to match day number surrounded by non-digits
-                                        # or exact strong tag
-                                        
-                                        # Case 1: .owl-item:has-text(" 29 ") (spaces)
-                                        # Case 2: .owl-item strong:text-is("29")
-                                        
-                                        # Attempt detailed find
-                                        # .owl-item that contains the month and day?
-                                        # Month: dt_obj.month, Day: dt_obj.day
-                                        
-                                        target_month = str(dt_obj.month)
-                                        target_day = str(dt_obj.day)
-                                        
-                                        # 정교한 매칭: "월"과 "일"이 포함된 텍스트에서 숫자만 추출해서 비교하거나
-                                        # "29"가 포함된 요소 중, "Today", "내일" 등이 아니라면...
-                                        
-                                        # 심플하게: .owl-item 중 inner_text에 "{day} \n" or "{day}일" 등이 포함된 것 찾기
-                                        # Playwright text selector with regex
-                                        # day_str가 '1'이면 '1', '01' 매칭. '11', '21', '31' 제외.
-                                        
-                                        # Regex: (^|\D)1($|\D) -> 1 surrounded by non-digits
-                                        # e.g. " 1 ", "1월", "1일" matches. "11" does not.
-                                        
-                                        # locator = page.locator(".owl-item").filter(has_text=re.compile(rf"(^|\D){day_str}($|\D)"))
-                                        # This needs regex import in the worker function or top level.
-                                        # re is already imported.
-                                        
-                                        # [USER REQUEST] XPath for Date
-                                        date_base_xpath = "/html/body/div[6]/div/ul/li[1]/div/div/div[2]/div[2]/div/div/ul/div[1]/div/div"
-                                        # Iterate assuming match with owl items
-                                        date_items_xpath = page.locator(f"xpath={date_base_xpath}")
-                                        count_items = date_items_xpath.count()
-                                        
-                                        for k in range(count_items):
-                                            # User requested .../div[{k}]/li
-                                            # Note: XPath index 1-based.
-                                            item_li = page.locator(f"xpath={date_base_xpath}[{k+1}]/li")
-                                            
-                                            if item_li.count() == 0: continue
-                                                
-                                            txt = item_li.inner_text()
-                                            pattern = re.compile(rf"(^|\D){day_str}(?!월)(\D|$)")
-                                            
-                                            if pattern.search(txt):
-                                                date_btn = item_li
-                                                break
+
+                                    # data-playdate 속성으로 정확한 날짜 매칭 (YYYY-MM-DD)
+                                    # 롯데 DOM: <div class="owl-item"><li class="item">
+                                    #   <a class="date"><label><input data-playdate="2026-04-18">
+                                    #   <strong>18</strong><em>토</em></label></a></li></div>
+                                    try_playdate = page.locator(f".owl-item input[data-playdate='{full_date_hyphen}']").first
+                                    if try_playdate.count() > 0:
+                                        # input의 부모 label을 클릭 대상으로 (li.item 범위 내)
+                                        date_btn = try_playdate.locator("xpath=ancestor::li[contains(@class,'item')]").first
+                                        if date_btn.count() == 0:
+                                            # fallback: owl-item div
+                                            date_btn = try_playdate.locator("xpath=ancestor::div[contains(@class,'owl-item')]").first
                                     
                                     if date_btn and date_btn.count() > 0:
                                         # [Debug] Found Element Info
@@ -326,23 +282,25 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                             classes = ""
                                             pass
 
-                                        # Disabled Date Button Check (prevent 13s timeout waste)
+                                        # Disabled Date Button Check
+                                        # 롯데: <a class="date disabled">, <input data-displayyn="N">
                                         try:
-                                            btn_classes = date_btn.get_attribute("class") or ""
-                                            btn_aria = date_btn.get_attribute("aria-disabled") or ""
-                                            btn_disabled = date_btn.get_attribute("disabled")
-                                            parent_classes = date_btn.evaluate("el => el.parentElement ? el.parentElement.getAttribute('class') || '' : ''") or ""
+                                            # data-playdate input에서 displayyn 확인
+                                            input_el = date_btn.locator(f"input[data-playdate='{full_date_hyphen}']").first
+                                            display_yn = ""
+                                            if input_el.count() > 0:
+                                                display_yn = input_el.get_attribute("data-displayyn") or ""
 
-                                            is_disabled = (
-                                                "disabled" in btn_classes or
-                                                "dimmed" in btn_classes or
-                                                btn_aria == "true" or
-                                                btn_disabled is not None or
-                                                "disabled" in parent_classes
-                                            )
+                                            # a.date 태그의 class에서 disabled 확인
+                                            a_el = date_btn.locator("a.date").first
+                                            a_classes = ""
+                                            if a_el.count() > 0:
+                                                a_classes = a_el.get_attribute("class") or ""
+
+                                            is_disabled = display_yn == "N" or "disabled" in a_classes
 
                                             if is_disabled:
-                                                print(f"[{worker_id}]      🚫 Date Disabled: {target_ymd} (class='{btn_classes}')")
+                                                print(f"[{worker_id}]      🚫 Date Disabled: {target_ymd} (displayYN={display_yn}, class='{a_classes}')")
                                                 failures.append({
                                                     'region': region_name,
                                                     'theater': theater_name,
@@ -379,12 +337,19 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                         # 2-Stage Date Click Strategy
                                         date_click_success = False
                                         collected_data = None
-                                        
+
+                                        # 클릭 대상: li 안의 label 또는 a.date
+                                        click_target = date_btn.locator("label").first
+                                        if click_target.count() == 0:
+                                            click_target = date_btn.locator("a.date").first
+                                        if click_target.count() == 0:
+                                            click_target = date_btn
+
                                         # Attempt 1: Standard Click
                                         try:
                                             with page.expect_response(response_predicate, timeout=5000) as response_info:
                                                 try:
-                                                    date_btn.click(timeout=2000)
+                                                    click_target.click(timeout=2000)
                                                 except Exception as e:
                                                     print(f"[{worker_id}]      ⚠️ Date Standard Click Failed: {e}")
                                                     raise e

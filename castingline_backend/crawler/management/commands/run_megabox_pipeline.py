@@ -152,21 +152,18 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
 
                             for scn_ymd in current_dates:
                                 if stop_signal: stop_signal()
-                                
-                                # Megabox: .date-list button[date-data='2024.01.29']
+
+                                # Megabox: .date-list button[date-data='2026.03.18']
                                 target_date_fmt = f"{scn_ymd[:4]}.{scn_ymd[4:6]}.{scn_ymd[6:]}" # YYYY.MM.DD
-                                
+
                                 try:
+                                    json_data = None
+
                                     # 정확한 속성 기반 찾기
                                     date_btn = page.locator(f"button[date-data='{target_date_fmt}']").first
-                                    
-                                    if date_btn.count() == 0:
-                                        target_day = str(int(scn_ymd[6:]))
-                                        date_btn = page.locator(f".date-list button:has-text('{target_day}')").first
 
                                     if date_btn.count() > 0:
-                                        # [USER REQUEST] Chekc for disabled class
-                                        # e.g. <button class="disabled" ...>
+                                        # 버튼이 보이는 경우: disabled 체크 후 클릭
                                         classes = date_btn.get_attribute("class") or ""
                                         if "disabled" in classes:
                                             print(f"[{worker_id}]       🚫 Date Disabled: {scn_ymd}")
@@ -177,53 +174,70 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
                                                 'reason': "Date Button Disabled",
                                                 'worker': worker_id
                                             })
-                                            continue # Skip this date
+                                            continue
 
-                                        is_active = "on" in classes
-                                        
-                                        # 클릭 및 응답 대기
                                         with page.expect_response(lambda response: "schedulePage.do" in response.url, timeout=5000) as response_info:
                                             date_btn.click(force=True)
-                                        
                                         response = response_info.value
-                                        
                                         if response.status == 200:
-                                            try:
-                                                json_data = response.json()
-                                                close_old_connections()
+                                            json_data = response.json()
 
-                                                # 혹시 잔존 중복 레코드가 있으면 먼저 정리
-                                                dup_qs = MegaboxScheduleLog.objects.filter(
-                                                    query_date=scn_ymd, site_code=brch_no
-                                                )
-                                                if dup_qs.count() > 1:
-                                                    keep_id = dup_qs.order_by('-created_at').values_list('id', flat=True).first()
-                                                    dup_qs.exclude(id=keep_id).delete()
-
-                                                log, created = MegaboxScheduleLog.objects.update_or_create(
-                                                    query_date=scn_ymd,
-                                                    site_code=brch_no,
-                                                    defaults={
-                                                        'theater_name': theater_name,
-                                                        'response_json': json_data,
-                                                        'status': 'success',
-                                                        'crawler_run': crawler_run
-                                                    }
-                                                )
-                                                collected_results.append({"log_id": log.id, "date": scn_ymd})
-
-                                            except Exception as e:
-                                                print(f"[{worker_id}]          ❌ Parse Error {scn_ymd}: {e}")
-                                        else:
-                                            print(f"[{worker_id}]          ⚠️ Status: {response.status}")
-                                            
                                     else:
-                                        print(f"[{worker_id}]       ⚠️ Date button not found. Skipping.")
+                                        # 날짜 버튼이 범위 밖: API 직접 호출
+                                        today_str = datetime.now().strftime("%Y%m%d")
+                                        api_payload = json.dumps({
+                                            "masterType": "brch",
+                                            "detailType": "area",
+                                            "brchNo": brch_no,
+                                            "firstAt": "N",
+                                            "brchNo1": brch_no,
+                                            "crtDe": today_str,
+                                            "playDe": scn_ymd
+                                        })
+                                        try:
+                                            api_result = page.evaluate("""(payload) => {
+                                                return fetch('/on/oh/ohc/Brch/schedulePage.do', {
+                                                    method: 'POST',
+                                                    headers: {'Content-Type': 'application/json; charset=UTF-8'},
+                                                    body: payload
+                                                }).then(r => r.json());
+                                            }""", api_payload)
+                                            json_data = api_result
+                                        except Exception as e:
+                                            print(f"[{worker_id}]       ⚠️ Direct API call failed: {e}")
+
+                                    # 데이터 저장
+                                    if json_data:
+                                        try:
+                                            close_old_connections()
+
+                                            dup_qs = MegaboxScheduleLog.objects.filter(
+                                                query_date=scn_ymd, site_code=brch_no
+                                            )
+                                            if dup_qs.count() > 1:
+                                                keep_id = dup_qs.order_by('-created_at').values_list('id', flat=True).first()
+                                                dup_qs.exclude(id=keep_id).delete()
+
+                                            log, created = MegaboxScheduleLog.objects.update_or_create(
+                                                query_date=scn_ymd,
+                                                site_code=brch_no,
+                                                defaults={
+                                                    'theater_name': theater_name,
+                                                    'response_json': json_data,
+                                                    'status': 'success',
+                                                    'crawler_run': crawler_run
+                                                }
+                                            )
+                                            collected_results.append({"log_id": log.id, "date": scn_ymd})
+                                        except Exception as e:
+                                            print(f"[{worker_id}]          ❌ Parse/Save Error {scn_ymd}: {e}")
+                                    else:
+                                        print(f"[{worker_id}]       ⚠️ No data for {scn_ymd}")
                                         failures.append({
                                             'region': region_name,
                                             'theater': theater_name,
                                             'date': scn_ymd,
-                                            'reason': "Date Button Not Found",
+                                            'reason': "No Data (API)",
                                             'worker': worker_id
                                         })
                                         

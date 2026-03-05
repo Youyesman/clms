@@ -10,6 +10,7 @@ interface IScheduleItem {
     brand: string;
     theater_name: string;
     movie_title: string;
+    target_title: string | null;
     screen_name: string;
     start_time: string;
     end_time: string | null;
@@ -506,7 +507,8 @@ export function ScheduleViewerPage() {
                             <tr>
                                 <Th>브랜드</Th>
                                 <Th>극장</Th>
-                                <Th>영화</Th>
+                                <Th>타겟 제목</Th>
+                                <Th>크롤링 제목</Th>
                                 <Th>상영관</Th>
                                 <Th>상영일</Th>
                                 <Th>시작</Th>
@@ -524,7 +526,12 @@ export function ScheduleViewerPage() {
                                     <Tr key={row.id}>
                                         <Td><BrandBadge $brand={row.brand}>{row.brand}</BrandBadge></Td>
                                         <Td>{row.theater_name}</Td>
-                                        <Td>{row.movie_title}</Td>
+                                        <Td style={{ color: row.target_title ? "#334155" : "#94a3b8", fontSize: 13 }}>
+                                            {row.target_title || "-"}
+                                        </Td>
+                                        <Td style={{ fontSize: 13, color: row.target_title && row.target_title !== row.movie_title ? "#f59e0b" : "#334155" }}>
+                                            {row.movie_title}
+                                        </Td>
                                         <Td style={{ color: "#64748b" }}>{row.screen_name}</Td>
                                         <Td style={{ color: "#64748b", whiteSpace: "nowrap" }}>{row.play_date}</Td>
                                         <Td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{formatTime(row.start_time)}</Td>
