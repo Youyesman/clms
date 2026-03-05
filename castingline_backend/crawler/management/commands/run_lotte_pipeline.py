@@ -323,7 +323,36 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                                             text = date_btn.inner_text().replace('\n', ' ')
                                             print(f"[{worker_id}]      🔍 Found Date Element: <{tag} class='{classes}'>{text}</{tag}>")
                                         except:
+                                            classes = ""
                                             pass
+
+                                        # Disabled Date Button Check (prevent 13s timeout waste)
+                                        try:
+                                            btn_classes = date_btn.get_attribute("class") or ""
+                                            btn_aria = date_btn.get_attribute("aria-disabled") or ""
+                                            btn_disabled = date_btn.get_attribute("disabled")
+                                            parent_classes = date_btn.evaluate("el => el.parentElement ? el.parentElement.getAttribute('class') || '' : ''") or ""
+
+                                            is_disabled = (
+                                                "disabled" in btn_classes or
+                                                "dimmed" in btn_classes or
+                                                btn_aria == "true" or
+                                                btn_disabled is not None or
+                                                "disabled" in parent_classes
+                                            )
+
+                                            if is_disabled:
+                                                print(f"[{worker_id}]      🚫 Date Disabled: {target_ymd} (class='{btn_classes}')")
+                                                failures.append({
+                                                    'region': region_name,
+                                                    'theater': theater_name,
+                                                    'date': target_ymd,
+                                                    'reason': "Date Button Disabled",
+                                                    'worker': worker_id
+                                                })
+                                                continue
+                                        except Exception as e:
+                                            print(f"[{worker_id}]      ⚠️ Disabled check error: {e}")
 
                                         # API Request Interception
                                         # Broaden capture to see what's happening

@@ -362,11 +362,22 @@ class CrawlerDownloadView(APIView):
     def get(self, request, history_id):
         try:
             history = CrawlerRunHistory.objects.get(id=history_id)
-            if not history.excel_file_path or not os.path.exists(history.excel_file_path):
+            if not history.excel_file_path:
                 return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
-                
-            return FileResponse(open(history.excel_file_path, 'rb'), as_attachment=True)
-            
+
+            file_path = history.excel_file_path
+
+            # 저장된 경로가 다른 환경(Linux↔Windows)인 경우 파일명으로 로컬 경로 재구성
+            if not os.path.exists(file_path):
+                filename = os.path.basename(file_path)
+                local_path = os.path.join(settings.BASE_DIR, 'media', 'crawler_exports', filename)
+                if os.path.exists(local_path):
+                    file_path = local_path
+                else:
+                    return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            return FileResponse(open(file_path, 'rb'), as_attachment=True)
+
         except CrawlerRunHistory.DoesNotExist:
             return Response({"error": "History not found"}, status=status.HTTP_404_NOT_FOUND)
 

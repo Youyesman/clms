@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { useToast } from "../../../components/common/CustomToast";
-import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete, BASE_URL } from "../../../axios/Axios";
+import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete } from "../../../axios/Axios";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
@@ -110,6 +110,9 @@ export const CrawlerPage = () => {
 
     const [isExporting, setIsExporting] = useState(false);
     const [showExportPicker, setShowExportPicker] = useState(false);
+
+    // 실패 상세 모달
+    const [failureModalItem, setFailureModalItem] = useState<ICrawlerHistory | null>(null);
 
     // Crawl Target State
     const [targets, setTargets] = useState<CrawlTarget[]>([]);
@@ -306,32 +309,29 @@ export const CrawlerPage = () => {
         }
     };
 
-    const handleDownload = (item: ICrawlerHistory) => {
-        const token = localStorage.getItem("token");
-        fetch(`${BASE_URL}/crawler/download/${item.id}`, {
-            headers: { 'Authorization': `token ${token}` }
-        })
-            .then(response => {
-                if (!response.ok) throw new Error("Download failed");
-                return response.blob();
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
+    const handleDownload = async (item: ICrawlerHistory) => {
+        try {
+            const response: any = await AxiosGet(`crawler/download/${item.id}`, { responseType: 'blob' });
+            const blob = new Blob([response.data], {
+                type: response.headers?.['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
 
-                // Determine extension
-                let ext = ".xlsx";
-                if (item.excel_file_path && item.excel_file_path.endsWith(".txt")) {
-                    ext = ".txt";
-                }
+            let ext = ".xlsx";
+            if (item.excel_file_path && item.excel_file_path.endsWith(".txt")) {
+                ext = ".txt";
+            }
 
-                a.download = `crawler_log_${item.id}${ext}`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            })
-            .catch(err => toast.error("다운로드 실패: " + err.message));
+            a.download = `crawler_log_${item.id}${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err: any) {
+            toast.error("다운로드 실패: " + (err.message || "오류가 발생했습니다."));
+        }
     };
 
     const handleStop = (historyId: number) => {
@@ -462,7 +462,12 @@ export const CrawlerPage = () => {
                 const isPartial = val === 'SUCCESS' && totalFailures > 0;
                 const displayStatus = isPartial ? 'SUCCESS_PARTIAL' : val;
                 return (
-                    <StatusBadge status={displayStatus} title={isPartial ? `${totalFailures}개 실패` : undefined}>
+                    <StatusBadge
+                        status={displayStatus}
+                        title={isPartial ? `${totalFailures}개 실패 — 클릭하여 상세 보기` : undefined}
+                        style={isPartial ? { cursor: 'pointer' } : undefined}
+                        onClick={isPartial ? () => setFailureModalItem(item) : undefined}
+                    >
                         {val === 'RUNNING' && <CircleNotch className="spin" size={12} />}
                         {val === 'SUCCESS' && !isPartial && <CheckCircle size={12} weight="fill" />}
                         {(val === 'FAILED' || isPartial) && <WarningCircle size={12} weight="fill" />}
@@ -487,6 +492,19 @@ export const CrawlerPage = () => {
                         {item.excel_file_path && (
                             <button onClick={() => handleDownload(item)} title="로그 다운로드"
                                 style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 4, padding: '2px 5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#e11d48' }}>
+                                <DownloadSimple size={12} />
+                            </button>
+                        )}
+                    </div>
+                ) : (item.status === 'SUCCESS' && (item.result_summary?.total_failures ?? 0) > 0) ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button onClick={() => setFailureModalItem(item)} title="실패 상세 보기"
+                            style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#d97706', fontSize: '11px', fontWeight: 600, fontFamily: '"SUIT",sans-serif' }}>
+                            <WarningCircle size={12} /> 상세
+                        </button>
+                        {item.excel_file_path && (
+                            <button onClick={() => handleDownload(item)} title="로그 다운로드"
+                                style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#d97706' }}>
                                 <DownloadSimple size={12} />
                             </button>
                         )}
@@ -819,6 +837,99 @@ export const CrawlerPage = () => {
                 .spin { animation: spin 1s linear infinite; }
                 @keyframes spin { 100% { transform: rotate(360deg); } }
             `}</style>
+
+            {/* ===== 실패 상세 모달 ===== */}
+            {failureModalItem && (() => {
+                const summary = failureModalItem.result_summary;
+                const failures: Array<{ brand?: string; theater?: string; date?: string; reason?: string }> = summary?.failure_summary ?? [];
+                const totalFailures: number = summary?.total_failures ?? 0;
+                return (
+                    <div
+                        style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setFailureModalItem(null)}
+                    >
+                        <div
+                            style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* 모달 헤더 */}
+                            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <WarningCircle size={18} weight="fill" color="#d97706" />
+                                    <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>
+                                        실패 상세 내역
+                                    </span>
+                                    <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
+                                        총 {totalFailures}건
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => setFailureModalItem(null)}
+                                    style={{ background: 'none', border: 'none', fontSize: 18, color: '#9ca3af', cursor: 'pointer', padding: '4px 8px', lineHeight: 1 }}
+                                >
+                                    &times;
+                                </button>
+                            </div>
+
+                            {/* 모달 본문 */}
+                            <div style={{ overflow: 'auto', flex: 1, padding: '0' }}>
+                                {failures.length === 0 ? (
+                                    <div style={{ padding: '40px 24px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                                        상세 실패 내역이 기록되지 않았습니다.
+                                    </div>
+                                ) : (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: '"SUIT",sans-serif' }}>
+                                        <thead>
+                                            <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 70 }}>극장사</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 100 }}>극장</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 100 }}>날짜</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280' }}>실패 사유</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {failures.map((f, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                                    <td style={{ padding: '8px 14px', fontWeight: 600, color: '#374151' }}>{f.brand || '-'}</td>
+                                                    <td style={{ padding: '8px 14px', color: '#4b5563' }}>{f.theater || '-'}</td>
+                                                    <td style={{ padding: '8px 14px', color: '#6b7280', fontFamily: 'monospace', fontSize: 11 }}>{f.date || '-'}</td>
+                                                    <td style={{ padding: '8px 14px', color: '#dc2626', fontSize: 11 }}>{f.reason || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+
+                            {/* 모달 푸터 */}
+                            <div style={{ padding: '14px 24px', borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f9fafb', borderRadius: '0 0 12px 12px' }}>
+                                <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                                    {totalFailures > failures.length
+                                        ? `* 상위 ${failures.length}건만 표시됩니다. 전체 내역은 엑셀을 다운로드하세요.`
+                                        : `총 ${failures.length}건`
+                                    }
+                                </span>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {failureModalItem.excel_file_path && (
+                                        <button
+                                            onClick={() => { handleDownload(failureModalItem); }}
+                                            style={{ height: 32, padding: '0 14px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: '"SUIT",sans-serif' }}
+                                        >
+                                            <DownloadSimple size={13} /> 엑셀 다운로드
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => setFailureModalItem(null)}
+                                        style={{ height: 32, padding: '0 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}
+                                    >
+                                        닫기
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
         </PageContainer>
     );
