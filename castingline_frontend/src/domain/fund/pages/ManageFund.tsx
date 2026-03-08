@@ -253,7 +253,7 @@ export function ManageFund() {
                         title="연간 극장 기금 관리"
                         actions={<ExcelIconButton onClick={handleExcelExport} isLoading={isExcelLoading} />}
                     />
-                    <div style={{ flex: 1, overflow: "hidden" }}>
+                    <div style={{ flex: 1, overflow: "hidden", minHeight: 0 }}>
                         <GenericTable
                             headers={headers}
                             data={funds}

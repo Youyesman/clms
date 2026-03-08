@@ -1,17 +1,35 @@
 from django.db import models
-from django.db.models import Case, When, Value, Q, F
+from django.db.models import F
 from django.db.models.functions import Collate
 from rest_framework.filters import OrderingFilter
 from django.core.exceptions import FieldDoesNotExist
 
 
 class KoreanOrderingFilter(OrderingFilter):
+    def get_valid_fields(self, queryset, view, context=None):
+        valid_fields = super().get_valid_fields(queryset, view, context=context or {})
+        # ordering_field_map의 키도 유효한 정렬 필드로 추가
+        field_map = getattr(view, 'ordering_field_map', {})
+        for key in field_map:
+            if (key, key) not in valid_fields:
+                valid_fields.append((key, key))
+        return valid_fields
+
     def filter_queryset(self, request, queryset, view):
         ordering = self.get_ordering(request, queryset, view)
 
+        # ViewSet에 ordering_field_map이 있으면 프론트 키를 DB 필드로 변환
+        field_map = getattr(view, 'ordering_field_map', {})
+        if ordering and field_map:
+            ordering = [
+                ('-' + field_map.get(f.lstrip('-'), f.lstrip('-')) if f.startswith('-')
+                 else field_map.get(f, f))
+                for f in ordering
+            ]
+
         if ordering:
             new_ordering = []
-            target_collation = "ko-KR-x-icu"  # DB에서 확인된 이름
+            target_collation = "ko-KR-x-icu"
             model = queryset.model
 
             for field in ordering:
@@ -19,7 +37,7 @@ class KoreanOrderingFilter(OrderingFilter):
                 field_name = field.lstrip("-")
 
                 try:
-                    # 1. 필드 경로 탐색 (외래키 참조 포함)
+                    # 필드 경로 탐색 (외래키 참조 포함)
                     parts = field_name.split("__")
                     curr_model = model
                     target_field = None
@@ -32,46 +50,16 @@ class KoreanOrderingFilter(OrderingFilter):
                             if curr_model is None:
                                 break
 
-                    # 2. 문자열 필드인 경우 가중치 기반 정렬 적용
+                    # 문자열 필드: ICU 한국어 콜레이션으로 정렬 (가중치 없이)
                     if target_field and isinstance(
                         target_field, (models.CharField, models.TextField)
                     ):
-                        # 가중치 필드명 생성 (기존 필드명에 _weight 접미사)
-                        weight_field = f"{field_name}_weight"
-
-                        # 가중치 부여 로직 (한글=1, 영어=2, 특수문자/숫자=3, 공백=4)
-                        queryset = queryset.annotate(
-                            **{
-                                weight_field: Case(
-                                    When(
-                                        **{f"{field_name}__regex": r"^[가-힣]"},
-                                        then=Value(1),
-                                    ),
-                                    When(
-                                        **{f"{field_name}__regex": r"^[a-zA-Z]"},
-                                        then=Value(2),
-                                    ),
-                                    When(
-                                        Q(**{f"{field_name}__isnull": True})
-                                        | Q(**{f"{field_name}": ""}),
-                                        then=Value(4),
-                                    ),
-                                    default=Value(3),
-                                    output_field=models.IntegerField(),
-                                )
-                            }
-                        )
-
-                        # 정렬 표현식 (가중치 우선 정렬 후, 문자열 정렬)
-                        expression = Collate(field_name, target_collation)
+                        expression = Collate(F(field_name), target_collation)
                         if descending:
-                            new_ordering.append(F(weight_field).desc())
                             new_ordering.append(expression.desc())
                         else:
-                            new_ordering.append(F(weight_field).asc())
                             new_ordering.append(expression.asc())
                     else:
-                        # 숫자, 날짜 등은 일반 정렬
                         new_ordering.append(field)
 
                 except (FieldDoesNotExist, AttributeError):

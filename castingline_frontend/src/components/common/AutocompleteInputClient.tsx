@@ -213,6 +213,7 @@ export function AutocompleteInputClient({
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const portalDropdownRef = useRef<HTMLUListElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const showInternalLabel = label && labelPlacement === "left";
@@ -316,7 +317,11 @@ export function AutocompleteInputClient({
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+            const target = e.target as Node;
+            if (
+                dropdownRef.current && !dropdownRef.current.contains(target) &&
+                (!portalDropdownRef.current || !portalDropdownRef.current.contains(target))
+            ) {
                 setIsDropdownOpen(false);
             }
         };
@@ -370,7 +375,7 @@ export function AutocompleteInputClient({
                 {isDropdownOpen &&
                     suggestions.length > 0 &&
                     createPortal(
-                        <Dropdown style={dropdownStyle}>
+                        <Dropdown ref={portalDropdownRef} style={dropdownStyle}>
                             {suggestions.map((client, index) => (
                                 <SuggestionItem
                                     key={client.id || index}

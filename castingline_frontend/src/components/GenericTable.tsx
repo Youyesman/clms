@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import styled, { css } from "styled-components";
 import {
   CaretLeft,
@@ -17,6 +17,7 @@ const TableWrapper = styled.div`
   background-color: #ffffff;
   border-radius: 4px;
   flex: 1;
+  min-height: 0;
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -219,12 +220,12 @@ export function GenericTable({
   getRowKey,
   formatCell,
   onSortChange,
-  sortKey,
-  sortOrder,
-  page,
-  pageSize,
-  totalCount,
-  onPageChange,
+  sortKey: externalSortKey,
+  sortOrder: externalSortOrder,
+  page: externalPage,
+  pageSize: externalPageSize,
+  totalCount: externalTotalCount,
+  onPageChange: externalOnPageChange,
   summaryData,
   topRow,
   getRowHighlight,
@@ -232,9 +233,52 @@ export function GenericTable({
   showCheckbox,
   selectedIds = [],
   onSelectionChange,
+  hidePagination,
 }: any) {
   const tableRef = useRef<HTMLTableElement>(null);
-  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // 내부 정렬 상태 (onSortChange가 없을 때 자체 정렬)
+  const [internalSortKey, setInternalSortKey] = useState<string | null>(null);
+  const [internalSortOrder, setInternalSortOrder] = useState<"asc" | "desc">("asc");
+
+  const isExternalSort = !!onSortChange;
+  const sortKey = isExternalSort ? externalSortKey : internalSortKey;
+  const sortOrder = isExternalSort ? externalSortOrder : internalSortOrder;
+
+  // 내부 정렬 핸들러
+  const handleSortClick = (key: string) => {
+    if (isExternalSort) {
+      onSortChange(key);
+    } else {
+      const newOrder = internalSortKey === key && internalSortOrder === "asc" ? "desc" : "asc";
+      setInternalSortKey(key);
+      setInternalSortOrder(newOrder);
+    }
+  };
+
+  // 클라이언트 정렬 적용
+  const sortedData = useMemo(() => {
+    if (isExternalSort || !internalSortKey) return data;
+    return [...data].sort((a: any, b: any) => {
+      const aVal = a[internalSortKey];
+      const bVal = b[internalSortKey];
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return internalSortOrder === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const cmp = String(aVal).localeCompare(String(bVal), "ko");
+      return internalSortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [data, internalSortKey, internalSortOrder, isExternalSort]);
+
+  // pagination 기본값 처리
+  const page = externalPage ?? 1;
+  const pageSize = externalPageSize ?? data?.length ?? 50;
+  const totalCount = externalTotalCount ?? data?.length ?? 0;
+  const onPageChange = externalOnPageChange ?? (() => {});
+  const totalPages = pageSize > 0 ? Math.ceil(totalCount / pageSize) : 0;
 
   // 인라인 편집 상태
   const [editingCell, setEditingCell] = useState<{
@@ -279,6 +323,7 @@ export function GenericTable({
         display: "flex",
         flexDirection: "column",
         height: "100%",
+        minHeight: 0,
         backgroundColor: "#fff",
       }}
     >
@@ -291,10 +336,10 @@ export function GenericTable({
                   <div className="header-content">
                     <input
                       type="checkbox"
-                      checked={data.length > 0 && selectedIds.length === data.length}
+                      checked={sortedData.length > 0 && selectedIds.length === sortedData.length}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          onSelectionChange(data.map((item: any) => getRowKey(item)));
+                          onSelectionChange(sortedData.map((item: any) => getRowKey(item)));
                         } else {
                           onSelectionChange([]);
                         }
@@ -308,7 +353,7 @@ export function GenericTable({
                   key={header.key}
                   $stickyLeft={header.stickyLeft}
                   $width={header.width}
-                  onClick={() => onSortChange && onSortChange(header.key)}
+                  onClick={() => handleSortClick(header.key)}
                 >
                   <div className="header-content">
                     {header.label}
@@ -328,7 +373,7 @@ export function GenericTable({
           </THead>
           <tbody>
             {topRow && topRow}
-            {data.map((item: any) => {
+            {sortedData.map((item: any) => {
               const rowKey = getRowKey(item);
               const isSelected =
                 selectedItem && rowKey === getRowKey(selectedItem);
@@ -420,7 +465,7 @@ export function GenericTable({
         </StyledTable>
       </TableWrapper>
 
-      {totalCount > 0 && (
+      {!hidePagination && totalCount > 0 && (
         <PaginationContainer>
           <PageButton onClick={() => onPageChange(1)} disabled={page === 1}>
             <CaretDoubleLeft size={14} weight="bold" />

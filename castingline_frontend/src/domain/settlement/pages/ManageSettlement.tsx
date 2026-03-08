@@ -339,7 +339,7 @@ export function ManageSettlement() {
                         <Spinner size={40} weight="bold" />
                     </LoadingOverlay>
                 )}
-                <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ height: "calc(100vh - 198px)", overflow: "hidden" }}>
                     <GenericTable
                         headers={headers}
                         data={settlements}

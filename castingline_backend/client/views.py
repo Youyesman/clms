@@ -128,8 +128,9 @@ class TheaterViewSet(viewsets.ModelViewSet):
     authentication_classes = []
     permission_classes = [AllowAny]
     pagination_class = DefaultPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["number", "name"]  # 검색 필드 추가
+    ordering_fields = "__all__"
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -145,8 +146,9 @@ class FareViewSet(viewsets.ModelViewSet):
     authentication_classes = []
     permission_classes = [AllowAny]
     pagination_class = DefaultPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["rate"]  # 검색 필드 추가
+    ordering_fields = "__all__"
 
     def get_queryset(self):
         queryset = super().get_queryset()

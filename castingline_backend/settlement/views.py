@@ -157,11 +157,12 @@ class SettlementListView(APIView):
             is_fund_exempt = self._get_cached_fund(
                 c_id, entry_date, daily_fund_map, monthly_fund_map, yearly_fund_map)
 
-            group_key = (c_id, share_rate, is_fund_exempt)
+            # 하위영화별 상영타입을 구분하여 그룹핑 (필름/디지털, 자막/더빙, 2D/3D 등 모든 타입 조합)
+            screening_type = self._get_screening_type(score.movie)
+            group_key = (c_id, share_rate, is_fund_exempt, screening_type)
             if group_key not in aggregated_data:
-                # 초기화 시 상영타입 등은 대표영화(primary_movie) 정보를 따름
                 aggregated_data[group_key] = self.init_data_struct(
-                    client, primary_movie, share_rate, is_fund_exempt, entry_date)
+                    client, score.movie, share_rate, is_fund_exempt, entry_date)
 
             target = aggregated_data[group_key]
             visitor_count = int(score.visitor or 0)
@@ -229,6 +230,19 @@ class SettlementListView(APIView):
             return tr_val if tr_val is not None else found_rate.share_rate
         return dr_map.get((client.region_code, client.theater_kind), Decimal("50.0"))
 
+    def _get_screening_type(self, movie):
+        """영화의 모든 상영 타입 정보를 조합하여 반환 (필름/디지털, 자막/더빙, 2D/3D, 4DX 등)"""
+        parts = [
+            movie.media_type,           # 필름/디지털
+            movie.audio_mode,           # 자막/더빙
+            movie.viewing_dimension,    # 2D/3D
+            movie.screening_type,       # 일반/특별
+            movie.dx4_viewing_dimension,# 4DX 상영 차원
+            movie.imax_l,               # IMAX-L
+            movie.screen_x,             # Screen X
+        ]
+        return " ".join([p for p in parts if p]).strip()
+
     def init_data_struct(self, client, movie, rate, exempt, entry_date):
         return {
             "지역": client.region_code, "멀티구분": client.theater_kind, "거래처코드": client.client_code,
@@ -240,7 +254,7 @@ class SettlementListView(APIView):
             "수신자이메일": client.invoice_email_address,
             "수신자이메일2": client.invoice_email_address2,
             "수신자 전화번호": client.settlement_phone_number,
-            "상영타입": movie.viewing_dimension or "", "인원": 0, "부율": float(rate), "is_fund_exempt": exempt,
+            "상영타입": self._get_screening_type(movie), "인원": 0, "부율": float(rate), "is_fund_exempt": exempt,
             "_total_raw_amt": 0, "_total_excl_fund_sum": Decimal("0"), "_min_date": entry_date, "_max_date": entry_date,
             "classification": client.classification,
         }

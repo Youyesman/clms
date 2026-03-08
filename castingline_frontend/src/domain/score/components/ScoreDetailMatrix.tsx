@@ -1,24 +1,22 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import styled from "styled-components";
-import { AxiosDelete, AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
+import { AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
-import { PencilSimple, PlusIcon } from "@phosphor-icons/react";
+import { PencilSimple, PlusIcon, FloppyDisk } from "@phosphor-icons/react";
 import { FareManagerModal } from "./FareManagerModal";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
+import { CustomIconButton } from "../../../components/common/CustomIconButton";
 
 /* ---------------- Styled Components ---------------- */
-
-/** 스타일 정의 **/
-
-
 
 const TableContainer = styled.div`
     overflow-x: auto;
     background-color: #ffffff;
     min-height: 120px;
+    outline: none;
     &::-webkit-scrollbar {
         height: 6px;
     }
@@ -65,14 +63,17 @@ const EditableCell = styled.td<{
     $isHighlight: boolean;
     $hasValue: boolean;
     $isNegative: boolean;
+    $isDirty: boolean;
 }>`
     cursor: pointer;
     transition: all 0.2s;
-    color: ${({ $isNegative, $hasValue }) => ($isNegative ? "#ef4444" : $hasValue ? "#1e293b" : "#e2e8f0")};
+    color: ${({ $isNegative, $hasValue, $isDirty }) =>
+        $isNegative ? "#ef4444" : $isDirty ? "#b45309" : $hasValue ? "#1e293b" : "#e2e8f0"};
     font-weight: ${({ $hasValue }) => ($hasValue ? "800" : "400")};
-    background-color: ${({ $isSelected, $isHighlight, $isNegative }) =>
-        $isSelected ? "#dbeafe" : $isNegative ? "#fef2f2" : $isHighlight ? "#f1f5f9" : "transparent"};
-    border: ${({ $isSelected }) => ($isSelected ? "2px solid #2563eb !important" : "1px solid #e2e8f0")};
+    background-color: ${({ $isSelected, $isHighlight, $isNegative, $isDirty }) =>
+        $isSelected ? "#dbeafe" : $isDirty ? "#fef9c3" : $isNegative ? "#fef2f2" : $isHighlight ? "#f1f5f9" : "transparent"};
+    border: ${({ $isSelected, $isDirty }) =>
+        $isSelected ? "2px solid #2563eb !important" : $isDirty ? "1px solid #f59e0b" : "1px solid #e2e8f0"};
     &:hover {
         background-color: #dbeafe;
     }
@@ -147,6 +148,12 @@ const EmptyState = styled.div`
     border-radius: 4px;
 `;
 
+const ShortcutHint = styled.span`
+    font-size: 10px;
+    color: #94a3b8;
+    font-weight: 500;
+`;
+
 /* ---------------- Logic & Types ---------------- */
 
 interface ClientInfo {
@@ -189,6 +196,9 @@ interface Props {
     setSelectedScore: (score: ScoreItem | null) => void;
 }
 
+// dirtyMatrix: fare → show → newValue (로컬에서 편집한 값만 추적)
+type DirtyMatrix = Record<number, Record<number, number>>;
+
 export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSelectedScore }: Props) {
     const { openModal } = useGlobalModal();
     const toast = useToast();
@@ -199,13 +209,28 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     const [saving, setSaving] = useState(false);
     const [dynamicFareList, setDynamicFareList] = useState<number[]>([]);
     const [theaterList, setTheaterList] = useState<TheaterItem[]>([]);
+    const [dirtyMatrix, setDirtyMatrix] = useState<DirtyMatrix>({});
+    const tableContainerRef = useRef<HTMLDivElement>(null);
 
     const getID = (val: ClientInfo | MovieInfo | null | undefined) => val?.id ?? null;
     const showCounts = useMemo(() => Array.from({ length: 13 }, (_, i) => i), []);
 
-    // ✅ 매트릭스 데이터 계산 로직
-    const { matrix, filteredScores } = useMemo(() => {
-        if (!selectedScore) return { matrix: {} as any, filteredScores: [] };
+    // selectedScore가 바뀌면 dirty 초기화
+    const prevScoreKeyRef = useRef<string>("");
+    useEffect(() => {
+        const key = selectedScore
+            ? `${getID(selectedScore.client)}_${getID(selectedScore.movie)}_${selectedScore.entry_date}_${selectedScore.auditorium}`
+            : "";
+        if (key !== prevScoreKeyRef.current) {
+            prevScoreKeyRef.current = key;
+            setDirtyMatrix({});
+            setEditingCell(null);
+        }
+    }, [selectedScore]);
+
+    // 서버 매트릭스 계산
+    const { serverMatrix, filteredScores } = useMemo(() => {
+        if (!selectedScore) return { serverMatrix: {} as Record<number, Record<number, number>>, filteredScores: [] as ScoreItem[] };
         const targetClientId = getID(selectedScore.client);
         const targetMovieId = getID(selectedScore.movie);
 
@@ -221,14 +246,40 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         const m: Record<number, Record<number, number>> = {};
         filtered.forEach((score) => {
             const f = Number(score.fare);
-            let s = String(score.show_count) === "특회" ? 0 : Number(score.show_count) || 0;
+            const s = String(score.show_count) === "특회" ? 0 : Number(score.show_count) || 0;
             if (!m[f]) m[f] = {};
             m[f][s] = (m[f][s] || 0) + Number(score.visitor || 0);
         });
-        return { matrix: m, filteredScores: filtered };
+        return { serverMatrix: m, filteredScores: filtered };
     }, [selectedScore, allScores]);
 
-    // ✅ 극장 정보(관 리스트, 요금 리스트) 페칭
+    // 표시용 매트릭스: 서버 + dirty 오버레이
+    const displayMatrix = useMemo(() => {
+        const result: Record<number, Record<number, number>> = {};
+        // 서버 데이터 복사
+        for (const fare of Object.keys(serverMatrix)) {
+            result[Number(fare)] = { ...serverMatrix[Number(fare)] };
+        }
+        // dirty 오버레이
+        for (const fare of Object.keys(dirtyMatrix)) {
+            if (!result[Number(fare)]) result[Number(fare)] = {};
+            for (const show of Object.keys(dirtyMatrix[Number(fare)])) {
+                result[Number(fare)][Number(show)] = dirtyMatrix[Number(fare)][Number(show)];
+            }
+        }
+        return result;
+    }, [serverMatrix, dirtyMatrix]);
+
+    const isDirty = Object.keys(dirtyMatrix).length > 0;
+    const dirtyCount = useMemo(() => {
+        let count = 0;
+        for (const fare of Object.keys(dirtyMatrix)) {
+            count += Object.keys(dirtyMatrix[Number(fare)]).length;
+        }
+        return count;
+    }, [dirtyMatrix]);
+
+    // 극장 정보(관 리스트, 요금 리스트) 페칭
     const clientId = getID(selectedScore?.client);
     useEffect(() => {
         if (!clientId) return;
@@ -239,10 +290,11 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                     AxiosGet(`fares/?client_id=${clientId}`),
                 ]);
                 setTheaterList(tRes.data.results || []);
-                const fares = fRes.data.results
-                    .map((f: { fare: string }) => parseInt(f.fare))
-                    .filter((v: number) => !isNaN(v))
-                    .sort((a: number, b: number) => a - b);
+                const fares = Array.from(new Set<number>(
+                    fRes.data.results
+                        .map((f: { fare: string }) => parseInt(f.fare))
+                        .filter((v: number) => !isNaN(v))
+                )).sort((a, b) => a - b);
                 setDynamicFareList(fares);
             } catch (error) {
                 toast.error(handleBackendErrors(error));
@@ -251,22 +303,19 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         fetchData();
     }, [clientId]);
 
-    // ✅ 관 변경/추가 드롭다운 선택 시 로직
+    // 관 변경/추가 드롭다운
     const handleAuditoriumSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         if (!code || !selectedScore) return;
-
         const theater = theaterList.find((t) => t.auditorium === code);
         if (!theater) return;
 
-        // 1. 상태 업데이트하여 즉시 테이블 노출
         setSelectedScore({
             ...selectedScore,
             auditorium: theater.auditorium,
             auditorium_name: theater.auditorium_name,
         });
 
-        // 2. 이미 ID가 있는 기존 스코어라면 DB의 관 정보 업데이트 (Patch)
         if (selectedScore.id) {
             try {
                 await AxiosPatch("scores", { auditorium: theater.auditorium }, selectedScore.id);
@@ -278,15 +327,36 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         }
     };
 
-    // Ref로 최신 상태 참조 (키보드 이벤트 핸들러의 stale closure 방지)
-    const matrixRef = useRef(matrix);
-    matrixRef.current = matrix;
-    const savingRef = useRef(saving);
-    savingRef.current = saving;
-    const filteredScoresRef = useRef(filteredScores);
-    filteredScoresRef.current = filteredScores;
-    const selectedScoreRef = useRef(selectedScore);
-    selectedScoreRef.current = selectedScore;
+    // 로컬 셀 값 변경 (API 호출 없음)
+    const applyLocalEdit = useCallback((cell: { fare: number; show: number }, valueStr: string) => {
+        const trimmed = valueStr.trim();
+        const newVal = trimmed === "" ? 0 : Number(trimmed);
+        const serverVal = serverMatrix[cell.fare]?.[cell.show] ?? 0;
+
+        setEditingCell(null);
+
+        if (newVal === serverVal) {
+            // 서버 값과 같으면 dirty에서 제거
+            setDirtyMatrix((prev) => {
+                const next = { ...prev };
+                if (next[cell.fare]) {
+                    const { [cell.show]: _, ...rest } = next[cell.fare];
+                    if (Object.keys(rest).length === 0) {
+                        const { [cell.fare]: __, ...fareRest } = next;
+                        return fareRest;
+                    }
+                    next[cell.fare] = rest;
+                }
+                return next;
+            });
+        } else {
+            // dirty에 추가
+            setDirtyMatrix((prev) => ({
+                ...prev,
+                [cell.fare]: { ...(prev[cell.fare] || {}), [cell.show]: newVal },
+            }));
+        }
+    }, [serverMatrix]);
 
     // 방향키 이동
     const moveSelection = useCallback((direction: string) => {
@@ -313,69 +383,67 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         setSelectedCell({ fare: dynamicFareList[nextFareIdx], show: showCounts[nextShowIdx] });
     }, [dynamicFareList, showCounts, selectedCell]);
 
-    // 데이터 저장 (POST/PATCH)
-    const handleSave = useCallback(async (cellToSave: { fare: number; show: number }, valueToSave: string) => {
-        const { fare, show } = cellToSave;
-        const trimmedValue = valueToSave.trim();
-        const currentMatrix = matrixRef.current;
-        const currentFilteredScores = filteredScoresRef.current;
-        const currentSelectedScore = selectedScoreRef.current;
-        const originalVal = currentMatrix[fare]?.[show] ?? 0;
-        const newVal = trimmedValue === "" ? 0 : Number(trimmedValue);
+    // 일괄 저장 (Ctrl+S / F5)
+    const handleBulkSave = useCallback(async () => {
+        if (!isDirty || !selectedScore || saving) return;
 
-        if (originalVal === newVal || savingRef.current) {
-            setEditingCell(null);
-            return;
+        const items: any[] = [];
+        const deleteIds: number[] = [];
+
+        for (const fareStr of Object.keys(dirtyMatrix)) {
+            const fare = Number(fareStr);
+            for (const showStr of Object.keys(dirtyMatrix[fare])) {
+                const show = Number(showStr);
+                const newVal = dirtyMatrix[fare][show];
+                const searchShow = show === 0 ? "특회" : String(show).padStart(2, "0");
+
+                // 기존 스코어 찾기
+                const existing = filteredScores.find(
+                    (s) => Number(s.fare) === fare && (String(s.show_count) === searchShow || Number(s.show_count) === show)
+                );
+
+                if (newVal === 0 && existing?.id) {
+                    deleteIds.push(existing.id);
+                } else if (newVal !== 0) {
+                    items.push({
+                        client: getID(selectedScore.client),
+                        movie: getID(selectedScore.movie),
+                        auditorium: selectedScore.auditorium,
+                        entry_date: selectedScore.entry_date,
+                        fare,
+                        show_count: searchShow,
+                        visitor: newVal,
+                    });
+                }
+            }
         }
 
-        if (!currentSelectedScore) return;
+        if (items.length === 0 && deleteIds.length === 0) return;
 
-        const searchShow = show === 0 ? "특회" : String(show).padStart(2, "0");
-        const target = currentFilteredScores.find(
-            (s) => Number(s.fare) === fare && (String(s.show_count) === searchShow || Number(s.show_count) === show)
-        );
-
+        setSaving(true);
         try {
-            setSaving(true);
-            if (newVal === 0) {
-                // 삭제
-                if (target?.id) {
-                    await AxiosDelete("scores", target.id);
-                    await setScores();
-                }
-            } else if (target?.id) {
-                // 수정
-                await AxiosPatch(
-                    "scores",
-                    { visitor: newVal, fare, show_count: searchShow, auditorium: currentSelectedScore.auditorium },
-                    target.id
-                );
-                await setScores(target.id);
-            } else {
-                // 신규 생성
-                const res = await AxiosPost("scores", {
-                    client: getID(currentSelectedScore.client),
-                    movie: getID(currentSelectedScore.movie),
-                    auditorium: currentSelectedScore.auditorium,
-                    entry_date: currentSelectedScore.entry_date,
-                    fare,
-                    show_count: searchShow,
-                    visitor: newVal,
-                });
-                await setScores(res.data.id);
-            }
-            toast.success("저장되었습니다.");
+            const res = await AxiosPost("scores/bulk-save", { items, delete_ids: deleteIds });
+            toast.success(res.data.message || "저장되었습니다.");
+            setDirtyMatrix({});
+            await setScores();
         } catch (err) {
             toast.error(handleBackendErrors(err));
         } finally {
             setSaving(false);
-            setEditingCell(null);
+            tableContainerRef.current?.focus();
         }
-    }, [setScores, toast]);
+    }, [isDirty, selectedScore, saving, dirtyMatrix, filteredScores, setScores, toast]);
 
     // 전역 키보드 이벤트
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+S / F5 → 일괄 저장
+            if ((e.ctrlKey && e.key === "s") || e.key === "F5") {
+                e.preventDefault();
+                handleBulkSave();
+                return;
+            }
+
             if (!selectedCell || editingCell) return;
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
                 e.preventDefault();
@@ -385,17 +453,17 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 setEditValue(e.key);
             } else if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                const val = matrixRef.current[selectedCell.fare]?.[selectedCell.show] ?? 0;
+                const val = displayMatrix[selectedCell.fare]?.[selectedCell.show] ?? 0;
                 setEditingCell(selectedCell);
                 setEditValue(val !== 0 ? String(val) : "");
             } else if (e.key === "Backspace" || e.key === "Delete") {
                 e.preventDefault();
-                handleSave(selectedCell, "0");
+                applyLocalEdit(selectedCell, "0");
             }
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [selectedCell, editingCell, moveSelection, handleSave]);
+    }, [selectedCell, editingCell, moveSelection, applyLocalEdit, handleBulkSave, displayMatrix]);
 
     const handleEditFares = () => {
         if (!clientId || !selectedScore) return;
@@ -413,6 +481,17 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 title="관객수 집계 Matrix"
                 actions={
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: "#475569" }}>
+                        {isDirty && (
+                            <>
+                                <span style={{ color: "#2563eb", fontWeight: 700 }}>
+                                    {dirtyCount}건 미저장
+                                </span>
+                                <CustomIconButton color="blue" onClick={handleBulkSave} disabled={saving} title="일괄 저장">
+                                    <FloppyDisk size={16} weight="bold" />
+                                </CustomIconButton>
+                                <ShortcutHint>Ctrl+S / F5</ShortcutHint>
+                            </>
+                        )}
                         <PlusIcon size={14} weight="bold" color="#2563eb" />
                         <span>관 추가(선택):</span>
                         <AuditoriumSelect value="" onChange={handleAuditoriumSelect}>
@@ -436,26 +515,9 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 <InfoBadge $type="movie">
                     <strong>영화</strong> {selectedScore.movie?.title_ko}
                 </InfoBadge>
-                {/* <InfoBadge $type="room">
-                    <strong>관명</strong>
-                    {!selectedScore.auditorium ? (
-                        <AuditoriumSelect value="" onChange={handleAuditoriumSelect}>
-                            <option value="" disabled>
-                                선택
-                            </option>
-                            {theaterList.map((t) => (
-                                <option key={t.id} value={t.auditorium}>
-                                    {t.auditorium_name}
-                                </option>
-                            ))}
-                        </AuditoriumSelect>
-                    ) : (
-                        <span>{selectedScore.auditorium_name || selectedScore.auditorium}</span>
-                    )}
-                </InfoBadge> */}
             </InfoSection>
 
-            <TableContainer>
+            <TableContainer ref={tableContainerRef} tabIndex={0}>
                 {selectedScore.auditorium ? (
                     <StyledTable>
                         <thead>
@@ -476,7 +538,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                         </thead>
                         <tbody>
                             {dynamicFareList.map((fare) => {
-                                const showMap = matrix[fare] || {};
+                                const showMap = displayMatrix[fare] || {};
                                 const rowTotal = showCounts.reduce((sum, n) => sum + (showMap[n] || 0), 0);
                                 return (
                                     <tr key={fare}>
@@ -485,6 +547,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                             const val = showMap[n] ?? 0;
                                             const isEditing = editingCell?.fare === fare && editingCell.show === n;
                                             const isSelected = selectedCell?.fare === fare && selectedCell?.show === n;
+                                            const cellIsDirty = dirtyMatrix[fare]?.[n] !== undefined;
                                             return (
                                                 <EditableCell
                                                     key={n}
@@ -494,6 +557,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                                     }
                                                     $hasValue={val !== 0}
                                                     $isNegative={val < 0}
+                                                    $isDirty={cellIsDirty}
                                                     onClick={() => setSelectedCell({ fare, show: n })}
                                                     onDoubleClick={() => {
                                                         setSelectedCell({ fare, show: n });
@@ -510,24 +574,34 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                                                 setEditValue(e.target.value.replace(/[^0-9-]/g, ""))
                                                             }
                                                             onFocus={(e) => e.target.select()}
-                                                            onBlur={(e) =>
-                                                                handleSave({ fare, show: n }, e.target.value)
-                                                            }
+                                                            onBlur={(e) => {
+                                                                applyLocalEdit({ fare, show: n }, e.target.value);
+                                                            }}
                                                             onKeyDown={(e) => {
-                                                                if (e.key === "Enter")
-                                                                    handleSave({ fare, show: n }, editValue);
-                                                                if (e.key === "Escape") setEditingCell(null);
-                                                                if (
-                                                                    [
-                                                                        "ArrowUp",
-                                                                        "ArrowDown",
-                                                                        "ArrowLeft",
-                                                                        "ArrowRight",
-                                                                    ].includes(e.key)
-                                                                ) {
+                                                                // window 전역 핸들러로 이벤트 전파 차단 (두 칸 이동 방지)
+                                                                e.nativeEvent.stopImmediatePropagation();
+                                                                if (e.key === "Enter") {
                                                                     e.preventDefault();
-                                                                    handleSave({ fare, show: n }, editValue);
-                                                                    setTimeout(() => moveSelection(e.key), 10);
+                                                                    applyLocalEdit({ fare, show: n }, editValue);
+                                                                    setSelectedCell({ fare, show: n });
+                                                                    tableContainerRef.current?.focus();
+                                                                }
+                                                                if (e.key === "Escape") {
+                                                                    setEditingCell(null);
+                                                                    setSelectedCell({ fare, show: n });
+                                                                    tableContainerRef.current?.focus();
+                                                                }
+                                                                if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+                                                                    e.preventDefault();
+                                                                    applyLocalEdit({ fare, show: n }, editValue);
+                                                                    moveSelection(e.key);
+                                                                    tableContainerRef.current?.focus();
+                                                                }
+                                                                if (e.key === "Tab") {
+                                                                    e.preventDefault();
+                                                                    applyLocalEdit({ fare, show: n }, editValue);
+                                                                    moveSelection(e.shiftKey ? "ArrowLeft" : "ArrowRight");
+                                                                    tableContainerRef.current?.focus();
                                                                 }
                                                             }}
                                                         />

@@ -146,7 +146,7 @@ export function MonthlyFundList({ client_id, client_name, yyyy, onRefreshAnnual,
 
             <ContentSplitter>
                 {/* 월별 리스트 테이블 */}
-                <div style={{ minHeight: "400px" }}>
+                <div style={{ minHeight: "400px", overflow: "hidden" }}>
                     <GenericTable
                         headers={headers}
                         data={monthlyFunds}

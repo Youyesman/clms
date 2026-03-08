@@ -30,6 +30,14 @@ class OrderViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["client__client_name", "movie__title_ko"]  # 검색 기능 보강
     ordering_fields = "__all__"
+    ordering_field_map = {
+        'movie': 'movie__title_ko',
+        'client': 'client__client_name',
+        'format': 'movie__screening_type',
+        'region_code': 'client__region_code',
+        'classification': 'client__classification',
+        'theater_kind': 'client__theater_kind',
+    }
 
     def get_queryset(self):
         # 1. 기본 쿼리셋 가져오기
@@ -149,6 +157,14 @@ class OrderListViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["movie__title_ko", "movie__movie_code"]  # 기본 검색 기능 보강
     ordering_fields = "__all__"
+    ordering_field_map = {
+        'movie': 'movie__title_ko',
+        'distributor': 'movie__distributor__client_name',
+        'production_company': 'movie__production_company__client_name',
+        'release_date': 'movie__release_date',
+        'end_date': 'movie__end_date',
+        'movie_code': 'movie__movie_code',
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -176,13 +192,13 @@ class OrderListViewSet(viewsets.ModelViewSet):
 
 class OrderExcelExportView(APIView):
     def get(self, request):
-        if not request.query_params.get("start_date"):
-            return Response({"detail": "기준일자가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
-            
+        if not request.query_params.get("start_date") and not request.query_params.get("id"):
+            return Response({"detail": "기준일자 또는 영화를 선택해주세요."}, status=status.HTTP_400_BAD_REQUEST)
+
         viewset = OrderViewSet()
         viewset.request = request
         viewset.format_kwarg = None
-        
+
         queryset = viewset.get_queryset()
         
         excel = ExcelGenerator(sheet_name='오더관리')

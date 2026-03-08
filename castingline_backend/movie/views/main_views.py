@@ -38,6 +38,10 @@ class MovieViewSet(viewsets.ModelViewSet):
 
     search_fields = ["title_ko"]
     ordering_fields = "__all__"
+    ordering_field_map = {
+        'distributor': 'distributor__client_name',
+        'production_company': 'production_company__client_name',
+    }
 
     def perform_create(self, serializer):
         # 1. 현재 연도 가져오기 (2026)

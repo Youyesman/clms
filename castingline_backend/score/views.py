@@ -74,6 +74,8 @@ class ScoreViewSet(viewsets.ModelViewSet):
     authentication_classes = []
     permission_classes = [AllowAny]
     pagination_class = None
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = "__all__"
 
     # ✅ 스코어가 생성(POST)될 때 실행되는 메서드
     def perform_create(self, serializer):
@@ -119,6 +121,89 @@ class ScoreViewSet(viewsets.ModelViewSet):
                 changed = True
             if changed:
                 order.save()
+
+    @action(detail=False, methods=["post"], url_path="bulk-save")
+    def bulk_save(self, request):
+        """
+        매트릭스에서 편집한 셀들을 한 번에 저장.
+        items: [{ fare, show_count, visitor, client, movie, auditorium, entry_date }]
+        delete_ids: [id, ...]  (값이 0이 되어 삭제할 스코어 ID들)
+        """
+        items = request.data.get("items", [])
+        delete_ids = request.data.get("delete_ids", [])
+        created_count = 0
+        updated_count = 0
+
+        # 1. 삭제 처리
+        if delete_ids:
+            Score.objects.filter(id__in=delete_ids).delete()
+
+        # 2. 생성/수정 처리
+        for item in items:
+            client_id = item.get("client")
+            movie_id = item.get("movie")
+            entry_date = item.get("entry_date")
+            auditorium = item.get("auditorium")
+            fare = str(item.get("fare", ""))
+            show_count = item.get("show_count", "")
+            visitor = str(item.get("visitor", 0))
+
+            # update_or_create로 unique constraint 충돌 방지
+            obj, created = Score.objects.update_or_create(
+                entry_date=entry_date,
+                client_id=client_id,
+                movie_id=movie_id,
+                auditorium=auditorium,
+                fare=fare,
+                show_count=show_count,
+                defaults={"visitor": visitor},
+            )
+
+            if created:
+                created_count += 1
+                # 신규 생성 시 Order/OrderList 자동 생성 (perform_create 로직 재사용)
+                try:
+                    order_list, _ = OrderList.objects.get_or_create(
+                        movie_id=movie_id,
+                        defaults={
+                            "start_date": entry_date,
+                            "is_auto_generated": True,
+                            "remark": f"{entry_date} 스코어 일괄 저장 시 자동 생성",
+                        },
+                    )
+                    order, o_created = Order.objects.get_or_create(
+                        client_id=client_id,
+                        movie_id=movie_id,
+                        defaults={
+                            "start_date": entry_date,
+                            "release_date": entry_date,
+                            "last_screening_date": entry_date,
+                            "is_auto_generated": True,
+                            "remark": f"{entry_date} 스코어 일괄 저장 시 자동 생성",
+                        },
+                    )
+                    if not o_created:
+                        changed = False
+                        if not order.release_date or entry_date < str(order.release_date):
+                            order.release_date = entry_date
+                            order.start_date = entry_date
+                            changed = True
+                        if not order.last_screening_date or entry_date > str(order.last_screening_date):
+                            order.last_screening_date = entry_date
+                            changed = True
+                        if changed:
+                            order.save()
+                except Exception:
+                    pass  # Order 생성 실패해도 스코어 저장은 유지
+            else:
+                updated_count += 1
+
+        return Response({
+            "message": f"생성 {created_count}건, 수정 {updated_count}건, 삭제 {len(delete_ids)}건 처리되었습니다.",
+            "created": created_count,
+            "updated": updated_count,
+            "deleted": len(delete_ids),
+        })
 
     @action(detail=False, methods=["post"], url_path="bulk-delete")
     def bulk_delete(self, request):

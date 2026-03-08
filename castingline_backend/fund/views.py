@@ -41,6 +41,9 @@ class FundViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["client_name", "client_code"]
     ordering_fields = "__all__"
+    ordering_field_map = {
+        'value': 'exempt_month_count',
+    }
 
     ordering = ["theater_kind", "client_name"]
 
@@ -62,11 +65,20 @@ class FundViewSet(viewsets.ModelViewSet):
             "fund_yn"
         )[:1]
 
+        # 기금면제 월 수 서브쿼리
+        exempt_month_subquery = Subquery(
+            MonthlyFund.objects.filter(
+                client_id=OuterRef("pk"), yyyy=int(yyyy), fund_yn=True
+            ).values("client_id").annotate(cnt=Count("id")).values("cnt")[:1],
+            output_field=IntegerField(),
+        )
+
         # 3. Client 기반 쿼리셋 (Annotate 핵심 로직)
         queryset = Client.objects.annotate(
             annotated_fund_yn=Subquery(
                 fund_status, output_field=BooleanField()),
             current_yyyy=Value(int(yyyy), output_field=IntegerField()),
+            exempt_month_count=Coalesce(exempt_month_subquery, Value(0)),
         ).annotate(
             fund_yn=Coalesce("annotated_fund_yn", Value(False))
         )
@@ -108,6 +120,8 @@ class FundViewSet(viewsets.ModelViewSet):
 class MonthlyFundViewSet(viewsets.ModelViewSet):
     serializer_class = MonthlyFundSerializer
     queryset = MonthlyFund.objects.all()
+    filter_backends = [KoreanOrderingFilter]
+    ordering_fields = "__all__"
 
     def partial_update(self, request, *args, **kwargs):
         client_id = kwargs.get("pk")
@@ -165,6 +179,8 @@ class MonthlyFundViewSet(viewsets.ModelViewSet):
 class DailyFundViewSet(viewsets.ModelViewSet):
     serializer_class = DailyFundSerializer
     queryset = DailyFund.objects.all()
+    filter_backends = [KoreanOrderingFilter]
+    ordering_fields = "__all__"
 
     def list(self, request, *args, **kwargs):
         client_id = request.query_params.get("client_id")

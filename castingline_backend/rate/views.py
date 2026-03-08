@@ -84,6 +84,11 @@ class RateViewSet(viewsets.ModelViewSet):
     # ✅ 검색 필드 설정 (movie__title_ko가 정확히 작동하게 함)
     search_fields = ["movie__title_ko", "client__client_name"]
     ordering_fields = "__all__"
+    ordering_field_map = {
+        'client_code': 'client__client_code',
+        'client_name': 'client__client_name',
+        'movie': 'movie__title_ko',
+    }
 
     def create(self, request, *args, **kwargs):
         # 1. 요청 데이터가 리스트인지 확인
@@ -291,6 +296,8 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [AllowAny]
     pagination_class = DefaultPagination
+    filter_backends = [KoreanOrderingFilter]
+    ordering_fields = "__all__"
 
     def get_queryset(self):
         rate_exists = Rate.objects.filter(

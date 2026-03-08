@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth.hashers import check_password
+from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.utils import timezone
 from django.db.models import Q
 from rest_framework.decorators import action
@@ -29,8 +30,13 @@ class GetUser(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     queryset = User.objects.all()
     pagination_class = UserPagination  # 페이지네이션 설정
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["username", "nickname", "local_name"]
+    ordering_fields = "__all__"
+    ordering_field_map = {
+        'client_name': 'client__client_name',
+        'client_type': 'client__client_type',
+    }
     serializer_class = UserSerializer
 
 
@@ -201,8 +207,13 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     queryset = User.objects.all().order_by('-id')
     pagination_class = UserPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ['username', 'nickname', 'email']
+    ordering_fields = "__all__"
+    ordering_field_map = {
+        'client_name': 'client__client_name',
+        'client_type': 'client__client_type',
+    }
     serializer_class = UserSerializer
 
 

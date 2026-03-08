@@ -185,12 +185,12 @@ export function ManageScore() {
 
     const flatScores = useMemo(() => groupedScores.flatMap((group) => group.items), [groupedScores]);
 
-    const handleSearch = async (preserveId?: number) => {
+    const handleSearch = async (preserveId?: number, silent = false) => {
         if (!searchParams.entry_date) {
             toast.warning("입회일자를 선택해주세요.");
             return;
         }
-        setLoading(true);
+        if (!silent) setLoading(true);
         const params = new URLSearchParams({
             entry_date: searchParams.entry_date,
             client_name: clientInput,
@@ -209,7 +209,7 @@ export function ManageScore() {
         } catch (error) {
             toast.error(handleBackendErrors(error));
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
             setSelectedIds([]);
         }
     };
@@ -602,7 +602,7 @@ export function ManageScore() {
                 <ScoreDetailMatrix
                     selectedScore={selectedScore}
                     allScores={flatScores}
-                    setScores={handleSearch}
+                    setScores={(preserveId?: number) => handleSearch(preserveId, true)}
                     setSelectedScore={setSelectedScore}
                 />
             </MainGrid>
