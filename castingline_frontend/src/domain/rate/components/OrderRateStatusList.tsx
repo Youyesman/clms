@@ -163,16 +163,32 @@ export function OrderRateStatusList({ activeFilters, onRefreshMaster }: Props) {
     }
   };
 
-  // ✅ 일괄 등록
+  // ✅ 일괄 등록 (전체 페이지 조회 후 처리)
   const handleBulkAddRate = async () => {
-    const targets = orders.filter((o: any) => !o.has_rate);
-    if (targets.length === 0) return alert("대상 없음");
     if (!baseDate || (!seoulValue && !provinceValue))
       return alert("날짜/부율 입력 필요");
 
-    if (!window.confirm(`${targets.length}건을 일괄 등록하시겠습니까?`)) return;
+    // 전체 미등록 오더 조회 (페이지 제한 없이)
+    let allTargets: any[] = [];
+    try {
+      const params = new URLSearchParams();
+      params.append("movie_code", activeFilters.movie.movie_code);
+      if (activeFilters.client?.client_code)
+        params.append("client_code", activeFilters.client.client_code);
+      params.append("missing_rate_only", "true");
+      params.append("page_size", "10000");
 
-    const payload = targets.map((row: any) => {
+      const res = await AxiosGet(`order-rate-status/?${params.toString()}`);
+      allTargets = (res.data.results || []).filter((o: any) => !o.has_rate);
+    } catch (error) {
+      return alert("대상 조회 실패");
+    }
+
+    if (allTargets.length === 0) return alert("대상 없음");
+
+    if (!window.confirm(`${allTargets.length}건을 일괄 등록하시겠습니까?`)) return;
+
+    const payload = allTargets.map((row: any) => {
       const isSeoul = row.classification === "서울" || row.region_code === "01";
       return {
         client: row.client,
@@ -186,7 +202,7 @@ export function OrderRateStatusList({ activeFilters, onRefreshMaster }: Props) {
 
     try {
       await AxiosPost("rates", payload);
-      alert(`${targets.length}건 등록 완료`);
+      alert(`${allTargets.length}건 등록 완료`);
       fetchOrders();
       if (onRefreshMaster) onRefreshMaster(); // ✅ 마스터 목록(부율 관리) 새로고침
     } catch (error) {

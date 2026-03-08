@@ -240,7 +240,7 @@ class SettlementListView(APIView):
             "수신자이메일": client.invoice_email_address,
             "수신자이메일2": client.invoice_email_address2,
             "수신자 전화번호": client.settlement_phone_number,
-            "상영타입": movie.viewing_dimension, "인원": 0, "부율": float(rate), "is_fund_exempt": exempt,
+            "상영타입": movie.viewing_dimension or "", "인원": 0, "부율": float(rate), "is_fund_exempt": exempt,
             "_total_raw_amt": 0, "_total_excl_fund_sum": Decimal("0"), "_min_date": entry_date, "_max_date": entry_date,
             "classification": client.classification,
         }
@@ -374,13 +374,22 @@ class SettlementExcelExportView(SettlementListView):
         if not yyyy_mm or not movie_id:
             return HttpResponse("년월과 영화를 선택해주세요.", status=400)
 
+        # 영화 제목 조회 (시트명 및 파일명 사용)
+        try:
+            movie = Movie.objects.get(id=movie_id)
+            movie_title = movie.title_ko or "정산"
+        except Movie.DoesNotExist:
+            movie_title = "정산"
+
         # 상속받은 핵심 로직 호출
         items = self.get_processed_data(yyyy_mm, movie_id, target_filter)
 
         if not items:
             return HttpResponse("조회된 데이터가 없습니다.", status=404)
 
-        excel = ExcelGenerator(sheet_name="월간부금정산")
+        # 시트명을 영화 제목으로 설정 (엑셀 시트명 최대 31자)
+        sheet_name = movie_title[:31]
+        excel = ExcelGenerator(sheet_name=sheet_name)
         header_labels = [
             "지역", "멀티", "구분", "거래처코드(바이포엠만 해당)", "극장명",
             "사업자 등록번호", "종사업장번호", "공급받는자 상호", "공급받는자 성명",
@@ -390,33 +399,41 @@ class SettlementExcelExportView(SettlementListView):
         ]
         excel.add_header(header_labels)
 
+        # 틀 고정: 극장명(5번째 열) 이후 고정 → F2
+        excel.ws.freeze_panes = "F2"
+
+        data_rows = []
+        subtotal_row_indices = []  # 합계 행 위치 추적 (1-based, 헤더 제외)
+
         for item in items:
             row = [
-                item.get("지역", ""), item.get(
-                    "멀티구분", ""), item.get("classification", ""),
+                item.get("지역", ""), item.get("멀티구분", ""), item.get("classification", ""),
                 item.get("거래처코드(바이포엠만 해당)", ""), item.get("극장명", ""),
                 item.get("사업자 등록번호", ""), item.get("종사업장번호", ""),
                 item.get("공급받는자 상호", ""), item.get("공급받는자 성명", ""),
                 item.get("사업장 소재", ""), item.get("업태", ""), item.get("업종", ""),
                 item.get("수신자이메일", ""), item.get("수신자 전화번호", ""),
-                item.get("날짜(From)", ""), item.get(
-                    "날짜(To)", ""), item.get("상영타입", ""),
+                item.get("날짜(From)", ""), item.get("날짜(To)", ""),
+                item.get("상영타입", "") or "-",
                 item.get("인원", 0), item.get("금액(입장료)", 0),
-                item.get("기금제외금액", 0), item.get(
-                    "부가세제외금액", 0), item.get("부율", 0),
-                item.get("공급가액", 0), item.get(
-                    "부가세", 0), item.get("영화사 지급금", 0),
+                item.get("기금제외금액", 0), item.get("부가세제외금액", 0), item.get("부율", 0),
+                item.get("공급가액", 0), item.get("부가세", 0), item.get("영화사 지급금", 0),
             ]
-            excel.ws.append(row)
-
-            # 합계 행 스타일 (굵게 + 배경색)
             if item.get("is_subtotal"):
-                for cell in excel.ws[excel.ws.max_row]:
-                    cell.font = Font(bold=True)
-                    cell.fill = PatternFill(
-                        start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+                subtotal_row_indices.append(len(data_rows))
+            data_rows.append(row)
 
-        filename = f"Settlement_{yyyy_mm}_{datetime.now().strftime('%Y%m%d')}"
+        excel.add_rows(data_rows)
+
+        # 합계 행 스타일 추가 적용 (굵게 + 배경색), 헤더 행이 1행이므로 데이터는 2행~
+        for idx in subtotal_row_indices:
+            excel_row_num = idx + 2  # 헤더(1행) + 1-based index
+            for cell in excel.ws[excel_row_num]:
+                cell.font = Font(bold=True, size=10)
+                cell.fill = PatternFill(
+                    start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+        filename = f"Settlement_{movie_title}_{yyyy_mm}_{datetime.now().strftime('%Y%m%d')}"
         return excel.to_response(filename)
 
 # 4. 지정 부금 관리 (리스트 및 엑셀)

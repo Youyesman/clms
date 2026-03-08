@@ -60,31 +60,27 @@ def fetch_megabox_schedule_rpa(date_list=None, target_regions=None, stop_signal=
             # print("   Accessible URL...")
             page.goto(target_url, timeout=60000)
             page.wait_for_load_state("domcontentloaded")
-            time.sleep(3) # Initial render wait
-            
+
             # 1. '극장별' 탭 클릭
-            theater_tab_sel = "a[href='#masterBrch']" 
-            
+            theater_tab_sel = "a[href='#masterBrch']"
+
             try:
                 page.wait_for_selector(theater_tab_sel, timeout=10000)
                 page.click(theater_tab_sel, force=True)
-                time.sleep(2)
             except Exception as e:
                 print(f"[{worker_id}] ⚠️ Tab click failed: {e}")
-                # page.screenshot(path=f"megabox_tab_error_{worker_id}.png")
 
-            # 2. 지역 순회
+            # 2. 지역 순회 - 지역 리스트가 렌더링될 때까지 wait_for_selector 사용
             region_list_sel = "#masterBrch .tab-list-choice a"
-            
-            # Retry loop for region list
-            for _ in range(3):
-                if page.locator(region_list_sel).count() > 0:
-                    break
-                time.sleep(2)
-                
+
+            try:
+                page.wait_for_selector(region_list_sel, timeout=10000)
+            except Exception:
+                print(f"[{worker_id}] ⚠️ Region list not found after waiting.")
+
             region_count = page.locator(region_list_sel).count()
             if region_count == 0:
-                 print(f"[{worker_id}] ⚠️ Region list count is 0.")
+                print(f"[{worker_id}] ⚠️ Region list count is 0.")
             
             # print(f"[{worker_id}] 📍 Found {region_count} regions available on page.")
             
@@ -292,8 +288,10 @@ def scan_megabox_master_list_rpa():
         
         try:
             page.goto("https://www.megabox.co.kr/booking/timetable", timeout=60000)
-            
+            page.wait_for_load_state("domcontentloaded")
+
             # Click Theater Tab
+            page.wait_for_selector("a[href='#masterBrch']", timeout=10000)
             page.click("a[href='#masterBrch']", force=True)
             page.wait_for_selector("#masterBrch .tab-list-choice a", timeout=10000)
             

@@ -7,6 +7,8 @@ import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useToast } from "../../../components/common/CustomToast";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
+import dayjs from "dayjs";
 
 /** 1. 스타일 정의: 디자인 시스템 통일 **/
 const ListContainer = styled.div`
@@ -30,6 +32,7 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
     const toast = useToast();
     const [sortKey, setSortKey] = useState<string | null>("created_date");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+    const [isExcelLoading, setIsExcelLoading] = useState(false);
     const [page, setPage] = useState(1);
     const [pageSize] = useState(20);
     const [totalCount, setTotalCount] = useState(0);
@@ -68,6 +71,32 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
         if (newPage < 1 || newPage > Math.ceil(totalCount / pageSize)) return;
         setPage(newPage);
         fetchSortedMovies(sortKey, sortOrder, newPage);
+    };
+
+    const handleExcelExport = async () => {
+        setIsExcelLoading(true);
+        try {
+            const ordering = sortKey ? `${sortOrder === "asc" ? "" : "-"}${sortKey}` : "";
+            const params = new URLSearchParams({
+                ordering,
+                distributor: filters?.distributor_id || "",
+                search: filters?.title_ko || "",
+            });
+            const res = await AxiosGet(`movie-excel-export/?${params.toString()}`, { responseType: "blob" });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement("a");
+            link.href = url;
+            link.setAttribute("download", `영화목록_${dayjs().format("YYYYMMDD")}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode?.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            toast.success("엑셀 다운로드가 완료되었습니다.");
+        } catch (e) {
+            toast.error("엑셀 다운로드 중 오류가 발생했습니다.");
+        } finally {
+            setIsExcelLoading(false);
+        }
     };
 
     const handleSortChange = (key: string) => {
@@ -114,6 +143,7 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
                 title="영화 목록"
                 actions={
                     <>
+                        <ExcelIconButton onClick={handleExcelExport} isLoading={isExcelLoading} title="엑셀 다운로드" />
                         {selectedMovieIds.length > 0 && (
                             <CustomIconButton color="red" onClick={handleBulkDelete} title="선택 삭제">
                                 <Trash size={18} weight="bold" />

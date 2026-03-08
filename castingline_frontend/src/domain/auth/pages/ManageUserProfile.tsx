@@ -207,13 +207,16 @@ export function ManageUserProfile() {
     const [page, setPage] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const pageSize = 20;
+    const [sortKey, setSortKey] = useState<string | null>(null);
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-    const fetchUsers = async () => {
+    const fetchUsers = async (p: number = page, currentSearch: string = search) => {
         try {
             const params = new URLSearchParams();
-            if (search) params.append("search", search);
-            params.append("page", String(page));
+            if (currentSearch) params.append("search", currentSearch);
+            params.append("page", String(p));
             params.append("page_size", String(pageSize));
+            if (sortKey) params.append("ordering", sortOrder === "desc" ? `-${sortKey}` : sortKey);
 
             const res = await AxiosGet(`users/?${params.toString()}`);
             setUsers(res.data.results);
@@ -224,12 +227,20 @@ export function ManageUserProfile() {
     };
 
     useEffect(() => {
-        fetchUsers();
-    }, [page]);
+        fetchUsers(page);
+    }, [page, sortKey, sortOrder]);
 
     const handleSearch = () => {
         setPage(1);
-        fetchUsers();
+        fetchUsers(1, search);
+    };
+
+    const handleSortChange = (key: string) => {
+        let newOrder: "asc" | "desc" = "asc";
+        if (sortKey === key) newOrder = sortOrder === "asc" ? "desc" : "asc";
+        setSortKey(key);
+        setSortOrder(newOrder);
+        setPage(1);
     };
 
     const handleAdd = () => {
@@ -337,6 +348,9 @@ export function ManageUserProfile() {
                     pageSize={pageSize}
                     totalCount={totalCount}
                     onPageChange={setPage}
+                    sortKey={sortKey}
+                    sortOrder={sortOrder}
+                    onSortChange={handleSortChange}
                     formatCell={(k: string, v: any) => {
                         if (k === "is_superuser") return v === true ? "관리자" : "고객";
                         return v ?? "";

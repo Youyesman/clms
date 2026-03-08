@@ -9,6 +9,7 @@ router.register("movies", MovieViewSet, basename="movie")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path('movie-excel-export/', MovieExcelExportView.as_view(), name='movie-excel-export'),
     path('public_movies/', get_public_movies, name='public_movies'),
     path('cgv/fetch/', fetch_cgv_schedule_view, name='fetch_cgv_schedule'),
     # TMDB proxy

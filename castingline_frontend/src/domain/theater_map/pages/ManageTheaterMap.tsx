@@ -69,13 +69,16 @@ export function ManageTheaterMap() {
             try {
                 const res = await AxiosGet("theater-map-distributors/");
                 const data = Array.isArray(res.data) ? res.data : res.data.results;
+                const EXCLUDED_DISTRIBUTORS = ["디씨아이티", "롯데엔터테인먼트", "이십세기폭스코리아"];
                 setDistributors(
-                    data.map((d: any) => ({
-                        label: d.client_name,
-                        value: String(d.id),
-                        name: d.client_name,
-                        id: d.id,
-                    })),
+                    data
+                        .filter((d: any) => !EXCLUDED_DISTRIBUTORS.includes(d.client_name))
+                        .map((d: any) => ({
+                            label: d.client_name,
+                            value: String(d.id),
+                            name: d.client_name,
+                            id: d.id,
+                        })),
                 );
             } catch (error) {
                 console.error(error);

@@ -311,7 +311,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 break;
         }
         setSelectedCell({ fare: dynamicFareList[nextFareIdx], show: showCounts[nextShowIdx] });
-    }, [dynamicFareList, showCounts]);
+    }, [dynamicFareList, showCounts, selectedCell]);
 
     // 데이터 저장 (POST/PATCH)
     const handleSave = useCallback(async (cellToSave: { fare: number; show: number }, valueToSave: string) => {

@@ -24,6 +24,7 @@ interface IScheduleItem {
 interface IStats {
     theater_count: number;
     movie_count: number;
+    total_seats: number;
     by_brand: Record<string, number>;
     raw_logs: Record<string, number | null>;
 }
@@ -482,6 +483,11 @@ export function ScheduleViewerPage() {
                         <div className="label">영화 수</div>
                         <div className="value">{stats.movie_count.toLocaleString()}</div>
                         <div className="sub">종목</div>
+                    </StatCard>
+                    <StatCard $accent="#475569">
+                        <div className="label">총 좌석수</div>
+                        <div className="value">{(stats.total_seats ?? 0).toLocaleString()}</div>
+                        <div className="sub">석</div>
                     </StatCard>
                 </StatsGrid>
             )}

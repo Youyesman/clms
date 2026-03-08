@@ -274,22 +274,24 @@ export function ManageSpecialSettlement() {
                         <Spinner size={40} weight="bold" />
                     </LoadingOverlay>
                 )}
-                <GenericTable
-                    headers={headers}
-                    data={settlementData}
-                    getRowKey={(item: any, idx: number) => `${item.client_name}-${item.fare}-${idx}`}
-                    formatCell={(key: string, value: any) => {
-                        if (typeof value === "number") {
-                            return value.toLocaleString();
-                        }
-                        return value || "-";
-                    }}
-                    summaryData={summaryData}
-                    page={1}
-                    pageSize={1000}
-                    totalCount={settlementData.length}
-                    onPageChange={() => {}}
-                />
+                <div style={{ flex: 1, overflow: "hidden" }}>
+                    <GenericTable
+                        headers={headers}
+                        data={settlementData}
+                        getRowKey={(item: any, idx: number) => `${item.client_name}-${item.fare}-${idx}`}
+                        formatCell={(key: string, value: any) => {
+                            if (typeof value === "number") {
+                                return value.toLocaleString();
+                            }
+                            return value || "-";
+                        }}
+                        summaryData={summaryData}
+                        page={1}
+                        pageSize={1000}
+                        totalCount={settlementData.length}
+                        onPageChange={() => {}}
+                    />
+                </div>
             </CommonSectionCard>
         </PageContainer>
     );

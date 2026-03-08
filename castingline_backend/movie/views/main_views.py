@@ -1,4 +1,5 @@
 from rest_framework.decorators import api_view
+from rest_framework.views import APIView
 from movie.models import Movie
 from rest_framework.response import Response
 from movie.models import *
@@ -12,6 +13,8 @@ from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from crawler.management.commands.run_cgv_pipeline import fetch_cgv_schedule_rpa
+from castingline_backend.utils.excel_helper import ExcelGenerator
+from datetime import datetime
 
 class DefaultPagination(PageNumberPagination):
     page_size = 20  # 한 페이지에 보여질 항목 수 설정
@@ -98,6 +101,59 @@ def get_public_movies(request):
     ]
 
     return Response(data)
+
+class MovieExcelExportView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        distributor = request.query_params.get("distributor")
+        search = request.query_params.get("search")
+        ordering = request.query_params.get("ordering", "-created_date")
+
+        qs = Movie.objects.select_related("distributor", "production_company").all()
+        if distributor:
+            qs = qs.filter(distributor=distributor)
+        if search:
+            qs = qs.filter(title_ko__icontains=search)
+        if ordering:
+            qs = qs.order_by(ordering)
+
+        headers = [
+            "영화코드", "대표영화", "한글제목", "영어제목", "상영시간(분)",
+            "배급사", "제작사", "관람등급", "장르", "국가", "감독", "출연진",
+            "개봉일", "종료일", "폐관완료일", "확정여부",
+            "대표영화코드", "미디어타입", "오디오모드", "상영차원", "상영타입",
+            "4DX차원", "IMAX-L", "ScreenX",
+        ]
+        excel = ExcelGenerator(sheet_name="영화목록")
+        excel.add_header(headers)
+
+        rows = []
+        for m in qs:
+            rows.append([
+                m.movie_code, "Y" if m.is_primary_movie else "N",
+                m.title_ko, m.title_en or "",
+                m.running_time_minutes or "",
+                m.distributor.client_name if m.distributor else "",
+                m.production_company.client_name if m.production_company else "",
+                m.rating or "", m.genre or "", m.country or "",
+                m.director or "", m.cast or "",
+                str(m.release_date) if m.release_date else "",
+                str(m.end_date) if m.end_date else "",
+                str(m.closure_completed_date) if m.closure_completed_date else "",
+                "Y" if m.is_finalized else "N",
+                m.primary_movie_code or "",
+                m.media_type or "", m.audio_mode or "",
+                m.viewing_dimension or "", m.screening_type or "",
+                getattr(m, 'dx4_viewing_dimension', '') or "",
+                getattr(m, 'imax_l', '') or "",
+                getattr(m, 'screen_x', '') or "",
+            ])
+        excel.add_rows(rows)
+
+        filename = f"영화목록_{datetime.now().strftime('%Y%m%d')}"
+        return excel.to_response(filename)
+
 
 @api_view(["GET", "POST"])
 def fetch_cgv_schedule_view(request):

@@ -53,9 +53,9 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                     current_try += 1
                     page.goto(url, timeout=60000)
                     page.wait_for_load_state("domcontentloaded")
-                    time.sleep(3) # Initial load wait
-                    # Validate if key element exists
-                    if page.locator(".cinema_select_wrap").count() > 0:
+                    # .depth1 아이템은 JS 렌더링 후 생성되므로 직접 대기
+                    page.wait_for_selector(".cinema_select_wrap .depth1", timeout=15000)
+                    if page.locator(".cinema_select_wrap .depth1").count() > 0:
                         break # Success
                 except Exception as load_err:
                     print(f"[{worker_id}] ⚠️ Page Load Failed ({current_try}/{max_load_retries}): {load_err}")
@@ -64,19 +64,16 @@ def fetch_lotte_schedule_worker(worker_id, assigned_regions, target_dates, stop_
                     time.sleep(5.0)
 
             # 1. 지역 리스트 찾기
-            # Selector derived from user snippet: .cinema_select_wrap .depth1
             region_items = page.locator(".cinema_select_wrap .depth1")
             region_count = region_items.count()
-            
+
             if region_count == 0:
                 raise Exception("Region list not found (.cinema_select_wrap .depth1)")
 
             for i in range(region_count):
                 if stop_signal and stop_signal(): break
-                
-                # [USER REQUEST] XPath for Region
-                region_base = "/html/body/div[6]/div/ul/li[1]/div/div/div[1]/div[2]/div/ul/li"
-                region_li = page.locator(f"xpath={region_base}[{i+1}]")
+
+                region_li = region_items.nth(i)
                 region_anchor = region_li.locator("xpath=./a")
                 region_full_text = region_anchor.inner_text().strip() # "서울(23)"
                 

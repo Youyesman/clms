@@ -184,8 +184,8 @@ export function OrderDetail({
     };
 
     const handleExcelDownload = useCallback(() => {
-        if (!filterStartDate) {
-            toast.warning("기준일자를 선택해주세요.");
+        if (!filterStartDate && !selectedOrderList?.id) {
+            toast.warning("기준일자를 선택하거나 영화를 선택해주세요.");
             return;
         }
         setIsExcelLoading(true);

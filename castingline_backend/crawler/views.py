@@ -729,6 +729,9 @@ class CrawlerScheduleListView(APIView):
         brand_stats = {item['brand']: item['cnt'] for item in qs.values('brand').annotate(cnt=Count('id'))}
         theater_count = qs.values('theater_name').distinct().count()
         movie_count = qs.values('movie_title').distinct().count()
+        from django.db.models import Sum
+        total_seats_agg = qs.aggregate(total=Sum('total_seats'))
+        total_seats = total_seats_agg['total'] or 0
 
         # Raw log counts (크롤링 수집 건수 - transform 전 원본)
         log_filter = {}
@@ -790,6 +793,7 @@ class CrawlerScheduleListView(APIView):
             "stats": {
                 "theater_count": theater_count,
                 "movie_count": movie_count,
+                "total_seats": total_seats,
                 "by_brand": brand_stats,
                 "raw_logs": raw_logs,
             }

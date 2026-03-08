@@ -35,15 +35,17 @@ def scan_cgv_master_list_rpa():
         
         try:
             page.goto("https://cgv.co.kr/cnm/movieBook/cinema", timeout=30000)
-            
+            page.wait_for_load_state("domcontentloaded")
+
             # Helper: 모달 열기
             def ensure_modal_open():
                 try:
                     if page.locator(".cgv-bot-modal.active").count() > 0: return
                     page.locator("button[class*='editBtn']").first.click()
-                    page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=3000)
+                    page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=5000)
                 except: pass
 
+            page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=10000)
             ensure_modal_open()
             
             # Selectors (User Verified)
@@ -110,28 +112,33 @@ def fetch_cgv_schedule_rpa(co_cd="A420", site_no=None, scn_ymd=None, date_list=N
         
         try:
             page.goto(target_url, timeout=30000)
+            page.wait_for_load_state("domcontentloaded")
             print("⏳ 페이지 로딩 대기 중...")
-            
+
             # Helper: 모달 열기
             def ensure_modal_open():
                 try:
-                    # 모달 활성 상태 확인
+                    # 이미 활성 상태면 바로 리턴
                     if page.locator(".cgv-bot-modal.active").count() > 0:
                         return
-                    
-                    # 닫혀있다면 열기 버튼 찾기 클릭
+                    # 닫혀있다면 열기 버튼 클릭
                     open_btn = page.locator("button[class*='editBtn']").first
                     open_btn.click()
-                    page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=3000)
+                    page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=5000)
                 except Exception as e:
                     print(f"⚠️ 모달 열기 실패: {e}")
- 
-            # 초기 모달 대기
+
+            # 초기 모달 대기 (페이지 로드 후 모달이 자동으로 열릴 때까지)
+            page.wait_for_selector(".cgv-bot-modal.active", state="visible", timeout=10000)
             ensure_modal_open()
-            
-            # 지역 개수 파악
+
+            # 지역 개수 파악 (지역 리스트가 렌더링될 때까지 대기)
             modal_selector = ".cgv-bot-modal.active"
             region_items_selector = f"{modal_selector} .bottom_region__2bZCS > ul > li"
+            try:
+                page.wait_for_selector(region_items_selector, timeout=5000)
+            except Exception:
+                pass
             region_count = page.locator(region_items_selector).count()
             print(f"📍 {region_count}개의 지역을 찾았습니다.")
             

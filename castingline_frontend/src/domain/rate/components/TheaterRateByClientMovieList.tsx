@@ -6,6 +6,7 @@ import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import formatDateTime from "../../../components/common/formatDateTime";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { CustomInput } from "../../../components/common/CustomInput";
 
 const ListContainer = styled.div`
     display: flex;
@@ -17,9 +18,21 @@ const ListContainer = styled.div`
     overflow: hidden;
 `;
 
+const DateBar = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+`;
+
 // ListHeader removed
 export function TheaterRateByClientMovieList({ selectedInnerRate }: { selectedInnerRate: any }) {
     const toast = useToast();
+    const [startDate, setStartDate] = useState("");
     const [mergedData, setMergedData] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -68,9 +81,14 @@ export function TheaterRateByClientMovieList({ selectedInnerRate }: { selectedIn
             }
 
             if (item.is_new) {
+                if (!startDate) {
+                    toast.warning("적용 시작일을 입력해주세요.");
+                    return;
+                }
                 const payload = {
                     rate: selectedInnerRate.id,
                     theater: item.theater_id,
+                    start_date: startDate,
                     [key]: value
                 };
                 await AxiosPost("theater-rates", payload);
@@ -111,6 +129,15 @@ export function TheaterRateByClientMovieList({ selectedInnerRate }: { selectedIn
                 title="상영관별 예외 부율 설정"
                 subtitle={selectedInnerRate ? `[기본 부율: ${selectedInnerRate.share_rate}%]` : undefined}
             />
+            <DateBar>
+                <span>적용 시작일</span>
+                <CustomInput
+                    inputType="date"
+                    value={startDate}
+                    setValue={setStartDate}
+                    style={{ width: "140px" }}
+                />
+            </DateBar>
             {!selectedInnerRate ? (
                 <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
                     공통 부율 이력을 선택해주세요.
