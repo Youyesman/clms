@@ -395,7 +395,7 @@ export function ScreenCountPage() {
                                         width={60}
                                     />
                                     <Tooltip
-                                        formatter={(value: number | string | undefined, name: string | undefined) => [
+                                        formatter={(value, name) => [
                                             Number(value ?? 0).toLocaleString("ko-KR") + "개",
                                             name === "lw_period_screens" ? "전주 총스크린수" : "당기 총스크린수",
                                         ]}

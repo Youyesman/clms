@@ -395,7 +395,7 @@ export function ShowCountPage() {
                                         width={70}
                                     />
                                     <Tooltip
-                                        formatter={(value: number | string | undefined, name: string | undefined) => [
+                                        formatter={(value, name) => [
                                             Number(value ?? 0).toLocaleString("ko-KR") + "회",
                                             name === "lw_period_shows" ? "전주 총회차수" : "당기 총회차수",
                                         ]}

@@ -439,7 +439,7 @@ export function SeatCountPage() {
                                             width={70}
                                         />
                                         <Tooltip
-                                            formatter={(value: number | string | undefined, name: string | undefined) => [
+                                            formatter={(value, name) => [
                                                 Number(value ?? 0).toLocaleString("ko-KR") + "석",
                                                 name === "lw_period_total" ? "전주 총좌석수" : "당기 총좌석수",
                                             ]}
