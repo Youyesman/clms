@@ -513,7 +513,7 @@ export function SeatCountPage() {
                                                 ))}
                                             </Pie>
                                             <Tooltip
-                                                formatter={(value: number | string | undefined) => [
+                                                formatter={(value) => [
                                                     `${Number(value ?? 0).toFixed(1)}%`,
                                                     "예매율",
                                                 ]}
@@ -543,7 +543,7 @@ export function SeatCountPage() {
                                                 ))}
                                             </Pie>
                                             <Tooltip
-                                                formatter={(value: number | string | undefined) => [
+                                                formatter={(value) => [
                                                     `${Number(value ?? 0).toFixed(1)}%`,
                                                     "좌점율",
                                                 ]}

@@ -642,7 +642,7 @@ export function TimeTablePage() {
                                             width={70}
                                         />
                                         <Tooltip
-                                            formatter={(value: number | string | undefined) => [Number(value ?? 0).toLocaleString("ko-KR"), "총좌석수"]}
+                                            formatter={(value) => [Number(value ?? 0).toLocaleString("ko-KR"), "총좌석수"]}
                                             labelStyle={{ color: "#1e293b", fontWeight: 600 }}
                                         />
                                         <Line
