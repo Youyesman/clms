@@ -213,7 +213,7 @@ def _process_to_rows(schedules, region_map):
     """Process schedule queryset into structured rows for display and aggregation."""
     grouped = {}
     for sch in schedules:
-        s_date = sch.start_time.date()
+        s_date = sch.play_date or sch.start_time.date()
         key = (sch.brand, sch.theater_name, sch.screen_name, s_date)
         if key not in grouped:
             grouped[key] = []
@@ -978,10 +978,9 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     region_map = _build_region_map()
 
     # ========== Collect Main Data Per Date ==========
-    from django.db.models.functions import TruncDate
     available_dates = list(
-        queryset.annotate(d=TruncDate('start_time'))
-        .values_list('d', flat=True).distinct().order_by('d')
+        queryset.filter(play_date__isnull=False)
+        .values_list('play_date', flat=True).distinct().order_by('play_date')
     )
 
     if not available_dates:
@@ -991,7 +990,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     global_max_shows = 0
 
     for d in available_dates:
-        sub_qs = queryset.filter(start_time__date=d)
+        sub_qs = queryset.filter(play_date=d)
         rows, max_shows = _process_to_rows(sub_qs, region_map)
         if rows:
             all_data[d] = rows
@@ -1008,7 +1007,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         for comp_title, comp_qs in competitor_querysets.items():
             comp_data = {}
             for d in available_dates:
-                sub_qs = comp_qs.filter(start_time__date=d)
+                sub_qs = comp_qs.filter(play_date=d)
                 rows, _ = _process_to_rows(sub_qs, region_map)
                 if rows:
                     comp_data[d] = rows

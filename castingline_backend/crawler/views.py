@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import logging
 import threading
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import Models & Pipeline Services
 from crawler.models import CrawlerRunHistory, CrawlTargetMovie, MovieSchedule
@@ -144,32 +143,25 @@ def run_crawler_background(history_id, data):
                 logger.error(f"Megabox Failure: {e}")
                 return None
 
-        # Run Parallel
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = []
-            if run_cgv: futures.append(executor.submit(run_cgv_wrapper))
-            if run_lotte: futures.append(executor.submit(run_lotte_wrapper))
-            if run_mega: futures.append(executor.submit(run_mega_wrapper))
-            
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result:
-                        comp_name, comp_failures = result
-                        executed_companies.append(comp_name)
-                        if comp_failures:
-                            # [USER REQUEST] Inject Brand for Failures Sheet
-                            for f in comp_failures:
-                                f['brand'] = comp_name
-                            all_failures.extend(comp_failures)
-                            
-                        if comp_name == 'CGV': companies_for_export.append('CGV')
-                        elif comp_name == 'Lotte': companies_for_export.append('LOTTE')
-                        elif comp_name == 'Megabox': companies_for_export.append('MEGABOX')
-                except InterruptedError:
-                    raise
-                except Exception as e:
-                    logger.error(f"Parallel Execution Error: {e}")
+        # Run Sequential
+        for wrapper in [run_cgv_wrapper, run_lotte_wrapper, run_mega_wrapper]:
+            try:
+                result = wrapper()
+                if result:
+                    comp_name, comp_failures = result
+                    executed_companies.append(comp_name)
+                    if comp_failures:
+                        for f in comp_failures:
+                            f['brand'] = comp_name
+                        all_failures.extend(comp_failures)
+
+                    if comp_name == 'CGV': companies_for_export.append('CGV')
+                    elif comp_name == 'Lotte': companies_for_export.append('LOTTE')
+                    elif comp_name == 'Megabox': companies_for_export.append('MEGABOX')
+            except InterruptedError:
+                raise
+            except Exception as e:
+                logger.error(f"Sequential Execution Error: {e}")
                 
         # 4. Generate Excel (raw crawl log)
         check_stop_signal()
@@ -783,6 +775,8 @@ class CrawlerScheduleListView(APIView):
                 "total_seats": s.total_seats,
                 "tags": s.tags or [],
                 "is_booking_available": s.is_booking_available,
+                "created_at": timezone.localtime(s.created_at).strftime("%Y-%m-%d %H:%M") if s.created_at else None,
+                "updated_at": timezone.localtime(s.updated_at).strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
             })
 
         return Response({

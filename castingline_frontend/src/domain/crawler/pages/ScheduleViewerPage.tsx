@@ -19,6 +19,8 @@ interface IScheduleItem {
     total_seats: number;
     tags: string[];
     is_booking_available: boolean;
+    created_at: string | null;
+    updated_at: string | null;
 }
 
 interface IStats {
@@ -521,6 +523,8 @@ export function ScheduleViewerPage() {
                                 <Th>종료</Th>
                                 <Th>좌석</Th>
                                 <Th>태그</Th>
+                                <Th>최초 수집</Th>
+                                <Th>최종 갱신</Th>
                             </tr>
                         </thead>
                         <tbody>
@@ -558,6 +562,17 @@ export function ScheduleViewerPage() {
                                             {row.tags.map((tag) => (
                                                 <TagChip key={tag}>{tag}</TagChip>
                                             ))}
+                                        </Td>
+                                        <Td style={{ color: "#64748b", whiteSpace: "nowrap", fontSize: 12 }}>
+                                            {row.created_at || "-"}
+                                        </Td>
+                                        <Td style={{
+                                            whiteSpace: "nowrap",
+                                            fontSize: 12,
+                                            color: row.updated_at && row.created_at && row.updated_at !== row.created_at ? "#f59e0b" : "#64748b",
+                                            fontWeight: row.updated_at && row.created_at && row.updated_at !== row.created_at ? 600 : 400,
+                                        }}>
+                                            {row.updated_at || "-"}
                                         </Td>
                                     </Tr>
                                 );
