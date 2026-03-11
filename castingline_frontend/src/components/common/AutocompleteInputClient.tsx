@@ -252,8 +252,11 @@ export function AutocompleteInputClient({
         try {
             // 2. 요청 URL에 client_type 파라미터 추가
             const targetType = TYPE_MAP[type] || type;
+            const ordering = targetType === "극장"
+                ? "-operational_status,client_name"
+                : "client_name";
             const res = await AxiosGet(
-                `clients/?ordering=client_name&search=${encodeURIComponent(name)}&client_type=${encodeURIComponent(targetType)}`
+                `clients/?ordering=${ordering}&search=${encodeURIComponent(name)}&client_type=${encodeURIComponent(targetType)}`
             );
 
             setSuggestions(res.data.results || []);

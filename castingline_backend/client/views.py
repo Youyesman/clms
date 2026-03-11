@@ -247,12 +247,21 @@ class TheaterMapViewSet(viewsets.ModelViewSet):
         "distributor_theater_name",
         "theater__client_name",
         "theater__client_code",
+        "is_closed",
     ]
 
-    ordering = ["-apply_date", "id"]
+    ordering = ["is_closed", "-apply_date", "id"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        # 폐관 극장을 뒤로 정렬 (operational_status=False가 폐관)
+        queryset = queryset.annotate(
+            is_closed=Case(
+                When(theater__operational_status=False, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
 
         # 1. 배급사 ID 필터링 (기본)
         dist_id = self.request.query_params.get("distributor")
@@ -270,7 +279,6 @@ class TheaterMapViewSet(viewsets.ModelViewSet):
         if status:
 
             status = status == "true"
-            print(status)
             queryset = queryset.filter(theater__operational_status=status)
 
         # 구분 (classification)

@@ -288,7 +288,7 @@ class FundExcelExportView(APIView):
 
         # 3. Add annotation for exempt_months_count
         # Counts how many MonthlyFund records for this client/year have fund_yn=True (Exempt)
-        queryset = queryset.filter(client_type="극장").exclude(operational_status=True).annotate(
+        queryset = queryset.filter(client_type="극장").exclude(operational_status=False).annotate(
             exempt_months_count=Count(
                 "monthly_funds",
                 filter=Q(monthly_funds__yyyy=yyyy, monthly_funds__fund_yn=True)
@@ -345,7 +345,7 @@ class MonthlyFundExcelExportView(APIView):
              yyyy = datetime.now().year
              
         # 1. 모든 극장 가져오기 (client_type='극장', 폐관 제외)
-        clients = Client.objects.filter(client_type="극장").exclude(operational_status=True)
+        clients = Client.objects.filter(client_type="극장").exclude(operational_status=False)
         
         # 2. 정렬 로직 (특수문자 -> 한글 -> 영어)
         clients_list = list(clients)

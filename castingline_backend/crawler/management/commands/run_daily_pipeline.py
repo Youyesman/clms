@@ -121,6 +121,8 @@ class Command(BaseCommand):
             print("\n[Pipeline] 1. Running CGV...")
             cgv_logs, cgv_total, cgv_failures = CGVPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
             total_collected += len(cgv_logs)
+            for f in cgv_failures:
+                f['brand'] = 'CGV'
             all_failures.extend(cgv_failures)
 
             # Transform CGV: crawler_run으로 연결된 로그를 직접 조회
@@ -144,6 +146,8 @@ class Command(BaseCommand):
             print("\n[Pipeline] 2. Running Lotte...")
             lotte_logs, lotte_total, lotte_failures = LottePipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
             total_collected += len(lotte_logs)
+            for f in lotte_failures:
+                f['brand'] = 'Lotte'
             all_failures.extend(lotte_failures)
 
             # Transform Lotte: crawler_run으로 연결된 로그를 직접 조회
@@ -173,6 +177,8 @@ class Command(BaseCommand):
             print("\n[Pipeline] 3. Running Megabox...")
             mega_logs, mega_total, mega_failures = MegaboxPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
             total_collected += len(mega_logs)
+            for f in mega_failures:
+                f['brand'] = 'Megabox'
             all_failures.extend(mega_failures)
             
             # Transform Megabox
@@ -197,6 +203,11 @@ class Command(BaseCommand):
                 print(f"   ⚠️ Megabox Transform Errors: {len(mega_errors)}")
 
             # --- Finalize ---
+            # 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
+            SKIP_REASONS = {"Date Button Disabled", "Date Button Not Found"}
+            real_failures = [f for f in all_failures if f.get('reason') not in SKIP_REASONS]
+            skipped = [f for f in all_failures if f.get('reason') in SKIP_REASONS]
+
             history.status = 'SUCCESS'
             history.finished_at = timezone.now()
             history.result_summary = {
@@ -205,7 +216,17 @@ class Command(BaseCommand):
                 'cgv_created': cgv_created,
                 'lotte_created': lotte_created,
                 'mega_created': mega_created,
-                'failures_count': len(all_failures)
+                'total_failures': len(real_failures),
+                'total_skipped': len(skipped),
+                'failure_summary': [
+                    {
+                        'brand': f.get('brand', ''),
+                        'theater': f.get('theater', ''),
+                        'date': f.get('date', ''),
+                        'reason': f.get('reason', '')
+                    }
+                    for f in real_failures[:20]
+                ],
             }
             history.save()
 

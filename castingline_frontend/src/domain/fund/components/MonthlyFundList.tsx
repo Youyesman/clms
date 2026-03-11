@@ -116,7 +116,7 @@ export function MonthlyFundList({ client_id, client_name, yyyy, onRefreshAnnual,
                 let fileName = `Monthly_Fund_All_${yyyy}.xlsx`;
                 const contentDisposition = res.headers["content-disposition"];
                 if (contentDisposition) {
-                    const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+                    const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
                     if (fileNameMatch && fileNameMatch.length === 2) fileName = fileNameMatch[1];
                 }
                 link.setAttribute("download", fileName);

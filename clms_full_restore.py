@@ -340,7 +340,14 @@ def step6_import_data():
     imp("update_movie",  "Title_M.csv")
     imp("update_movies", "Title_M.csv")
 
-    # 10. 배급사별 극장명 매핑 (theater_map.xls - 프로젝트 내 고정 파일)
+    # 10. 영화 created_date를 개봉일 기준으로 보정 (bulk import 정렬 보정)
+    log("  fix_created_date (영화 등록일 → 개봉일 기준 보정)")
+    out = manage("fix_created_date")
+    last = [l for l in out.splitlines() if l.strip()]
+    if last:
+        log(f"  → {last[-1]}")
+
+    # 11. 배급사별 극장명 매핑 (theater_map.xls - 프로젝트 내 고정 파일)
     theater_map_xls = os.path.join(DJANGO_DIR, "client", "rawdata", "theater_map.xls")
     if os.path.exists(theater_map_xls):
         for dist_id, dist_name in [(874, "넥스트엔터테인먼트월드"), (1422, "콘텐츠판다")]:

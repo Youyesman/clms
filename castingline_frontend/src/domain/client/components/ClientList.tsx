@@ -140,7 +140,7 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
                     onSelectItem={handleSelectClient}
                     longTextFields={longTextFields}
                     getRowKey={(client) => client.id}
-                    formatCell={(key, value) => (key === "operational_status" ? (value ? "폐관" : "사용") : value ?? "")}
+                    formatCell={(key, value) => (key === "operational_status" ? (value ? "사용" : "폐관") : value ?? "")}
                     onSortChange={handleSortChange}
                     sortKey={sortKey}
                     sortOrder={sortOrder}

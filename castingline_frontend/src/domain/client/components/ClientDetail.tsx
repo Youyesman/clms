@@ -263,10 +263,10 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                 <SectionTitle>관리 정보</SectionTitle>
                 <FormGrid>
                     <CustomSelect
-                        label="삭제(폐관) 여부"
+                        label="영업 상태"
                         value={formData.operational_status ? "Y" : "N"}
                         onChange={(v) => updateField("operational_status", v === "Y")}
-                        options={[{ label: "사용", value: "N" }, { label: "폐관", value: "Y" }]}
+                        options={[{ label: "사용", value: "Y" }, { label: "폐관", value: "N" }]}
                         size="sm"
                     />
                 </FormGrid>

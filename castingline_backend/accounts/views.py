@@ -208,7 +208,7 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by('-id')
     pagination_class = UserPagination
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
-    search_fields = ['username', 'nickname', 'email']
+    search_fields = ['username', 'nickname', 'email', 'client__client_name']
     ordering_fields = "__all__"
     ordering_field_map = {
         'client_name': 'client__client_name',

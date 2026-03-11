@@ -178,7 +178,7 @@ export function ManageFund() {
                 let fileName = `Fund_Status_${activeFilters.yyyy}.xlsx`;
                 const contentDisposition = res.headers["content-disposition"];
                 if (contentDisposition) {
-                     const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+                     const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
                      if (fileNameMatch && fileNameMatch.length === 2)
                          fileName = fileNameMatch[1];
                 }

@@ -309,7 +309,7 @@ export function ManageUserProfile() {
                 <div style={{ width: "300px" }}>
                     <CustomInput
                         label="검색"
-                        placeholder="아이디, 닉네임, 이메일"
+                        placeholder="아이디, 닉네임, 이메일, 소속"
                         value={search}
                         setValue={setSearch}
                         onKeyDown={(e) => e.key === "Enter" && handleSearch()}

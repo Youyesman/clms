@@ -96,9 +96,9 @@ class Command(BaseCommand):
                 for csv_kor_field, model_field in CSV_TO_MODEL_FIELD_MAP.items():
                     value = row.get(csv_kor_field)
 
-                    # Boolean 처리
+                    # Boolean 처리 (del_yn: True=삭제 → operational_status: True=영업중이므로 반전)
                     if model_field == "operational_status":
-                        value = value in ["True", "true", "1", "예", "Y"]
+                        value = value not in ["True", "true", "1", "예", "Y"]
 
                     # ctm_sort1 특수 처리
                     elif csv_kor_field == "ctm_sort1":

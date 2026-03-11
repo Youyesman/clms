@@ -70,7 +70,7 @@ class Client(TimeStampedModel):
     settlement_remarks = models.TextField(null=True, blank=True)  # 부금특이사항
     operational_status = models.BooleanField(
         null=True, blank=True
-    )  # 삭제(폐관) True가 폐관임.
+    )  # 영업 상태: True=영업중, False=폐관
     is_car_theater = models.BooleanField(null=True, blank=True)  # 자동차극장여부
 
     distributor_theater_name = models.CharField(

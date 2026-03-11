@@ -86,7 +86,7 @@ export function DailyFundList({
                 let fileName = `Daily_Fund_${client_name}_${yyyy}${mm}.xlsx`;
                 const contentDisposition = res.headers["content-disposition"];
                 if (contentDisposition) {
-                    const fileNameMatch = contentDisposition.match(/filename="?(.+)"?/);
+                    const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
                     if (fileNameMatch && fileNameMatch.length === 2) fileName = fileNameMatch[1];
                 }
                 link.setAttribute("download", fileName);

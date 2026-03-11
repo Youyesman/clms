@@ -396,11 +396,15 @@ class MovieSchedule(models.Model):
             return 0, errors
 
         # 2. Fetch Existing Step
-        # 해당 로그의 극장과 날짜 범위에 있는 모든 스케줄을 미리 가져옴
+        # 해당 로그의 극장에서 파싱된 시간 범위에 해당하는 모든 스케줄을 미리 가져옴
+        all_start_times = [item['start_time'] for item in parsed_items]
+        min_time = min(all_start_times)
+        max_time = max(all_start_times) + timedelta(hours=1)
         existing_qs = cls.objects.filter(
             brand='CGV',
             theater_name=log.theater_name,
-            start_time__date__in=target_dates
+            start_time__gte=min_time,
+            start_time__lte=max_time,
         )
         
         # 키: (screen_name, start_time) -> 객체

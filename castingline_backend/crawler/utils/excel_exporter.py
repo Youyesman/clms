@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime
 from collections import defaultdict
+from django.utils import timezone as dj_timezone
 
 import pandas as pd
 from django.conf import settings
@@ -209,8 +210,52 @@ def _brand_display(b):
 BRAND_ORDER = ['CGV', 'LOTTE', 'MEGABOX']
 
 
+CINE_DE_CHEF_MAP = {
+    "압구정": "압구정",
+    "용산": "용산아이파크몰",
+    "센텀": "센텀시티",
+}
+
+
+def _filter_cine_de_chef(schedules):
+    """씨네드쉐프 극장 처리: 원본 극장이 있으면 씨네드쉐프 제거, 없으면 원본명으로 치환."""
+    all_theaters = set()
+    cine_de_chef_items = []
+    normal_items = []
+
+    for sch in schedules:
+        if sch.brand and sch.brand.upper() == "CGV" and "씨네드쉐프" in (sch.theater_name or ""):
+            cine_de_chef_items.append(sch)
+        else:
+            normal_items.append(sch)
+            if sch.brand and sch.brand.upper() == "CGV":
+                all_theaters.add(sch.theater_name or "")
+
+    for sch in cine_de_chef_items:
+        # "CGV 씨네드쉐프 센텀" → "센텀" 추출
+        raw_name = (sch.theater_name or "").replace("CGV", "").replace("씨네드쉐프", "").strip()
+        mapped_name = CINE_DE_CHEF_MAP.get(raw_name)
+        if not mapped_name:
+            # 매핑에 없으면 그대로 유지
+            normal_items.append(sch)
+            continue
+
+        # 원본 극장이 데이터에 존재하면 씨네드쉐프 제거 (skip)
+        original_candidates = [f"CGV {mapped_name}", f"CGV{mapped_name}", mapped_name]
+        if any(t.replace(" ", "") in {c.replace(" ", "") for c in all_theaters} for t in original_candidates):
+            continue  # 원본 있음 → 씨네드쉐프 제거
+
+        # 원본 없음 → 극장명을 원본으로 치환
+        sch.theater_name = f"CGV {mapped_name}"
+        normal_items.append(sch)
+
+    return normal_items
+
+
 def _process_to_rows(schedules, region_map):
     """Process schedule queryset into structured rows for display and aggregation."""
+    schedules = _filter_cine_de_chef(list(schedules))
+
     grouped = {}
     for sch in schedules:
         s_date = sch.play_date or sch.start_time.date()
@@ -237,7 +282,7 @@ def _process_to_rows(schedules, region_map):
         show_times = []
 
         for item in items:
-            show_times.append(item.start_time.strftime("%H:%M"))
+            show_times.append(dj_timezone.localtime(item.start_time).strftime("%H:%M"))
             t_seat = _safe_int(item.total_seats)
             r_seat = _safe_int(item.remaining_seats)
             if t_seat == 0 and total_capacity > 0:

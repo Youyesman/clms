@@ -23,10 +23,10 @@ export const SETTLEMENT_DEPARTMENTS = [
     "지원"
 ]
 
-/** 운영 상태 (Y/N) */
+/** 운영 상태: true=영업중, false=폐관 */
 export const OPERATIONAL_STATUS_OPTIONS = [
-    { label: "사용", value: "false" },
-    { label: "폐관", value: "true" }
+    { label: "사용", value: "true" },
+    { label: "폐관", value: "false" }
 ]
 
 /** 직영/위탁 구분 */
