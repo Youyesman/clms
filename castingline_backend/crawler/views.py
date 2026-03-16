@@ -893,7 +893,7 @@ def _serialize_target(t):
         "clean_title": clean_title,
         "movie_type": t.movie_type,
         "is_active": t.is_active,
-        "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
+        "created_at": timezone.localtime(t.created_at).strftime("%Y-%m-%d %H:%M"),
     }
 
 
