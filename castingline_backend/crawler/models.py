@@ -395,6 +395,23 @@ class MovieSchedule(models.Model):
         if not parsed_items:
             return 0, errors
 
+        # [PREMIUM Seat Merge] 용산아이파크몰·정관은 'N관'과 'N관[PREMIUM]'이 같은 상영시간에
+        # 별개 항목으로 내려오므로, normalize 후 동일 (screen_name, start_time, movie_title) 이면
+        # total_seats / remaining_seats 를 합산하여 하나의 행으로 통합한다.
+        PREMIUM_MERGE_KEYWORDS = ["용산아이파크몰", "씨네드쉐프 용산", "정관"]
+        if any(kw in (log.theater_name or "") for kw in PREMIUM_MERGE_KEYWORDS):
+            merged_map = {}
+            for item in parsed_items:
+                key = (item['screen_name'], item['start_time'], item['movie_title'])
+                if key not in merged_map:
+                    merged_map[key] = dict(item)
+                else:
+                    merged_map[key]['total_seats'] += item['total_seats']
+                    merged_map[key]['remaining_seats'] += item['remaining_seats']
+                    if item['is_booking_available']:
+                        merged_map[key]['is_booking_available'] = True
+            parsed_items = list(merged_map.values())
+
         # 2. Fetch Existing Step
         # 해당 로그의 극장에서 파싱된 시간 범위에 해당하는 모든 스케줄을 미리 가져옴
         all_start_times = [item['start_time'] for item in parsed_items]

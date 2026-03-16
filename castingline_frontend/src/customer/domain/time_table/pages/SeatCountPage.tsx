@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import styled from "styled-components";
+import { useRecoilState } from "recoil";
+import { TimeTableFilterState } from "../../../../atom/TimeTableFilterState";
 import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -228,22 +230,23 @@ const PIE_COLORS = [
 /* ── 메인 컴포넌트 ── */
 export function SeatCountPage() {
     const toast = useToast();
-
-    const [dateFrom, setDateFrom] = useState(yesterday());
-    const [dateTo, setDateTo] = useState(yesterday());
-    const [selectedMovies, setSelectedMovies] = useState<string[]>([]);
-    const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-    const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+    const [filter, setFilter] = useRecoilState(TimeTableFilterState);
+    const { dateFrom, dateTo, selectedBrands, selectedRegions, selectedMovies } = filter;
+    const setDateFrom = (v: string) => setFilter(f => ({ ...f, dateFrom: v }));
+    const setDateTo = (v: string) => setFilter(f => ({ ...f, dateTo: v }));
+    const setSelectedBrands = (v: string[]) => setFilter(f => ({ ...f, selectedBrands: v }));
+    const setSelectedRegions = (v: string[]) => setFilter(f => ({ ...f, selectedRegions: v }));
+    const setSelectedMovies = (v: string[]) => setFilter(f => ({ ...f, selectedMovies: v }));
 
     const [movieOptions, setMovieOptions] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<CompetitorData | null>(null);
     const [fieldErrors, setFieldErrors] = useState({ dateFrom: false, dateTo: false });
-
     const [popover, setPopover] = useState<{ x: number; y: number; title: string; period: string; value: number } | null>(null);
+    const isFirstMount = useRef(true);
 
-    /* 날짜 범위 변경 시 영화 목록 로드 */
-    const fetchMovies = useCallback(() => {
+    /* 영화 목록 로드 */
+    const fetchMovies = useCallback((resetMovies = true) => {
         if (!dateFrom || !dateTo) return;
         const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
         if (selectedBrands.length) params.brands = selectedBrands.join(",");
@@ -252,12 +255,15 @@ export function SeatCountPage() {
         AxiosGet("score/competitor/movies/", { params })
             .then(res => {
                 setMovieOptions(res.data?.movies || []);
-                setSelectedMovies([]);
+                if (resetMovies) setSelectedMovies([]);
             })
             .catch(err => toast.error(handleBackendErrors(err)));
     }, [dateFrom, dateTo, selectedBrands, selectedRegions, toast]);
 
-    useEffect(() => { fetchMovies(); }, [dateFrom, dateTo]);
+    useEffect(() => {
+        if (isFirstMount.current) return;
+        fetchMovies(true);
+    }, [dateFrom, dateTo]);
 
     /* 검색 */
     const handleSearch = useCallback(() => {
@@ -277,6 +283,22 @@ export function SeatCountPage() {
             .catch(err => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
     }, [dateFrom, dateTo, selectedMovies, selectedBrands, selectedRegions, toast]);
+
+    /* 마운트 시 영화 목록 로드 후 자동 검색 */
+    useEffect(() => {
+        if (!dateFrom || !dateTo) return;
+        const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+        if (selectedBrands.length) params.brands = selectedBrands.join(",");
+        if (selectedRegions.length) params.regions = selectedRegions.join(",");
+        AxiosGet("score/competitor/movies/", { params })
+            .then(res => setMovieOptions(res.data?.movies || []))
+            .catch(() => {})
+            .finally(() => {
+                isFirstMount.current = false;
+                handleSearch();
+            });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     /* 화면 클릭으로 popover 닫기 */
     useEffect(() => {
@@ -419,7 +441,7 @@ export function SeatCountPage() {
                     <ChartGrid onClick={e => e.stopPropagation()}>
                         {/* 바 차트 */}
                         <SectionCard>
-                            <SectionTitle>기간 총좌석수 비교 (전주 vs 당기)</SectionTitle>
+                            <SectionTitle>전주 대비 총좌석수 비교</SectionTitle>
                             <div style={{ padding: "16px 8px 8px" }}>
                                 <ResponsiveContainer width="100%" height={280}>
                                     <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
@@ -441,7 +463,7 @@ export function SeatCountPage() {
                                         <Tooltip
                                             formatter={(value, name) => [
                                                 Number(value ?? 0).toLocaleString("ko-KR") + "석",
-                                                name === "lw_period_total" ? "전주 총좌석수" : "당기 총좌석수",
+                                                name === "lw_period_total" ? "지난 주 총 좌석수" : "총 좌석수",
                                             ]}
                                             labelFormatter={(label) => {
                                                 const l = String(label ?? "");
@@ -451,7 +473,7 @@ export function SeatCountPage() {
                                         />
                                         <Bar
                                             dataKey="lw_period_total"
-                                            name="전주"
+                                            name="지난 주 총 좌석수"
                                             fill="#94a3b8"
                                             radius={[3, 3, 0, 0]}
                                             cursor="pointer"
@@ -460,15 +482,15 @@ export function SeatCountPage() {
                                                     x: e?.clientX ?? 0,
                                                     y: e?.clientY ?? 0,
                                                     title: d.fullTitle ?? d.title,
-                                                    period: "전주",
+                                                    period: "지난 주 총 좌석수",
                                                     value: d.lw_period_total ?? 0,
                                                 });
                                             }}
                                         />
                                         <Bar
                                             dataKey="period_total"
-                                            name="당기"
-                                            fill="#3b82f6"
+                                            name="총 좌석수"
+                                            fill="#1d4ed8"
                                             radius={[3, 3, 0, 0]}
                                             cursor="pointer"
                                             onClick={(d: any, _idx: number, e: any) => {
@@ -476,16 +498,12 @@ export function SeatCountPage() {
                                                     x: e?.clientX ?? 0,
                                                     y: e?.clientY ?? 0,
                                                     title: d.fullTitle ?? d.title,
-                                                    period: "당기",
+                                                    period: "총 좌석수",
                                                     value: d.period_total ?? 0,
                                                 });
                                             }}
                                         />
-                                        <Legend
-                                            formatter={(value: string) =>
-                                                value === "lw_period_total" ? "전주" : "당기"
-                                            }
-                                        />
+                                        <Legend />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -496,16 +514,16 @@ export function SeatCountPage() {
                             <SectionCard>
                                 <SectionTitle>실시간 예매율</SectionTitle>
                                 <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={160}>
+                                    <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
                                             <Pie
                                                 data={rateData}
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="50%"
-                                                outerRadius={60}
-                                                label={({ name, value }) => `${name} ${value}%`}
+                                                cy="45%"
+                                                outerRadius={55}
+                                                label={false}
                                                 labelLine={false}
                                             >
                                                 {rateData.map((entry, index) => (
@@ -518,6 +536,7 @@ export function SeatCountPage() {
                                                     "예매율",
                                                 ]}
                                             />
+                                            <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -526,16 +545,16 @@ export function SeatCountPage() {
                             <SectionCard>
                                 <SectionTitle>좌점율</SectionTitle>
                                 <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={160}>
+                                    <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
                                             <Pie
                                                 data={seatData}
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="50%"
-                                                outerRadius={60}
-                                                label={({ name, value }) => `${name} ${value}%`}
+                                                cy="45%"
+                                                outerRadius={55}
+                                                label={false}
                                                 labelLine={false}
                                             >
                                                 {seatData.map((entry, index) => (
@@ -548,6 +567,7 @@ export function SeatCountPage() {
                                                     "좌점율",
                                                 ]}
                                             />
+                                            <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -566,17 +586,17 @@ export function SeatCountPage() {
                                         {data.dates.map(d => (
                                             <th key={d} colSpan={2}>{d}</th>
                                         ))}
-                                        <th colSpan={2}>기간 합계</th>
+                                        <th colSpan={2}>합계</th>
                                     </tr>
                                     <tr>
                                         {data.dates.map(d => (
                                             <React.Fragment key={d}>
                                                 <th className="lw-col">전주</th>
-                                                <th>당기</th>
+                                                <th>총 좌석수</th>
                                             </React.Fragment>
                                         ))}
                                         <th className="lw-col">전주</th>
-                                        <th>당기</th>
+                                        <th>총 좌석수</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -624,8 +644,8 @@ export function SeatCountPage() {
                                 <thead>
                                     <tr>
                                         <th>영화명</th>
-                                        <th>기간 총좌석수</th>
-                                        <th>기간 판매좌석수</th>
+                                        <th>총 좌석수</th>
+                                        <th>판매좌석수</th>
                                         <th>실시간 예매율</th>
                                         <th>좌점율</th>
                                     </tr>

@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import styled from "styled-components";
+import { useRecoilState } from "recoil";
+import { TimeTableFilterState } from "../../../../atom/TimeTableFilterState";
 import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,12 +14,6 @@ import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
     n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
-
-function yesterday(): string {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
-}
 
 /* ── 타입 ── */
 interface DailyCell {
@@ -203,22 +199,23 @@ const HintText = styled.div`
 /* ── 메인 컴포넌트 ── */
 export function ShowCountPage() {
     const toast = useToast();
-
-    const [dateFrom, setDateFrom] = useState(yesterday());
-    const [dateTo, setDateTo] = useState(yesterday());
-    const [selectedMovies, setSelectedMovies] = useState<string[]>([]);
-    const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-    const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+    const [filter, setFilter] = useRecoilState(TimeTableFilterState);
+    const { dateFrom, dateTo, selectedBrands, selectedRegions, selectedMovies } = filter;
+    const setDateFrom = (v: string) => setFilter(f => ({ ...f, dateFrom: v }));
+    const setDateTo = (v: string) => setFilter(f => ({ ...f, dateTo: v }));
+    const setSelectedBrands = (v: string[]) => setFilter(f => ({ ...f, selectedBrands: v }));
+    const setSelectedRegions = (v: string[]) => setFilter(f => ({ ...f, selectedRegions: v }));
+    const setSelectedMovies = (v: string[]) => setFilter(f => ({ ...f, selectedMovies: v }));
 
     const [movieOptions, setMovieOptions] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<ShowData | null>(null);
     const [fieldErrors, setFieldErrors] = useState({ dateFrom: false, dateTo: false });
-
     const [popover, setPopover] = useState<{ x: number; y: number; title: string; period: string; value: number } | null>(null);
+    const isFirstMount = useRef(true);
 
-    /* 날짜 변경 시 영화 목록 로드 */
-    const fetchMovies = useCallback(() => {
+    /* 영화 목록 로드 */
+    const fetchMovies = useCallback((resetMovies = true) => {
         if (!dateFrom || !dateTo) return;
         const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
         if (selectedBrands.length) params.brands = selectedBrands.join(",");
@@ -227,12 +224,15 @@ export function ShowCountPage() {
         AxiosGet("score/competitor/movies/", { params })
             .then(res => {
                 setMovieOptions(res.data?.movies || []);
-                setSelectedMovies([]);
+                if (resetMovies) setSelectedMovies([]);
             })
             .catch(err => toast.error(handleBackendErrors(err)));
     }, [dateFrom, dateTo, selectedBrands, selectedRegions, toast]);
 
-    useEffect(() => { fetchMovies(); }, [dateFrom, dateTo]);
+    useEffect(() => {
+        if (isFirstMount.current) return;
+        fetchMovies(true);
+    }, [dateFrom, dateTo]);
 
     /* 검색 */
     const handleSearch = useCallback(() => {
@@ -252,6 +252,22 @@ export function ShowCountPage() {
             .catch(err => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
     }, [dateFrom, dateTo, selectedMovies, selectedBrands, selectedRegions, toast]);
+
+    /* 마운트 시 영화 목록 로드 후 자동 검색 */
+    useEffect(() => {
+        if (!dateFrom || !dateTo) return;
+        const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+        if (selectedBrands.length) params.brands = selectedBrands.join(",");
+        if (selectedRegions.length) params.regions = selectedRegions.join(",");
+        AxiosGet("score/competitor/movies/", { params })
+            .then(res => setMovieOptions(res.data?.movies || []))
+            .catch(() => {})
+            .finally(() => {
+                isFirstMount.current = false;
+                handleSearch();
+            });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     /* 화면 클릭으로 popover 닫기 */
     useEffect(() => {
@@ -274,13 +290,10 @@ export function ShowCountPage() {
 
     return (
         <PageWrapper onClick={() => setPopover(null)}>
-            {/* ── 탭 네비게이션 ── */}
             <PageNavTabs tabs={TIME_TABLE_TABS} />
 
-            {/* ── 필터 ── */}
             <FilterCard>
                 <FilterRow>
-                    {/* 날짜 From */}
                     <FieldBox $error={fieldErrors.dateFrom}>
                         <label>날짜 From *</label>
                         <input
@@ -296,7 +309,6 @@ export function ShowCountPage() {
                         {fieldErrors.dateFrom && <span className="err-msg">필수 입력값입니다</span>}
                     </FieldBox>
 
-                    {/* 날짜 To */}
                     <FieldBox $error={fieldErrors.dateTo}>
                         <label>날짜 To *</label>
                         <input
@@ -312,7 +324,6 @@ export function ShowCountPage() {
                         {fieldErrors.dateTo && <span className="err-msg">필수 입력값입니다</span>}
                     </FieldBox>
 
-                    {/* 계열사 멀티셀렉트 */}
                     <FieldBox>
                         <label>계열사 (복수 선택)</label>
                         <select
@@ -329,7 +340,6 @@ export function ShowCountPage() {
                         <HintText>Ctrl+클릭으로 복수 선택</HintText>
                     </FieldBox>
 
-                    {/* 지역 멀티셀렉트 */}
                     <FieldBox>
                         <label>지역 (복수 선택)</label>
                         <select
@@ -346,7 +356,6 @@ export function ShowCountPage() {
                         <HintText>Ctrl+클릭으로 복수 선택</HintText>
                     </FieldBox>
 
-                    {/* 영화 멀티셀렉트 */}
                     <FieldBox>
                         <label>영화 (복수 선택, 미선택 시 전체)</label>
                         <select
@@ -363,19 +372,16 @@ export function ShowCountPage() {
                         <HintText>Ctrl+클릭으로 복수 선택 / 미선택 시 전체 영화</HintText>
                     </FieldBox>
 
-                    {/* 검색 버튼 */}
                     <SearchBtn onClick={handleSearch} disabled={loading}>
                         {loading ? "검색 중..." : "검색"}
                     </SearchBtn>
                 </FilterRow>
             </FilterCard>
 
-            {/* ── 검색 결과 ── */}
             {data && data.movies.length > 0 && (
                 <>
-                    {/* 바 차트 */}
                     <SectionCard onClick={e => e.stopPropagation()}>
-                        <SectionTitle>기간 총상영회차수 비교 (전주 vs 당기)</SectionTitle>
+                        <SectionTitle>전주 대비 총상영회차수 비교</SectionTitle>
                         <div style={{ padding: "16px 8px 8px" }}>
                             <ResponsiveContainer width="100%" height={300}>
                                 <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 50 }}>
@@ -397,7 +403,7 @@ export function ShowCountPage() {
                                     <Tooltip
                                         formatter={(value, name) => [
                                             Number(value ?? 0).toLocaleString("ko-KR") + "회",
-                                            name === "lw_period_shows" ? "전주 총회차수" : "당기 총회차수",
+                                            name === "lw_period_shows" ? "지난 주 총 상영회차수" : "총 상영회차수",
                                         ]}
                                         labelFormatter={(label) => {
                                             const l = String(label ?? "");
@@ -407,8 +413,8 @@ export function ShowCountPage() {
                                     />
                                     <Bar
                                         dataKey="lw_period_shows"
-                                        name="전주"
-                                        fill="#fb923c"
+                                        name="지난 주 총 상영회차수"
+                                        fill="#94a3b8"
                                         radius={[3, 3, 0, 0]}
                                         cursor="pointer"
                                         onClick={(d: any, _idx: number, e: any) => {
@@ -416,15 +422,15 @@ export function ShowCountPage() {
                                                 x: e?.clientX ?? 0,
                                                 y: e?.clientY ?? 0,
                                                 title: d.fullTitle ?? d.title,
-                                                period: "전주",
+                                                period: "지난 주 총 상영회차수",
                                                 value: d.lw_period_shows ?? 0,
                                             });
                                         }}
                                     />
                                     <Bar
                                         dataKey="period_shows"
-                                        name="당기"
-                                        fill="#f97316"
+                                        name="총 상영회차수"
+                                        fill="#ea580c"
                                         radius={[3, 3, 0, 0]}
                                         cursor="pointer"
                                         onClick={(d: any, _idx: number, e: any) => {
@@ -432,22 +438,17 @@ export function ShowCountPage() {
                                                 x: e?.clientX ?? 0,
                                                 y: e?.clientY ?? 0,
                                                 title: d.fullTitle ?? d.title,
-                                                period: "당기",
+                                                period: "총 상영회차수",
                                                 value: d.period_shows ?? 0,
                                             });
                                         }}
                                     />
-                                    <Legend
-                                        formatter={(value: string) =>
-                                            value === "lw_period_shows" ? "전주" : "당기"
-                                        }
-                                    />
+                                    <Legend />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
                     </SectionCard>
 
-                    {/* 매트릭스 테이블 */}
                     <SectionCard>
                         <SectionTitle>일자별 상영회차수 현황</SectionTitle>
                         <TableWrap>
@@ -458,17 +459,17 @@ export function ShowCountPage() {
                                         {data.dates.map(d => (
                                             <th key={d} colSpan={2}>{d}</th>
                                         ))}
-                                        <th colSpan={2}>기간 합계</th>
+                                        <th colSpan={2}>합계</th>
                                     </tr>
                                     <tr>
                                         {data.dates.map(d => (
                                             <React.Fragment key={d}>
                                                 <th className="lw-col">전주</th>
-                                                <th>당기</th>
+                                                <th>총 상영회차수</th>
                                             </React.Fragment>
                                         ))}
                                         <th className="lw-col">전주</th>
-                                        <th>당기</th>
+                                        <th>총 상영회차수</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -488,7 +489,6 @@ export function ShowCountPage() {
                                             <td>{fmt(m.period_shows)}</td>
                                         </tr>
                                     ))}
-                                    {/* 합계 행 */}
                                     <tr className="total-row">
                                         <td style={{ textAlign: "left" }}>합계</td>
                                         {data.dates.map(d => {
@@ -510,21 +510,18 @@ export function ShowCountPage() {
                 </>
             )}
 
-            {/* 데이터 없음 */}
             {data && data.movies.length === 0 && (
                 <SectionCard>
                     <EmptyMsg>선택한 조건에 해당하는 데이터가 없습니다.</EmptyMsg>
                 </SectionCard>
             )}
 
-            {/* 초기 안내 */}
             {!data && !loading && (
                 <SectionCard>
                     <EmptyMsg>날짜 범위를 선택한 후 검색 버튼을 눌러주세요.</EmptyMsg>
                 </SectionCard>
             )}
 
-            {/* 바 차트 클릭 Popover */}
             {popover && (
                 <PopoverBox $x={popover.x} $y={popover.y}>
                     {popover.title} ({popover.period}) | {popover.value.toLocaleString("ko-KR")}회

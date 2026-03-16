@@ -3,7 +3,7 @@ import styled, { keyframes } from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { useRecoilValue } from "recoil";
 import { AccountState } from "../../../atom/AccountState";
-import { FilmReel, ArrowRight, ChartLineUp, ShieldCheck, Database, Cloud, Desktop, FilmStrip } from "@phosphor-icons/react";
+import { FilmReel, ArrowRight, ChartLineUp, ShieldCheck, Database, Cloud, Desktop, FilmStrip, Calendar } from "@phosphor-icons/react";
 import LogoVerticalImg from "../../../assets/img/logo/logo_vertical.png";
 
 /* ── Refined Animations ── */
@@ -393,7 +393,7 @@ export default function LandingPage() {
             <FeaturesContainer>
                 <FeatureCard $delay="0.4s">
                     <div className="icon-wrapper"><ChartLineUp size={24} weight="bold" /></div>
-                    <h3>투명한 스코어 검증 (데이터 입회)</h3>
+                    <h3>투명하고 검증된 스코어 데이터</h3>
                     <p>매일 오차 없는 현황판을 통해 복잡한 극장 관람객 수 및 티켓 단가를 교차 검증하여, 실시간 배급 척도를 제공합니다.</p>
                 </FeatureCard>
                 <FeatureCard $delay="0.5s">
@@ -401,11 +401,13 @@ export default function LandingPage() {
                     <h3>정확한 부금 정산 시스템</h3>
                     <p>시스템 내 자동화된 부율 계산 과정을 통해, 배급사 및 극장 간의 투명하고 빠르고 무결한 부금 정산 서류를 발행합니다.</p>
                 </FeatureCard>
+
                 <FeatureCard $delay="0.6s">
-                    <div className="icon-wrapper"><FilmReel size={24} weight="bold" /></div>
-                    <h3>20년 누적 빅데이터 인사이트</h3>
-                    <p>20년 이상 누적된 스크린·스코어 아카이브에 기반해 최적의 타겟 상영관 배정 전략과 예상 수익성 모델링을 제안합니다.</p>
+                    <div className="icon-wrapper"><Calendar size={24} weight="bold" /></div>
+                    <h3>풍부한 지표 데이터</h3>
+                    <p>매일 제공되는 좌석수 데이터를 이용한 그래프, 대시보드 등의 세세한 비교 데이터 제공</p>
                 </FeatureCard>
+
                 <FeatureCard $delay="0.7s">
                     <div className="icon-wrapper"><ArrowRight size={24} weight="bold" /></div>
                     <h3>배급사 전산망 다이렉트 API</h3>

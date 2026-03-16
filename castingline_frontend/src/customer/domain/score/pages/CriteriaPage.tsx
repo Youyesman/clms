@@ -119,7 +119,7 @@ export function CriteriaPage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date: new Date().toISOString().split("T")[0],
+        date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })(),
     });
     // 날짜 디바운스용 확정 상태
     const [debouncedDate, setDebouncedDate] = useState(searchParams.date);

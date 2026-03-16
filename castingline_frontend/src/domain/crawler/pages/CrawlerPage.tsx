@@ -7,6 +7,7 @@ import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
 import { Play, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, DownloadSimple, FileXls, Spinner, FilmStrip } from "@phosphor-icons/react";
 import { useAppAlert } from "../../../atom/alertUtils";
+import { ScheduleExportModal } from "./ScheduleExportModal";
 
 // --- Types ---
 interface IChoiceCompany {
@@ -108,8 +109,8 @@ export const CrawlerPage = () => {
     const [config, setConfig] = useState<ICrawlerConfig>(INITIAL_CONFIG);
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
 
-    const [isExporting, setIsExporting] = useState(false);
-    const [showExportPicker, setShowExportPicker] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [showCrawlModal, setShowCrawlModal] = useState(false);
 
     // 실패 상세 모달
     const [failureModalItem, setFailureModalItem] = useState<ICrawlerHistory | null>(null);
@@ -300,6 +301,7 @@ export const CrawlerPage = () => {
                 return;
             }
             await AxiosPost("crawler/run", config);
+            setShowCrawlModal(false);
             toast.success("크롤러가 실행되었습니다.");
             fetchHistory();
         } catch (error: any) {
@@ -359,7 +361,7 @@ export const CrawlerPage = () => {
         return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     };
 
-    const handleExcelDownload = async (selectedMovie?: CrawlTarget) => {
+    const handleExcelDownload = () => {
         const mainMovies = targets.filter(t => t.movie_type === 'main' && t.is_active);
         if (mainMovies.length === 0) {
             toast.error("크롤 대상 영화에 주요작을 먼저 등록해주세요.");
@@ -369,51 +371,7 @@ export const CrawlerPage = () => {
             toast.error("시작일을 설정해주세요.");
             return;
         }
-
-        // 주요작가 2개 이상이고 아직 선택 안 한 경우 → 드롭다운 표시
-        if (mainMovies.length > 1 && !selectedMovie) {
-            setShowExportPicker(prev => !prev);
-            return;
-        }
-
-        const mainMovie = selectedMovie || mainMovies[0];
-        setShowExportPicker(false);
-        setIsExporting(true);
-        try {
-            toast.success("엑셀 생성 중... 잠시만 기다려주세요.");
-            const response: any = await AxiosPost("crawler/schedules/export", {
-                start_date: config.crawlStartDate,
-                end_date: config.crawlEndDate || config.crawlStartDate,
-                movie_title: mainMovie.clean_title || mainMovie.title,
-            }, { responseType: 'blob' });
-
-            const blob = new Blob([response.data], {
-                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-
-            const contentDisposition = response.headers?.['content-disposition'];
-            let filename = `${mainMovie.title}_schedule.xlsx`;
-            if (contentDisposition) {
-                const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                if (match?.[1]) filename = match[1];
-            }
-
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            toast.success("엑셀 파일이 다운로드 되었습니다.");
-        } catch (error: any) {
-            console.error(error);
-            toast.error("다운로드 실패: " + (error.response?.data?.error || "데이터가 없거나 오류가 발생했습니다."));
-        } finally {
-            setIsExporting(false);
-        }
+        setShowExportModal(true);
     };
 
     const formatDuration = (seconds: number) => {
@@ -518,78 +476,27 @@ export const CrawlerPage = () => {
 
     return (
         <PageContainer>
-            {/* ===== 수동 실행 설정 ===== */}
+            {/* ===== 상단 버튼 영역 ===== */}
             <Card>
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>크롤러 관리</span>
-                    <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', gap: 8 }}>
                         <button
-                            data-export-btn
-                            onClick={() => handleExcelDownload()}
-                            disabled={isExporting || !targets.some(t => t.movie_type === 'main' && t.is_active)}
-                            style={{ height: 32, padding: '0 14px', border: 'none', borderRadius: 6, background: isExporting ? '#86efac' : '#16a34a', color: '#fff', cursor: isExporting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, fontFamily: '"SUIT",sans-serif' }}
+                            onClick={handleExcelDownload}
+                            disabled={!targets.some(t => t.movie_type === 'main' && t.is_active)}
+                            style={{ height: 34, padding: '0 16px', border: 'none', borderRadius: 6, background: '#16a34a', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, fontFamily: '"SUIT",sans-serif' }}
                         >
-                            {isExporting ? <Spinner className="spin" size={14} /> : <FileXls size={14} weight="fill" />}
+                            <FileXls size={14} weight="fill" />
                             엑셀 다운로드
                         </button>
-                        {showExportPicker && (() => {
-                            const btnEl = document.querySelector('[data-export-btn]') as HTMLElement | null;
-                            const rect = btnEl?.getBoundingClientRect();
-                            const top = rect ? rect.bottom + 4 : 0;
-                            const right = rect ? window.innerWidth - rect.right : 0;
-                            return (
-                                <>
-                                    <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 999 }} onClick={() => setShowExportPicker(false)} />
-                                    <div style={{ position: 'fixed', top, right, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 1000, minWidth: 200, padding: '6px 0' }}>
-                                        <div style={{ padding: '6px 14px', fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>주요작 선택</div>
-                                        {targets.filter(t => t.movie_type === 'main' && t.is_active).map(t => (
-                                            <button
-                                                key={t.id}
-                                                onClick={() => handleExcelDownload(t)}
-                                                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#1f2937', fontFamily: '"SUIT",sans-serif' }}
-                                                onMouseOver={(e) => { e.currentTarget.style.background = '#f3f4f6'; }}
-                                                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                                            >
-                                                {t.title}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </>
-                            );
-                        })()}
+                        <button
+                            onClick={() => setShowCrawlModal(true)}
+                            style={{ height: 34, padding: '0 16px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: '"SUIT",sans-serif' }}
+                        >
+                            <Play size={14} weight="fill" />
+                            수동 크롤링
+                        </button>
                     </div>
-                </div>
-                <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', minWidth: 36 }}>기간</span>
-                        <input
-                            type="date"
-                            value={config.crawlStartDate}
-                            onChange={(e) => handleConfigChange('crawlStartDate', e.target.value)}
-                            style={{ height: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#111827', outline: 'none' }}
-                        />
-                        <span style={{ color: '#9ca3af', fontSize: 12 }}>~</span>
-                        <input
-                            type="date"
-                            value={config.crawlEndDate}
-                            onChange={(e) => handleConfigChange('crawlEndDate', e.target.value)}
-                            style={{ height: 34, padding: '0 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#111827', outline: 'none' }}
-                        />
-                    </div>
-                    <div style={{ width: 1, height: 20, background: '#e5e7eb' }} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>극장</span>
-                        <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
-                        <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
-                        <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
-                    </div>
-                    <div style={{ flex: 1 }} />
-                    <button
-                        onClick={handleRun}
-                        style={{ height: 34, padding: '0 20px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: '"SUIT",sans-serif' }}
-                    >
-                        <Play size={14} weight="fill" /> 크롤링 시작
-                    </button>
                 </div>
             </Card>
 
@@ -933,6 +840,65 @@ export const CrawlerPage = () => {
                 );
             })()}
 
+            <ScheduleExportModal
+                isOpen={showExportModal}
+                onClose={() => setShowExportModal(false)}
+                startDate={config.crawlStartDate}
+                endDate={config.crawlEndDate || config.crawlStartDate}
+                mainMovies={targets.filter(t => t.movie_type === 'main' && t.is_active)}
+            />
+
+            {/* ===== 수동 크롤링 모달 ===== */}
+            {showCrawlModal && (
+                <div
+                    style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setShowCrawlModal(false)}
+                >
+                    <div
+                        style={{ background: '#fff', borderRadius: 12, width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>수동 크롤링</span>
+                            <button onClick={() => setShowCrawlModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 18 }}>&times;</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <input type="date" value={config.crawlStartDate} onChange={(e) => handleConfigChange('crawlStartDate', e.target.value)}
+                                        style={{ flex: 1, height: 36, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#334155', outline: 'none' }} />
+                                    <span style={{ color: '#94a3b8', fontSize: 13 }}>~</span>
+                                    <input type="date" value={config.crawlEndDate} onChange={(e) => handleConfigChange('crawlEndDate', e.target.value)}
+                                        style={{ flex: 1, height: 36, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#334155', outline: 'none' }} />
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 대상</div>
+                                <div style={{ display: 'flex', gap: 16 }}>
+                                    <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
+                                    <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
+                                    <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                            <button onClick={() => setShowCrawlModal(false)}
+                                style={{ height: 38, padding: '0 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}>
+                                취소
+                            </button>
+                            <button onClick={handleRun}
+                                style={{ height: 38, padding: '0 20px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: '"SUIT",sans-serif' }}>
+                                <Play size={14} weight="fill" />
+                                크롤링 시작
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </PageContainer>
     );
 };

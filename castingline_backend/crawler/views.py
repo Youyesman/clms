@@ -230,12 +230,12 @@ def run_crawler_background(history_id, data):
         from crawler.utils.excel_exporter import export_transformed_schedules
         target_brands = []
         if run_cgv: target_brands.append('CGV')
-        if run_lotte: target_brands.append('Lotte')
-        if run_mega: target_brands.append('Megabox')
+        if run_lotte: target_brands.append('LOTTE')
+        if run_mega: target_brands.append('MEGABOX')
 
         schedule_qs = MovieSchedule.objects.filter(
-            play_date__gte=start_date,
-            play_date__lte=end_date,
+            play_date__gte=start_date.date(),
+            play_date__lte=end_date.date(),
             brand__in=target_brands
         )
         transform_excel = export_transformed_schedules(schedule_qs)
@@ -518,12 +518,12 @@ def run_transform_background(new_history_id, source_history_id):
         
         target_brands = []
         if run_cgv: target_brands.append('CGV')
-        if run_lotte: target_brands.append('Lotte')
-        if run_mega: target_brands.append('Megabox')
-        
+        if run_lotte: target_brands.append('LOTTE')
+        if run_mega: target_brands.append('MEGABOX')
+
         qs = MovieSchedule.objects.filter(
-            play_date__gte=start_date,
-            play_date__lte=end_date,
+            play_date__gte=start_date.date(),
+            play_date__lte=end_date.date(),
             brand__in=target_brands
         )
         
@@ -811,10 +811,11 @@ class CrawlerScheduleExportView(APIView):
         start_date_str = request.data.get('start_date') or request.data.get('date')
         end_date_str = request.data.get('end_date') or start_date_str
         movie_title = request.data.get('movie_title')
-        
+        brands = request.data.get('brands')  # ["CGV", "LOTTE", "MEGABOX"] 형태
+
         if not start_date_str or not movie_title:
             return Response({"error": "start_date/date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         try:
             # Support both YYYYMMDD and YYYY-MM-DD formats
             def parse_date(s):
@@ -825,15 +826,19 @@ class CrawlerScheduleExportView(APIView):
 
             start_date = parse_date(start_date_str)
             end_date = parse_date(end_date_str)
-            
+
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
-            
+
             # qs is the initial candidate list based on date
             qs = MovieSchedule.objects.filter(
                 play_date__gte=start_date,
                 play_date__lte=end_date
             )
+
+            # 멀티(계열사)별 필터링
+            if brands and isinstance(brands, list):
+                qs = qs.filter(brand__in=brands)
 
             # --- Flexible Title Filtering (토큰 매칭 지원) ---
             def filter_by_title(base_qs, title):

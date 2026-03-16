@@ -108,7 +108,7 @@ export function ScorePage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date: new Date().toISOString().split("T")[0],
+        date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })(),
     });
 
     // 포맷(서브영화) 선택 상태

@@ -1,14 +1,24 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import styled from "styled-components";
-import { AxiosGet, AxiosPost } from "../../../axios/Axios";
+import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, DownloadSimple, Spinner } from "@phosphor-icons/react";
-import { ICrawlerHistory } from "./CrawlerPage";
+import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 
-interface IScheduleExportModalProps {
+interface CrawlTarget {
+    id: number;
+    title: string;
+    clean_title?: string;
+    movie_type: "main" | "competitor";
+    is_active: boolean;
+}
+
+interface ScheduleExportModalProps {
     isOpen: boolean;
     onClose: () => void;
-    historyItem: ICrawlerHistory | null;
+    startDate: string;
+    endDate: string;
+    mainMovies: CrawlTarget[];
 }
 
 const Overlay = styled.div`
@@ -28,7 +38,7 @@ const ModalContainer = styled.div`
     background-color: white;
     padding: 24px;
     border-radius: 12px;
-    width: 450px;
+    width: 420px;
     max-width: 90%;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     display: flex;
@@ -42,7 +52,7 @@ const Header = styled.div`
     align-items: center;
 
     h2 {
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 700;
         color: #1e293b;
         margin: 0;
@@ -63,152 +73,170 @@ const Body = styled.div`
     gap: 16px;
 `;
 
-const Label = styled.label`
-    font-size: 13px;
-    font-weight: 600;
-    color: #475569;
-    margin-bottom: 6px;
-    display: block;
-`;
-
-const Select = styled.select`
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 14px;
-    color: #334155;
-    background-color: #fff;
-    &:focus {
-        outline: none;
-        border-color: #3b82f6;
-    }
-`;
-
-const Input = styled.input`
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 14px;
-    color: #334155;
-    &:focus {
-        outline: none;
-        border-color: #3b82f6;
-    }
-`;
-
-const DateRangeInfo = styled.div`
+const SectionLabel = styled.div`
     font-size: 12px;
+    font-weight: 700;
     color: #64748b;
-    margin-top: 4px;
+    margin-bottom: 6px;
+`;
+
+const DateRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+`;
+
+const DateInput = styled.input`
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: "SUIT", sans-serif;
+    color: #334155;
+    &:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+`;
+
+const MovieList = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+`;
+
+const MovieItem = styled.button<{ $selected: boolean }>`
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid ${({ $selected }) => ($selected ? "#2563eb" : "#e2e8f0")};
+    border-radius: 6px;
+    background: ${({ $selected }) => ($selected ? "#eff6ff" : "#fff")};
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: ${({ $selected }) => ($selected ? 600 : 500)};
+    color: ${({ $selected }) => ($selected ? "#1d4ed8" : "#334155")};
+    font-family: "SUIT", sans-serif;
+    transition: all 0.15s;
+
+    &:hover {
+        border-color: #93c5fd;
+        background: #f0f7ff;
+    }
+`;
+
+const BrandRow = styled.div`
+    display: flex;
+    gap: 16px;
+    align-items: center;
 `;
 
 const Footer = styled.div`
     display: flex;
     justify-content: flex-end;
     gap: 10px;
-    margin-top: 10px;
 `;
 
-const Button = styled.button<{ variant?: 'primary' | 'secondary' }>`
+const Button = styled.button<{ $variant?: "primary" | "secondary" }>`
     padding: 10px 16px;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     border: none;
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: "SUIT", sans-serif;
 
-    ${props => props.variant === 'primary' ? `
+    ${(props) =>
+        props.$variant === "primary"
+            ? `
         background-color: #16a34a;
         color: white;
         &:hover { background-color: #15803d; }
         &:disabled { background-color: #86efac; cursor: not-allowed; }
-    ` : `
+    `
+            : `
         background-color: #f1f5f9;
         color: #475569;
         &:hover { background-color: #e2e8f0; }
     `}
 `;
 
-export const ScheduleExportModal: React.FC<IScheduleExportModalProps> = ({ isOpen, onClose, historyItem }) => {
+export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
+    isOpen,
+    onClose,
+    startDate,
+    endDate,
+    mainMovies,
+}) => {
     const toast = useToast();
-    const [selectedDate, setSelectedDate] = useState<string>("");
-    const [selectedMovie, setSelectedMovie] = useState<string>("");
-    const [movieOptions, setMovieOptions] = useState<string[]>([]);
-    const [isLoadingMovies, setIsLoadingMovies] = useState<boolean>(false);
-    const [isExporting, setIsExporting] = useState<boolean>(false);
+    const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
+    const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true });
+    const [exportStartDate, setExportStartDate] = useState(startDate);
+    const [exportEndDate, setExportEndDate] = useState(endDate || startDate);
+    const [isExporting, setIsExporting] = useState(false);
 
-    const crawlStartDate = historyItem?.configuration?.crawlStartDate || "";
-    const crawlEndDate = historyItem?.configuration?.crawlEndDate || "";
-
-    // Initial Date Setting
-    useEffect(() => {
-        if (isOpen && crawlStartDate) {
-            setSelectedDate(crawlStartDate);
-        } else if (!isOpen) {
-            setSelectedDate("");
-            setSelectedMovie("");
-            setMovieOptions([]);
+    // props 변경 시 날짜 동기화
+    React.useEffect(() => {
+        if (isOpen) {
+            setExportStartDate(startDate);
+            setExportEndDate(endDate || startDate);
         }
-    }, [isOpen, crawlStartDate]);
+    }, [isOpen, startDate, endDate]);
 
-    // Fetch Movies when Date Changes
-    useEffect(() => {
-        if (!selectedDate) return;
+    if (!isOpen) return null;
 
-        const fetchMovies = async () => {
-            setIsLoadingMovies(true);
-            try {
-                const dateParam = selectedDate.replace(/-/g, "");
-                const res: any = await AxiosGet(`crawler/schedules/options`, { params: { date: dateParam } });
-
-                if (res.data && res.data.movies) {
-                    setMovieOptions(res.data.movies);
-                    setSelectedMovie("");
-                }
-            } catch (error) {
-                console.error("Failed to fetch movies", error);
-                toast.error("영화 목록을 불러오지 못했습니다.");
-            } finally {
-                setIsLoadingMovies(false);
-            }
-        };
-
-        fetchMovies();
-    }, [selectedDate]);
+    const selectedMovie = mainMovies.find((m) => m.id === selectedMovieId) || (mainMovies.length === 1 ? mainMovies[0] : null);
 
     const handleExport = async () => {
-        if (!selectedDate || !selectedMovie) return;
+        if (!selectedMovie) {
+            toast.warning("영화를 선택해주세요.");
+            return;
+        }
+
+        const brands: string[] = [];
+        if (brandFilter.cgv) brands.push("CGV");
+        if (brandFilter.lotte) brands.push("LOTTE");
+        if (brandFilter.mega) brands.push("MEGABOX");
+
+        if (brands.length === 0) {
+            toast.warning("계열사를 하나 이상 선택해주세요.");
+            return;
+        }
 
         setIsExporting(true);
         try {
-            // Send full crawl date range for multi-date Excel
-            const exportStartDate = crawlStartDate || selectedDate;
-            const exportEndDate = crawlEndDate || selectedDate;
-
+            toast.success("엑셀 생성 중... 잠시만 기다려주세요.");
             const response: any = await AxiosPost(
-                `crawler/schedules/export`,
+                "crawler/schedules/export",
                 {
                     start_date: exportStartDate,
                     end_date: exportEndDate,
-                    movie_title: selectedMovie
+                    movie_title: selectedMovie.clean_title || selectedMovie.title,
+                    brands: brands.length < 3 ? brands : undefined,
                 },
-                { responseType: 'blob' }
+                { responseType: "blob" }
             );
 
-            // response is full axios response, response.data is the blob
             const blob = new Blob([response.data], {
-                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             });
             const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
+            const link = document.createElement("a");
             link.href = url;
-            const safeDate = exportStartDate.replace(/-/g, "");
-            link.setAttribute('download', `${selectedMovie}_${safeDate}_schedule.xlsx`);
+
+            const contentDisposition = response.headers?.["content-disposition"];
+            let filename = `${selectedMovie.title}_schedule.xlsx`;
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (match?.[1]) filename = match[1];
+            }
+
+            link.setAttribute("download", filename);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -216,61 +244,62 @@ export const ScheduleExportModal: React.FC<IScheduleExportModalProps> = ({ isOpe
 
             toast.success("엑셀 파일이 다운로드 되었습니다.");
             onClose();
-
-        } catch (error) {
-            console.error("Export failed", error);
-            toast.error("엑셀 다운로드에 실패했습니다.");
+        } catch (error: any) {
+            console.error(error);
+            toast.error("다운로드 실패: " + (error.response?.data?.error || "데이터가 없거나 오류가 발생했습니다."));
         } finally {
             setIsExporting(false);
         }
     };
 
-    if (!isOpen) return null;
-
     return (
         <Overlay onClick={onClose}>
             <ModalContainer onClick={(e) => e.stopPropagation()}>
                 <Header>
-                    <h2>엑셀 시간표 출력</h2>
-                    <button onClick={onClose}><X size={20} /></button>
+                    <h2>엑셀 다운로드</h2>
+                    <button onClick={onClose}>
+                        <X size={20} />
+                    </button>
                 </Header>
                 <Body>
                     <div>
-                        <Label>날짜 선택</Label>
-                        <Input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                        />
-                        {crawlStartDate && crawlEndDate && crawlStartDate !== crawlEndDate && (
-                            <DateRangeInfo>
-                                수집 범위: {crawlStartDate} ~ {crawlEndDate} (전체 기간 엑셀에 포함)
-                            </DateRangeInfo>
-                        )}
+                        <SectionLabel>조회 기간</SectionLabel>
+                        <DateRow>
+                            <DateInput type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} />
+                            <span style={{ color: "#94a3b8", fontSize: 13 }}>~</span>
+                            <DateInput type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} />
+                        </DateRow>
                     </div>
+
                     <div>
-                        <Label>영화 선택 {isLoadingMovies && <Spinner className="spin" size={12} style={{ marginLeft: 6 }} />}</Label>
-                        <Select
-                            value={selectedMovie}
-                            onChange={(e) => setSelectedMovie(e.target.value)}
-                            disabled={isLoadingMovies || !selectedDate}
-                        >
-                            <option value="">영화를 선택하세요</option>
-                            {movieOptions.map((movie, idx) => (
-                                <option key={idx} value={movie}>{movie}</option>
+                        <SectionLabel>주요작 선택</SectionLabel>
+                        <MovieList>
+                            {mainMovies.map((m) => (
+                                <MovieItem
+                                    key={m.id}
+                                    $selected={selectedMovie?.id === m.id}
+                                    onClick={() => setSelectedMovieId(m.id)}
+                                >
+                                    {m.title}
+                                </MovieItem>
                             ))}
-                        </Select>
+                        </MovieList>
+                    </div>
+
+                    <div>
+                        <SectionLabel>계열사 선택</SectionLabel>
+                        <BrandRow>
+                            <CustomCheckbox label="CGV" checked={brandFilter.cgv} onChange={() => setBrandFilter((p) => ({ ...p, cgv: !p.cgv }))} />
+                            <CustomCheckbox label="Lotte" checked={brandFilter.lotte} onChange={() => setBrandFilter((p) => ({ ...p, lotte: !p.lotte }))} />
+                            <CustomCheckbox label="Megabox" checked={brandFilter.mega} onChange={() => setBrandFilter((p) => ({ ...p, mega: !p.mega }))} />
+                        </BrandRow>
                     </div>
                 </Body>
                 <Footer>
                     <Button onClick={onClose}>취소</Button>
-                    <Button
-                        variant="primary"
-                        onClick={handleExport}
-                        disabled={isExporting || !selectedDate || !selectedMovie}
-                    >
+                    <Button $variant="primary" onClick={handleExport} disabled={isExporting || !selectedMovie}>
                         {isExporting ? <Spinner className="spin" size={16} /> : <DownloadSimple size={16} weight="bold" />}
-                        출력
+                        다운로드
                     </Button>
                 </Footer>
             </ModalContainer>
