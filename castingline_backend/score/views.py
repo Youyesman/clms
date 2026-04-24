@@ -2096,15 +2096,15 @@ def score_settlement_detail(request):
     if not movie_ids:
         return Response({"meta": {}, "rows": []})
 
-    # 포맷 라벨 결정
+    # 포맷 라벨 결정 (movie_id → label 맵)
+    format_label_map = {}
     if format_movie_ids_list:
         fmt_movies = Movie.objects.filter(id__in=[int(x) for x in format_movie_ids_list if x.isdigit()])
-        labels = []
         for m in fmt_movies:
             parts = [m.viewing_dimension, m.screening_type, m.dx4_viewing_dimension, m.audio_mode]
             lbl = " ".join(p for p in parts if p and p.strip()) or m.title_ko
-            labels.append(lbl)
-        format_display = " / ".join(labels) if labels else "전체"
+            format_label_map[m.id] = lbl
+        format_display = "전체"  # 다중 포맷 선택 시 개별 분리되므로 fallback만 사용
     else:
         format_display = "전체"
 
@@ -2132,11 +2132,11 @@ def score_settlement_detail(request):
     if theater_type and theater_type != "전체":
         common_filter &= Q(client__client_type=theater_type)
 
-    # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
+    # DB 집계: (movie_id, client_id, fare, entry_date, auditorium) → sum(visitor)
     qs = list(
         Score.objects
         .filter(common_filter)
-        .values("client_id", "fare", "entry_date", "auditorium")
+        .values("movie_id", "client_id", "fare", "entry_date", "auditorium")
         .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
         .order_by("entry_date")
     )
@@ -2229,12 +2229,24 @@ def score_settlement_detail(request):
 
     def get_system_name(cid):
         info = clients.get(cid, {})
-        return info.get("excel_theater_name") or info.get("theater_name") or info.get("client_name") or ""
+        name = info.get("excel_theater_name") or info.get("theater_name") or info.get("client_name") or ""
+        # 롯데·메가박스는 극장명에 브랜드 접두사가 없는 경우 자동 추가
+        kind = info.get("theater_kind") or ""
+        for prefix in ["롯데", "메가박스"]:
+            if prefix in kind and name:
+                stripped = name.strip()
+                # (폐관) 접두사 제거 후 브랜드명 포함 여부 확인
+                base = stripped[len("(폐관)"):].strip() if stripped.startswith("(폐관)") else stripped
+                if not base.startswith(prefix):
+                    name = prefix + name
+                break
+        return name
 
-    # Python 집계: (client_id, share_rate_str, is_fund_exempt) 단위
+    # Python 집계: 포맷 선택 시 (client_id, movie_id, share_rate_str, is_fund_exempt) 단위
     aggregated = {}
     for row in qs:
         cid = row["client_id"]
+        mid = row["movie_id"]
         entry_date = row["entry_date"]
         aud = row["auditorium"] or ""
         client_info = clients.get(cid, {})
@@ -2242,12 +2254,19 @@ def score_settlement_detail(request):
         share_rate = get_rate_value(cid, entry_date, aud, client_info)
         is_fund_exempt = get_fund_exempt(cid, entry_date)
 
-        group_key = (cid, str(share_rate), is_fund_exempt)
+        # 포맷 선택 시 movie_id를 그룹키에 포함 → 포맷별 분리
+        if format_movie_ids_list:
+            group_key = (cid, mid, str(share_rate), is_fund_exempt)
+            row_format = format_label_map.get(mid, "기타")
+        else:
+            group_key = (cid, str(share_rate), is_fund_exempt)
+            row_format = format_display
+
         if group_key not in aggregated:
             aggregated[group_key] = {
                 "theater": get_system_name(cid),
                 "distributor_theater": dist_theater_name_map.get(cid, ""),
-                "format": format_display,
+                "format": row_format,
                 "region": client_info.get("region_code") or "",
                 "multi": client_info.get("theater_kind") or "",
                 "classification": client_info.get("classification") or "",
@@ -2318,7 +2337,7 @@ def score_settlement_detail(request):
         m = r["multi"] or ""
         mi = next((v for k, v in _MULTI_ORD.items() if k in m), 99)
         ci = 0 if r["classification"] == "직영" else 1
-        return (mi, ci, r["region"], r["theater"])
+        return (mi, ci, r["region"], r["theater"], r["format"])
 
     rows.sort(key=_skey)
 
@@ -2399,12 +2418,15 @@ def score_supply_price(request):
     region = request.query_params.get("region")
     multi_p = request.query_params.get("multi")
     theater_type = request.query_params.get("theater_type")
+    client_id_param = request.query_params.get("client_id")
     if region and region != "전체":
         common_filter &= Q(client__region_code=region)
     if multi_p and multi_p != "전체":
         common_filter &= Q(client__theater_kind=multi_p)
     if theater_type and theater_type != "전체":
         common_filter &= Q(client__client_type=theater_type)
+    if client_id_param:
+        common_filter &= Q(client_id=client_id_param)
 
     # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
     qs = list(

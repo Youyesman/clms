@@ -11,9 +11,26 @@ class ClientSerializer(serializers.ModelSerializer):
 from accounts.serializers import UserSerializer
 
 
+def _client_to_dict(client):
+    return {"id": client.id, "client_name": client.client_name} if client else None
+
+def _resolve_client(data):
+    """dict(client_name) 또는 ID로 Client 조회"""
+    if isinstance(data, dict):
+        name = data.get("client_name", "").strip()
+        return Client.objects.filter(client_name=name).first() if name else None
+    if data:
+        return Client.objects.filter(id=data).first()
+    return None
+
+
 class MovieSerializer(serializers.ModelSerializer):
     distributor = serializers.SerializerMethodField()
+    distributor_2 = serializers.SerializerMethodField()
+    distributor_3 = serializers.SerializerMethodField()
     production_company = serializers.SerializerMethodField()
+    production_company_2 = serializers.SerializerMethodField()
+    production_company_3 = serializers.SerializerMethodField()
     movie_code = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
@@ -27,48 +44,34 @@ class MovieSerializer(serializers.ModelSerializer):
         return representation
 
     def get_distributor(self, obj):
-        return (
-            {"id": obj.distributor.id, "client_name": obj.distributor.client_name}
-            if obj.distributor
-            else None
-        )
+        return _client_to_dict(obj.distributor)
+
+    def get_distributor_2(self, obj):
+        return _client_to_dict(obj.distributor_2)
+
+    def get_distributor_3(self, obj):
+        return _client_to_dict(obj.distributor_3)
 
     def get_production_company(self, obj):
-        return (
-            {
-                "id": obj.production_company.id,
-                "client_name": obj.production_company.client_name,
-            }
-            if obj.production_company
-            else None
-        )
+        return _client_to_dict(obj.production_company)
+
+    def get_production_company_2(self, obj):
+        return _client_to_dict(obj.production_company_2)
+
+    def get_production_company_3(self, obj):
+        return _client_to_dict(obj.production_company_3)
 
     def create(self, validated_data):
         request = self.context.get("request")
         data = request.data if request else {}
 
-        distributor_data = data.get("distributor")
-        production_data = data.get("production_company")
-
-        distributor_obj = None
-        if isinstance(distributor_data, dict):
-            distributor_name = distributor_data.get("client_name", "").strip()
-            if distributor_name:
-                distributor_obj = Client.objects.filter(client_name=distributor_name).first()
-        elif distributor_data: # ID로 전달된 경우 대응
-            distributor_obj = Client.objects.filter(id=distributor_data).first()
-
-        production_obj = None
-        if isinstance(production_data, dict):
-            production_name = production_data.get("client_name", "").strip()
-            if production_name:
-                production_obj = Client.objects.filter(client_name=production_name).first()
-        elif production_data: # ID로 전달된 경우 대응
-            production_obj = Client.objects.filter(id=production_data).first()
-
         movie = Movie.objects.create(
-            distributor=distributor_obj,
-            production_company=production_obj,
+            distributor=_resolve_client(data.get("distributor")),
+            distributor_2=_resolve_client(data.get("distributor_2")),
+            distributor_3=_resolve_client(data.get("distributor_3")),
+            production_company=_resolve_client(data.get("production_company")),
+            production_company_2=_resolve_client(data.get("production_company_2")),
+            production_company_3=_resolve_client(data.get("production_company_3")),
             **validated_data
         )
         return movie
@@ -77,32 +80,13 @@ class MovieSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         data = request.data if request else {}
 
-        distributor_data = data.get("distributor")
-        production_data = data.get("production_company")
+        instance.distributor = _resolve_client(data.get("distributor"))
+        instance.distributor_2 = _resolve_client(data.get("distributor_2"))
+        instance.distributor_3 = _resolve_client(data.get("distributor_3"))
+        instance.production_company = _resolve_client(data.get("production_company"))
+        instance.production_company_2 = _resolve_client(data.get("production_company_2"))
+        instance.production_company_3 = _resolve_client(data.get("production_company_3"))
 
-        distributor_name = ""
-        if isinstance(distributor_data, dict):
-            distributor_name = distributor_data.get("client_name", "").strip()
-
-        production_name = ""
-        if isinstance(production_data, dict):
-            production_name = production_data.get("client_name", "").strip()
-
-        if distributor_name:
-            distributor_obj = Client.objects.filter(
-                client_name=distributor_name
-            ).first()
-            instance.distributor = distributor_obj
-        else:
-            instance.distributor = None
-
-        if production_name:
-            production_obj = Client.objects.filter(client_name=production_name).first()
-            instance.production_company = production_obj
-        else:
-            instance.production_company = None
-
-        # 나머지 필드 처리
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 

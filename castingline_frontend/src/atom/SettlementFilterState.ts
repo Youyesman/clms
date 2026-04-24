@@ -6,15 +6,24 @@ function yesterday(): string {
     return d.toISOString().slice(0, 10);
 }
 
-export interface SettlementFilterDate {
+export interface SettlementFilter {
     dateFrom: string;
     dateTo: string;
+    yyyy: string;
+    movieId: string;
+    movieTitle: string;
 }
 
-export const SettlementFilterState = atom<SettlementFilterDate>({
+/** @deprecated use SettlementFilter */
+export type SettlementFilterDate = SettlementFilter;
+
+export const SettlementFilterState = atom<SettlementFilter>({
     key: "SettlementFilterState",
     default: {
         dateFrom: yesterday(),
         dateTo: yesterday(),
+        yyyy: new Date().getFullYear().toString(),
+        movieId: "",
+        movieTitle: "",
     },
 });

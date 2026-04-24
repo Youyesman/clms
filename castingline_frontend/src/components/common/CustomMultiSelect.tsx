@@ -181,9 +181,11 @@ interface CustomMultiSelectProps {
     onChange: (v: string[]) => void;
     style?: React.CSSProperties;
     disabled?: boolean;
+    /** true(기본): 같은 그룹 내 1개만 선택(라디오). false: 그룹 내 복수 선택 허용 */
+    radioPerGroup?: boolean;
 }
 
-export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style, disabled = false }: CustomMultiSelectProps) {
+export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style, disabled = false, radioPerGroup = true }: CustomMultiSelectProps) {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [isOpen, setIsOpen] = useState(false);
@@ -191,7 +193,6 @@ export function CustomMultiSelect({ label = "포맷", groups, value, onChange, s
 
     const toggle = () => !disabled && setIsOpen(prev => !prev);
 
-    // 같은 그룹 내에서는 1개만 선택 (라디오), 다른 그룹끼리는 동시 선택 가능
     const handleToggleItem = (item: string) => {
         // 이미 선택됨 → 해제
         if (value.includes(item)) {
@@ -199,13 +200,16 @@ export function CustomMultiSelect({ label = "포맷", groups, value, onChange, s
             return;
         }
 
-        // 해당 아이템이 속한 그룹 찾기
-        const group = groups.find(g => g.items.includes(item));
-        if (!group) return;
-
-        // 같은 그룹의 기존 선택 제거 후, 새 아이템 추가
-        const filtered = value.filter(v => !group.items.includes(v));
-        onChange([...filtered, item]);
+        if (radioPerGroup) {
+            // 같은 그룹 내 1개만 선택 (라디오): 기존 그룹 선택 제거 후 추가
+            const group = groups.find(g => g.items.includes(item));
+            if (!group) return;
+            const filtered = value.filter(v => !group.items.includes(v));
+            onChange([...filtered, item]);
+        } else {
+            // 그룹 내 복수 선택 허용 (체크박스)
+            onChange([...value, item]);
+        }
     };
 
     // 외부 클릭 닫기

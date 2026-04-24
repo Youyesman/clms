@@ -231,15 +231,15 @@ const PIE_COLORS = [
 const RADIAN = Math.PI / 180;
 
 interface PieLabelProps {
-    cx: number;
-    cy: number;
-    midAngle: number;
-    outerRadius: number;
-    name: string;
-    value: number;
+    cx?: number;
+    cy?: number;
+    midAngle?: number;
+    outerRadius?: number;
+    name?: string;
+    value?: number;
 }
 
-function renderPieLabel({ cx, cy, midAngle, outerRadius, name, value }: PieLabelProps) {
+function renderPieLabel({ cx = 0, cy = 0, midAngle = 0, outerRadius = 0, name = "", value = 0 }: PieLabelProps) {
     if (value < 0.3) return null;
     const radius = outerRadius + 34;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);

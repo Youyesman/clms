@@ -20,14 +20,42 @@ class Movie(TimeStampedModel):
         null=True,
         blank=True,
         related_name="movie_distributor",
-    )  # 배급사
+    )  # 배급사 1
+    distributor_2 = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movie_distributor_2",
+    )  # 배급사 2
+    distributor_3 = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movie_distributor_3",
+    )  # 배급사 3
     production_company = models.ForeignKey(
         Client,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="production_company",
-    )  # 제작사
+    )  # 제작사 1
+    production_company_2 = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_company_2",
+    )  # 제작사 2
+    production_company_3 = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_company_3",
+    )  # 제작사 3
 
     rating = models.CharField(max_length=50, null=True, blank=True)  # 관람 등급
     genre = models.CharField(max_length=100, null=True, blank=True)

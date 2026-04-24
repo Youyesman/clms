@@ -80,7 +80,21 @@ export function MovieDetail({
 }) {
     const toast = useToast();
     const [distributorInput, setDistributorInput] = useState("");
+    const [distributorInput2, setDistributorInput2] = useState("");
+    const [distributorInput3, setDistributorInput3] = useState("");
     const [productionCompanyInput, setProductionCompanyInput] = useState("");
+    const [productionCompanyInput2, setProductionCompanyInput2] = useState("");
+    const [productionCompanyInput3, setProductionCompanyInput3] = useState("");
+
+    // 선택 영화 변경 시 autocomplete 입력값 동기화
+    useEffect(() => {
+        setDistributorInput(formData.distributor?.client_name || "");
+        setDistributorInput2(formData.distributor_2?.client_name || "");
+        setDistributorInput3(formData.distributor_3?.client_name || "");
+        setProductionCompanyInput(formData.production_company?.client_name || "");
+        setProductionCompanyInput2(formData.production_company_2?.client_name || "");
+        setProductionCompanyInput3(formData.production_company_3?.client_name || "");
+    }, [selectedMovie]);
 
     // 공통 필드 업데이트 함수
     const updateField = (name: string, value: any) => {
@@ -138,7 +152,11 @@ export function MovieDetail({
             primary_movie_code: formData.movie_code,
             movie_code: `${formData.movie_code}_${Date.now().toString().slice(-4)}`,
             distributor: formData.distributor?.id || null,
+            distributor_2: formData.distributor_2?.id || null,
+            distributor_3: formData.distributor_3?.id || null,
             production_company: formData.production_company?.id || null,
+            production_company_2: formData.production_company_2?.id || null,
+            production_company_3: formData.production_company_3?.id || null,
         };
 
         AxiosPost("movies", newPrintMovie)
@@ -237,10 +255,9 @@ export function MovieDetail({
                 </FormGrid>
 
                 <SectionTitle>제작 및 출연</SectionTitle>
-                {/* 오토컴플리트 필드는 래퍼가 필요할 수 있음 (기존 컴포넌트 유지) */}
                 <FormGrid>
                     <AutocompleteInputClient
-                        label="배급사"
+                        label="배급사 1"
                         type="distributor"
                         formData={formData}
                         setFormData={setFormData}
@@ -248,15 +265,54 @@ export function MovieDetail({
                         inputValue={distributorInput}
                         setInputValue={setDistributorInput}
                     />
-
                     <AutocompleteInputClient
-                        label="제작사"
+                        label="제작사 1"
                         type="production_company"
                         formData={formData}
                         setFormData={setFormData}
                         placeholder="제작사 검색"
                         inputValue={productionCompanyInput}
                         setInputValue={setProductionCompanyInput}
+                    />
+                </FormGrid>
+                <FormGrid>
+                    <AutocompleteInputClient
+                        label="배급사 2"
+                        type="distributor_2"
+                        formData={formData}
+                        setFormData={setFormData}
+                        placeholder="배급사 검색"
+                        inputValue={distributorInput2}
+                        setInputValue={setDistributorInput2}
+                    />
+                    <AutocompleteInputClient
+                        label="제작사 2"
+                        type="production_company_2"
+                        formData={formData}
+                        setFormData={setFormData}
+                        placeholder="제작사 검색"
+                        inputValue={productionCompanyInput2}
+                        setInputValue={setProductionCompanyInput2}
+                    />
+                </FormGrid>
+                <FormGrid>
+                    <AutocompleteInputClient
+                        label="배급사 3"
+                        type="distributor_3"
+                        formData={formData}
+                        setFormData={setFormData}
+                        placeholder="배급사 검색"
+                        inputValue={distributorInput3}
+                        setInputValue={setDistributorInput3}
+                    />
+                    <AutocompleteInputClient
+                        label="제작사 3"
+                        type="production_company_3"
+                        formData={formData}
+                        setFormData={setFormData}
+                        placeholder="제작사 검색"
+                        inputValue={productionCompanyInput3}
+                        setInputValue={setProductionCompanyInput3}
                     />
                 </FormGrid>
 

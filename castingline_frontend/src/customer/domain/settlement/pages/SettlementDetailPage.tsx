@@ -262,6 +262,20 @@ const EmptyTd = styled.td`
     color: #94a3b8 !important;
 `;
 
+const SortTh = styled.th<{ $sortable?: boolean }>`
+    cursor: ${({ $sortable }) => ($sortable ? "pointer" : "default")};
+    user-select: none;
+    &:hover {
+        background: ${({ $sortable }) => ($sortable ? "#e2e8f0" : "#f1f5f9")} !important;
+    }
+`;
+
+const SortIcon = styled.span<{ $active: boolean }>`
+    margin-left: 4px;
+    font-size: 9px;
+    color: ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
+`;
+
 /* ── 컴포넌트 ── */
 export function SettlementDetailPage() {
     const toast = useToast();
@@ -279,6 +293,10 @@ export function SettlementDetailPage() {
     // 테이블 극장명 필터 (검색어 입력 후 Enter/Search 클릭 시 적용)
     const [tableFilter, setTableFilter] = useState("");
     const [searchInput, setSearchInput] = useState("");
+    const [sortConfig, setSortConfig] = useState<{
+        key: keyof SettlementRow | "theaterDisplay" | null;
+        dir: "asc" | "desc";
+    }>({ key: null, dir: "asc" });
     const [movieSuggestions, setMovieSuggestions] = useState<MovieSuggestion[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -287,8 +305,8 @@ export function SettlementDetailPage() {
     >({});
 
     const [searchParams, setSearchParams] = useState({
-        yyyy: new Date().getFullYear().toString(),
-        movie_id: "",
+        yyyy: settlementFilter.yyyy,
+        movie_id: settlementFilter.movieId,
         region: "전체",
         multi: "전체",
         theater_type: "전체",
@@ -324,9 +342,6 @@ export function SettlementDetailPage() {
             AxiosGet(`score/movies-by-year/`, { params: { year } })
                 .then((res) => {
                     setMoviesList(res.data || []);
-                    setSearchParams((p) => ({ ...p, movie_id: "" }));
-                    setFormatOptions([]);
-                    setSelectedFormats([]);
                 })
                 .catch((err) => toast.error(handleBackendErrors(err)));
         },
@@ -353,6 +368,13 @@ export function SettlementDetailPage() {
     useEffect(() => {
         fetchMoviesByYear(searchParams.yyyy);
     }, [searchParams.yyyy, fetchMoviesByYear]);
+
+    useEffect(() => {
+        if (settlementFilter.movieId) {
+            fetchMovieFormats(settlementFilter.movieId);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     /* ── 영화명 자동완성 ── */
     useEffect(() => {
@@ -390,6 +412,7 @@ export function SettlementDetailPage() {
     const handleMovieSelect = (movie: MovieSuggestion) => {
         const year = movie.year?.toString() || new Date().getFullYear().toString();
         setSearchParams((p) => ({ ...p, yyyy: year, movie_id: movie.id.toString() }));
+        setSettlementFilter((f) => ({ ...f, yyyy: year, movieId: movie.id.toString(), movieTitle: movie.title_ko }));
         setSearchInput("");
         setShowSuggestions(false);
         fetchMovieFormats(movie.id.toString());
@@ -450,6 +473,35 @@ export function SettlementDetailPage() {
                 r.distributor_theater.toLowerCase().includes(kw)
         );
     }, [data.rows, tableFilter]);
+
+    /* ── 정렬된 행 ── */
+    const sortedRows = useMemo(() => {
+        if (!sortConfig.key) return filteredRows;
+        const { key, dir } = sortConfig;
+        return [...filteredRows].sort((a, b) => {
+            const aVal = key === "theaterDisplay" ? (useDistName ? a.distributor_theater || a.theater : a.theater) : a[key as keyof SettlementRow];
+            const bVal = key === "theaterDisplay" ? (useDistName ? b.distributor_theater || b.theater : b.theater) : b[key as keyof SettlementRow];
+            if (typeof aVal === "number" && typeof bVal === "number") {
+                return dir === "asc" ? aVal - bVal : bVal - aVal;
+            }
+            const cmp = String(aVal ?? "").localeCompare(String(bVal ?? ""), "ko");
+            return dir === "asc" ? cmp : -cmp;
+        });
+    }, [filteredRows, sortConfig, useDistName]);
+
+    const handleSort = (key: keyof SettlementRow | "theaterDisplay") => {
+        setSortConfig(prev =>
+            prev.key === key
+                ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+                : { key, dir: "asc" }
+        );
+    };
+
+    const si = (key: keyof SettlementRow | "theaterDisplay") => (
+        <SortIcon $active={sortConfig.key === key}>
+            {sortConfig.key === key ? (sortConfig.dir === "asc" ? "▲" : "▼") : "↕"}
+        </SortIcon>
+    );
 
     /* ── 합계 ── */
     const totals = useMemo(() => {
@@ -542,8 +594,11 @@ export function SettlementDetailPage() {
                             options={yearOptions}
                             value={searchParams.yyyy}
                             onChange={(v) => {
-                                setSearchParams((p) => ({ ...p, yyyy: v }));
+                                setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                                setSettlementFilter((f) => ({ ...f, yyyy: v, movieId: "", movieTitle: "" }));
                                 setValidationErrors((e) => ({ ...e, yyyy: false }));
+                                setFormatOptions([]);
+                                setSelectedFormats([]);
                             }}
                         />
                         {validationErrors.yyyy && (
@@ -562,7 +617,9 @@ export function SettlementDetailPage() {
                             }))}
                             value={searchParams.movie_id}
                             onChange={(val) => {
+                                const title = moviesList.find((m) => m.id.toString() === val)?.title_ko || "";
                                 setSearchParams((p) => ({ ...p, movie_id: val }));
+                                setSettlementFilter((f) => ({ ...f, movieId: val, movieTitle: title }));
                                 setValidationErrors((e) => ({ ...e, movie_id: false }));
                                 fetchMovieFormats(val);
                             }}
@@ -579,6 +636,7 @@ export function SettlementDetailPage() {
                             value={selectedFormats}
                             onChange={setSelectedFormats}
                             disabled={formatOptions.length === 0}
+                            radioPerGroup={false}
                         />
                     </div>
 
@@ -664,27 +722,27 @@ export function SettlementDetailPage() {
                 <StyledTable>
                     <thead>
                         <tr>
-                            <th>지역</th>
-                            <th>멀티</th>
-                            <th>구분</th>
-                            <th>포맷</th>
-                            <th style={{ minWidth: 110, textAlign: "left" }}>영화관명</th>
-                            <th style={{ minWidth: 110, textAlign: "left" }}>배급사별 극장명</th>
-                            <th>날짜(from)</th>
-                            <th>날짜(to)</th>
-                            <th>인원(명)</th>
-                            <th>금액(입장료)</th>
-                            <th>기금제외금액</th>
-                            <th>부가세제외금액</th>
-                            <th>부율</th>
-                            <th>공급가액</th>
-                            <th>부가세</th>
-                            <th>당사입금액</th>
-                            <th>객단가</th>
+                            <SortTh $sortable onClick={() => handleSort("region")}>지역{si("region")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("multi")}>멀티{si("multi")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("classification")}>구분{si("classification")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("format")}>포맷{si("format")}</SortTh>
+                            <SortTh $sortable style={{ minWidth: 110, textAlign: "left" }} onClick={() => handleSort("theaterDisplay")}>영화관명{si("theaterDisplay")}</SortTh>
+                            <SortTh $sortable style={{ minWidth: 110, textAlign: "left" }} onClick={() => handleSort("distributor_theater")}>배급사별 극장명{si("distributor_theater")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("min_date")}>날짜(from){si("min_date")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("max_date")}>날짜(to){si("max_date")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("visitor")}>인원(명){si("visitor")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("ticket_revenue")}>금액(입장료){si("ticket_revenue")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("fund_excluded")}>기금제외금액{si("fund_excluded")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("vat_excluded")}>부가세제외금액{si("vat_excluded")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("rate")}>부율{si("rate")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("supply_value")}>공급가액{si("supply_value")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("vat")}>부가세{si("vat")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("total_payment")}>당사입금액{si("total_payment")}</SortTh>
+                            <SortTh $sortable onClick={() => handleSort("unit_price")}>객단가{si("unit_price")}</SortTh>
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredRows.length === 0 && (
+                        {sortedRows.length === 0 && (
                             <tr>
                                 <EmptyTd colSpan={17}>
                                     {loading
@@ -693,7 +751,7 @@ export function SettlementDetailPage() {
                                 </EmptyTd>
                             </tr>
                         )}
-                        {filteredRows.map((row, idx) => (
+                        {sortedRows.map((row, idx) => (
                             <tr key={idx}>
                                 <td>{row.region}</td>
                                 <td>{row.multi}</td>
@@ -718,7 +776,7 @@ export function SettlementDetailPage() {
                                 <td>{fmtN(row.unit_price)}</td>
                             </tr>
                         ))}
-                        {filteredRows.length > 0 && (
+                        {sortedRows.length > 0 && (
                             <TotalRow>
                                 <td colSpan={8} style={{ textAlign: "right" }}>
                                     합계
