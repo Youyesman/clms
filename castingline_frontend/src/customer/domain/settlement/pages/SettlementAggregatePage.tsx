@@ -14,6 +14,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SETTLEMENT_TABS } from "../../../../components/common/PageNavTabs";
+import { useRecoilState } from "recoil";
+import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
@@ -281,6 +283,7 @@ const EmptyTd = styled.td`
 /* ── 컴포넌트 ── */
 export function SettlementAggregatePage() {
     const toast = useToast();
+    const [settlementFilter, setSettlementFilter] = useRecoilState(SettlementFilterState);
     const yesterday = getYesterday();
     const searchWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -306,8 +309,8 @@ export function SettlementAggregatePage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date_from: yesterday,
-        date_to: yesterday,
+        date_from: settlementFilter.dateFrom,
+        date_to: settlementFilter.dateTo,
     });
 
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -676,6 +679,7 @@ export function SettlementAggregatePage() {
                             setValue={(v) => {
                                 setSearchParams((p) => ({ ...p, date_from: v }));
                                 setValidationErrors((e) => ({ ...e, date_from: false }));
+                                setSettlementFilter((f) => ({ ...f, dateFrom: v }));
                             }}
                         />
                         {validationErrors.date_from && (
@@ -691,6 +695,7 @@ export function SettlementAggregatePage() {
                             setValue={(v) => {
                                 setSearchParams((p) => ({ ...p, date_to: v }));
                                 setValidationErrors((e) => ({ ...e, date_to: false }));
+                                setSettlementFilter((f) => ({ ...f, dateTo: v }));
                             }}
                         />
                         {validationErrors.date_to && (

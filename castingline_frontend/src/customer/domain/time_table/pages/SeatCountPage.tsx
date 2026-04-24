@@ -240,8 +240,8 @@ interface PieLabelProps {
 }
 
 function renderPieLabel({ cx, cy, midAngle, outerRadius, name, value }: PieLabelProps) {
-    if (value < 0.8) return null;
-    const radius = outerRadius + 32;
+    if (value < 0.3) return null;
+    const radius = outerRadius + 34;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
     return (
@@ -564,7 +564,7 @@ export function SeatCountPage() {
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="50%"
+                                                cy="45%"
                                                 innerRadius={55}
                                                 outerRadius={85}
                                                 label={renderPieLabel}
@@ -581,6 +581,11 @@ export function SeatCountPage() {
                                                     "예매율",
                                                 ]}
                                             />
+                                            <Legend
+                                                iconSize={8}
+                                                wrapperStyle={{ fontSize: 10, color: "#94a3b8", paddingTop: 4 }}
+                                                formatter={(value) => <span style={{ color: "#94a3b8" }}>{value}</span>}
+                                            />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -596,7 +601,7 @@ export function SeatCountPage() {
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="50%"
+                                                cy="45%"
                                                 innerRadius={55}
                                                 outerRadius={85}
                                                 label={renderPieLabel}
@@ -612,6 +617,11 @@ export function SeatCountPage() {
                                                     `${Number(value ?? 0).toFixed(2)}%`,
                                                     "좌점율",
                                                 ]}
+                                            />
+                                            <Legend
+                                                iconSize={8}
+                                                wrapperStyle={{ fontSize: 10, color: "#94a3b8", paddingTop: 4 }}
+                                                formatter={(value) => <span style={{ color: "#94a3b8" }}>{value}</span>}
                                             />
                                         </PieChart>
                                     </ResponsiveContainer>

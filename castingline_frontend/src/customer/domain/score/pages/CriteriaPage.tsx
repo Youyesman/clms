@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { useRecoilState } from "recoil";
+import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 스타일 ── */
 const PageWrapper = styled.div`
@@ -110,6 +112,7 @@ const GrandTotalRow = styled.tr`
 /* ── 컴포넌트 ── */
 export function CriteriaPage() {
     const toast = useToast();
+    const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
     const [moviesList, setMoviesList] = useState<any[]>([]);
     const [data, setData] = useState<any>({ meta: null, rows: [] });
 
@@ -119,10 +122,10 @@ export function CriteriaPage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })(),
+        date: scoreFilter.date,
     });
     // 날짜 디바운스용 확정 상태
-    const [debouncedDate, setDebouncedDate] = useState(searchParams.date);
+    const [debouncedDate, setDebouncedDate] = useState(scoreFilter.date);
 
     // 포맷(서브영화)
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -329,7 +332,10 @@ export function CriteriaPage() {
                             inputType="date"
                             label="날짜"
                             value={searchParams.date}
-                            setValue={(v) => setSearchParams((p) => ({ ...p, date: v }))}
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date: v }));
+                                setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                            }}
                         />
                     </div>
                 </FilterRow>

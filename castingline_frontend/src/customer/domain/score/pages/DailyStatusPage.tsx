@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { useRecoilState } from "recoil";
+import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 유틸 ── */
 const fmt = (n: number) => n.toLocaleString("ko-KR");
@@ -139,14 +141,16 @@ export function DailyStatusPage() {
         grand_total: { visitor: 0, revenue: 0 },
     });
 
+    const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
+
     const [searchParams, setSearchParams] = useState({
         yyyy: new Date().getFullYear().toString(),
         movie_id: "",
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date_from: yesterday,
-        date_to: yesterday,
+        date_from: scoreFilter.dateFrom,
+        date_to: scoreFilter.dateTo,
     });
 
     // 포맷(서브영화)
@@ -359,12 +363,10 @@ export function DailyStatusPage() {
                             inputType="date"
                             label="날짜 from"
                             value={searchParams.date_from}
-                            setValue={(v) =>
-                                setSearchParams((p) => ({
-                                    ...p,
-                                    date_from: v,
-                                }))
-                            }
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date_from: v }));
+                                setScoreFilter((f) => ({ ...f, dateFrom: v, date: v }));
+                            }}
                         />
                     </div>
                     <div>
@@ -372,9 +374,10 @@ export function DailyStatusPage() {
                             inputType="date"
                             label="날짜 to"
                             value={searchParams.date_to}
-                            setValue={(v) =>
-                                setSearchParams((p) => ({ ...p, date_to: v }))
-                            }
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date_to: v }));
+                                setScoreFilter((f) => ({ ...f, dateTo: v }));
+                            }}
                         />
                     </div>
                 </FilterRow>

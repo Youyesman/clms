@@ -11,6 +11,8 @@ import { GenericTable } from "../../../../components/GenericTable";
 import { ComparisonChart } from "../../../../components/common/ComparisonChart";
 import LogoImg from "../../../../assets/img/logo/logo.png";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { useRecoilState } from "recoil";
+import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 
 /** 스타일 정의 **/
@@ -98,6 +100,7 @@ const FooterRow = styled.div`
 
 export function ScorePage() {
     const toast = useToast();
+    const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
     const [data, setData] = useState<any[]>([]);
     const [moviesList, setMoviesList] = useState<any[]>([]);
 
@@ -108,7 +111,7 @@ export function ScorePage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date: (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })(),
+        date: scoreFilter.date,
     });
 
     // 포맷(서브영화) 선택 상태
@@ -375,7 +378,10 @@ export function ScorePage() {
                                 inputType="date"
                                 label="날짜"
                                 value={searchParams.date}
-                                setValue={(v) => setSearchParams((p) => ({ ...p, date: v }))}
+                                setValue={(v) => {
+                                    setSearchParams((p) => ({ ...p, date: v }));
+                                    setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                                }}
                             />
                         </div>
                         <div>

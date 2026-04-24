@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { useRecoilState } from "recoil";
+import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
@@ -172,6 +174,7 @@ export function SeatRatePage() {
     const toast = useToast();
     const yesterday = getYesterday();
 
+    const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
     const [moviesList, setMoviesList] = useState<{ id: number; title_ko: string }[]>([]);
     const [data, setData] = useState<SeatRateData>({ meta: null, summary: [], detail: [] });
     const [loading, setLoading] = useState(false);
@@ -179,7 +182,7 @@ export function SeatRatePage() {
     const [searchParams, setSearchParams] = useState({
         yyyy: new Date().getFullYear().toString(),
         movie_id: "",
-        date: yesterday,
+        date: scoreFilter.date,
     });
 
     // 포맷(서브영화)
@@ -330,9 +333,10 @@ export function SeatRatePage() {
                         inputType="date"
                         label="날짜"
                         value={searchParams.date}
-                        setValue={(v) =>
-                            setSearchParams((p) => ({ ...p, date: v }))
-                        }
+                        setValue={(v) => {
+                            setSearchParams((p) => ({ ...p, date: v }));
+                            setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                        }}
                     />
                 </div>
             </FilterBar>
