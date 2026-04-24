@@ -225,7 +225,50 @@ const HintText = styled.div`
 const PIE_COLORS = [
     "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
     "#06b6d4", "#84cc16", "#f97316", "#ec4899", "#6366f1",
+    "#14b8a6", "#fb7185", "#a78bfa", "#fbbf24", "#34d399",
 ];
+
+const RADIAN = Math.PI / 180;
+
+interface PieLabelProps {
+    cx: number;
+    cy: number;
+    midAngle: number;
+    outerRadius: number;
+    name: string;
+    value: number;
+}
+
+function renderPieLabel({ cx, cy, midAngle, outerRadius, name, value }: PieLabelProps) {
+    if (value < 0.8) return null;
+    const radius = outerRadius + 32;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+    return (
+        <text
+            x={x}
+            y={y}
+            fill="#e2e8f0"
+            textAnchor={x > cx ? "start" : "end"}
+            dominantBaseline="central"
+            fontSize={10}
+            fontWeight={500}
+        >
+            {name} {value.toFixed(2)}%
+        </text>
+    );
+}
+
+const DarkSectionCard = styled(SectionCard)`
+    background: #1a2236;
+    border-color: #2d3f5a;
+`;
+
+const DarkSectionTitle = styled(SectionTitle)`
+    background: #111827;
+    border-bottom-color: #2d3f5a;
+    color: #e2e8f0;
+`;
 
 /* ── 메인 컴포넌트 ── */
 export function SeatCountPage() {
@@ -318,17 +361,17 @@ export function SeatCountPage() {
 
     /* 파이 차트 데이터 */
     const rateData = data?.movies.map((m, i) => ({
-        name: m.title.length > 8 ? m.title.slice(0, 8) + "…" : m.title,
+        name: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
         value: data.grand.period_sold > 0
-            ? Math.round(m.period_sold / data.grand.period_sold * 1000) / 10
+            ? Math.round(m.period_sold / data.grand.period_sold * 10000) / 100
             : 0,
         color: PIE_COLORS[i % PIE_COLORS.length],
     })) ?? [];
 
     const seatData = data?.movies.map((m, i) => ({
-        name: m.title.length > 8 ? m.title.slice(0, 8) + "…" : m.title,
+        name: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
         value: data.grand.period_total > 0
-            ? Math.round(m.period_total / data.grand.period_total * 1000) / 10
+            ? Math.round(m.period_total / data.grand.period_total * 10000) / 100
             : 0,
         color: PIE_COLORS[i % PIE_COLORS.length],
     })) ?? [];
@@ -511,67 +554,69 @@ export function SeatCountPage() {
 
                         {/* 파이 차트 2개 */}
                         <PieStack>
-                            <SectionCard>
-                                <SectionTitle>실시간 예매율</SectionTitle>
-                                <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={200}>
+                            <DarkSectionCard>
+                                <DarkSectionTitle>실시간 예매율</DarkSectionTitle>
+                                <div style={{ padding: "8px 4px" }}>
+                                    <ResponsiveContainer width="100%" height={280}>
                                         <PieChart>
                                             <Pie
                                                 data={rateData}
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="45%"
-                                                outerRadius={55}
-                                                label={false}
-                                                labelLine={false}
+                                                cy="50%"
+                                                innerRadius={55}
+                                                outerRadius={85}
+                                                label={renderPieLabel}
+                                                labelLine={{ stroke: "#4b5e7a", strokeWidth: 1 }}
                                             >
                                                 {rateData.map((entry, index) => (
                                                     <Cell key={index} fill={entry.color} />
                                                 ))}
                                             </Pie>
                                             <Tooltip
+                                                contentStyle={{ background: "#1e2536", border: "1px solid #334155", color: "#e2e8f0", fontSize: 12 }}
                                                 formatter={(value) => [
-                                                    `${Number(value ?? 0).toFixed(1)}%`,
+                                                    `${Number(value ?? 0).toFixed(2)}%`,
                                                     "예매율",
                                                 ]}
                                             />
-                                            <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                            </SectionCard>
+                            </DarkSectionCard>
 
-                            <SectionCard>
-                                <SectionTitle>좌점율</SectionTitle>
-                                <div style={{ padding: "8px" }}>
-                                    <ResponsiveContainer width="100%" height={200}>
+                            <DarkSectionCard>
+                                <DarkSectionTitle>좌점율</DarkSectionTitle>
+                                <div style={{ padding: "8px 4px" }}>
+                                    <ResponsiveContainer width="100%" height={280}>
                                         <PieChart>
                                             <Pie
                                                 data={seatData}
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
-                                                cy="45%"
-                                                outerRadius={55}
-                                                label={false}
-                                                labelLine={false}
+                                                cy="50%"
+                                                innerRadius={55}
+                                                outerRadius={85}
+                                                label={renderPieLabel}
+                                                labelLine={{ stroke: "#4b5e7a", strokeWidth: 1 }}
                                             >
                                                 {seatData.map((entry, index) => (
                                                     <Cell key={index} fill={entry.color} />
                                                 ))}
                                             </Pie>
                                             <Tooltip
+                                                contentStyle={{ background: "#1e2536", border: "1px solid #334155", color: "#e2e8f0", fontSize: 12 }}
                                                 formatter={(value) => [
-                                                    `${Number(value ?? 0).toFixed(1)}%`,
+                                                    `${Number(value ?? 0).toFixed(2)}%`,
                                                     "좌점율",
                                                 ]}
                                             />
-                                            <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                            </SectionCard>
+                            </DarkSectionCard>
                         </PieStack>
                     </ChartGrid>
 
