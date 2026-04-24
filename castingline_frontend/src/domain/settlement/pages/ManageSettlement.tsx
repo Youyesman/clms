@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import styled, { keyframes } from "styled-components";
 import { MagnifyingGlass, DownloadSimple, CircleNotch } from "@phosphor-icons/react";
 import { AxiosGet } from "../../../axios/Axios";
@@ -89,6 +89,92 @@ const EseroButton = styled.button`
     }
 `;
 
+const TheaterSearchWrapper = styled.div`
+    position: relative;
+    width: 220px;
+    flex-shrink: 0;
+`;
+
+const TheaterSearchInput = styled.input`
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: "SUIT", sans-serif;
+    outline: none;
+    box-sizing: border-box;
+    &:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+    &::placeholder {
+        color: #94a3b8;
+    }
+`;
+
+const TheaterSuggestionList = styled.ul`
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 100;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+`;
+
+const TheaterSuggestionItem = styled.li`
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #1e293b;
+    cursor: pointer;
+    &:hover {
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+`;
+
+const TheaterChip = styled.div`
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #1d4ed8;
+    font-weight: 600;
+    white-space: nowrap;
+    width: 100%;
+    box-sizing: border-box;
+`;
+
+const ClearBtn = styled.button`
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #94a3b8;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    &:hover {
+        color: #ef4444;
+    }
+`;
+
 export function ManageSettlement() {
     const toast = useToast();
     const [settlements, setSettlements] = useState<any[]>([]);
@@ -97,11 +183,46 @@ export function ManageSettlement() {
     const [movieLoading, setMovieLoading] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [isEseroDownloading, setIsEseroDownloading] = useState(false);
+    const [theaterInput, setTheaterInput] = useState("");
+    const [theaterSuggestions, setTheaterSuggestions] = useState<any[]>([]);
+    const [showTheaterSuggestions, setShowTheaterSuggestions] = useState(false);
+    const [selectedTheater, setSelectedTheater] = useState<{ id: number; client_name: string } | null>(null);
+    const theaterWrapperRef = useRef<HTMLDivElement>(null);
     const [searchParams, setSearchParams] = useState({
         yyyyMm: dayjs().subtract(1, "month").format("YYYY-MM"),
         movieId: "",
         target: "전체극장",
     });
+
+    useEffect(() => {
+        if (theaterInput.length < 1) {
+            setTheaterSuggestions([]);
+            setShowTheaterSuggestions(false);
+            return;
+        }
+        const timer = setTimeout(() => {
+            AxiosGet(`clients/`, {
+                params: { ordering: "-operational_status,client_name", search: theaterInput, client_type: "극장" },
+            })
+                .then((res) => {
+                    const list = res.data.results || [];
+                    setTheaterSuggestions(list);
+                    setShowTheaterSuggestions(list.length > 0);
+                })
+                .catch(() => {});
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [theaterInput]);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (theaterWrapperRef.current && !theaterWrapperRef.current.contains(e.target as Node)) {
+                setShowTheaterSuggestions(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     // 1. 년월 변경 시 영화 목록 자동 호출
     const fetchMoviesByMonth = useCallback(async () => {
@@ -136,16 +257,20 @@ export function ManageSettlement() {
 
         try {
             // searchParams.target 값이 "전체극장", "일반극장", "기금면제극장"으로 서버에 전달됨
-            const res = await AxiosGet(
-                `settlements/?yyyyMm=${searchParams.yyyyMm}&movie_id=${searchParams.movieId}&target=${searchParams.target}`,
-            );
+            const params: Record<string, string> = {
+                yyyyMm: searchParams.yyyyMm,
+                movie_id: searchParams.movieId,
+                target: searchParams.target,
+            };
+            if (selectedTheater) params.client_id = String(selectedTheater.id);
+            const res = await AxiosGet(`settlements/`, { params });
             setSettlements(res.data);
         } catch (error: any) {
             toast.error(handleBackendErrors(error));
         } finally {
             setIsLoading(false);
         }
-    }, [searchParams, toast]);
+    }, [searchParams, selectedTheater, toast]);
 
     const handleDownloadEsero = async () => {
         if (!searchParams.movieId) {
@@ -185,19 +310,20 @@ export function ManageSettlement() {
     };
 
     const headers = [
-        { key: "지역", label: "지역" },
-        { key: "멀티구분", label: "멀티구분" },
-        { key: "classification", label: "구분" },
-        { key: "거래처코드(바이포엠만 해당)", label: "거래처코드(바이포엠만 해당)" },
-        { key: "극장명", label: "극장명" },
+        { key: "지역", label: "지역", stickyLeft: "0px", width: "60px" },
+        { key: "멀티구분", label: "멀티구분", stickyLeft: "60px", width: "80px" },
+        { key: "classification", label: "구분", stickyLeft: "140px", width: "60px" },
+        { key: "거래처코드(바이포엠만 해당)", label: "거래처코드(바이포엠만 해당)", stickyLeft: "200px", width: "120px" },
+        { key: "극장명", label: "극장명", stickyLeft: "320px", width: "120px" },
         { key: "사업자 등록번호", label: "사업자 등록번호" },
         { key: "종사업장번호", label: "종사업장번호" },
         { key: "공급받는자 상호", label: "공급받는자 상호" },
         { key: "공급받는자 성명", label: "공급받는자 성명" },
-        { key: "사업장 소재", label: "사업장 소재" },
+        { key: "사업장 소재", label: "사업장 소재지" },
         { key: "업태", label: "업태" },
         { key: "업종", label: "업종" },
-        { key: "수신자이메일", label: "수신자이메일" },
+        { key: "수신자이메일", label: "공급받는자 이메일1" },
+        { key: "수신자이메일2", label: "공급받는자 이메일2" },
         { key: "수신자 전화번호", label: "수신자 전화번호" },
         { key: "날짜(From)", label: "날짜(From)" },
         { key: "날짜(To)", label: "날짜(To)" },
@@ -330,6 +456,49 @@ export function ManageSettlement() {
                         labelWidth="60px"
                     />
                 </div>
+                <TheaterSearchWrapper ref={theaterWrapperRef}>
+                    {selectedTheater ? (
+                        <TheaterChip>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {selectedTheater.client_name}
+                            </span>
+                            <ClearBtn
+                                onClick={() => {
+                                    setSelectedTheater(null);
+                                    setTheaterInput("");
+                                }}
+                                title="극장 선택 해제"
+                            >
+                                ×
+                            </ClearBtn>
+                        </TheaterChip>
+                    ) : (
+                        <TheaterSearchInput
+                            placeholder="SEARCH (극장명)"
+                            value={theaterInput}
+                            onChange={(e) => setTheaterInput(e.target.value)}
+                            onFocus={() => {
+                                if (theaterSuggestions.length > 0) setShowTheaterSuggestions(true);
+                            }}
+                        />
+                    )}
+                    {showTheaterSuggestions && (
+                        <TheaterSuggestionList>
+                            {theaterSuggestions.map((t) => (
+                                <TheaterSuggestionItem
+                                    key={t.id}
+                                    onMouseDown={() => {
+                                        setSelectedTheater({ id: t.id, client_name: t.client_name });
+                                        setTheaterInput("");
+                                        setShowTheaterSuggestions(false);
+                                    }}
+                                >
+                                    {t.client_name}
+                                </TheaterSuggestionItem>
+                            ))}
+                        </TheaterSuggestionList>
+                    )}
+                </TheaterSearchWrapper>
             </CommonFilterBar>
 
             <ListSection>

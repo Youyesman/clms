@@ -15,13 +15,14 @@ import { CommonSectionCard } from "../../../components/common/CommonSectionCard"
 
 const TableWrapper = styled.div`
     flex: 1;
-    overflow: hidden; /* GenericTable 내부 스크롤 사용 */
+    min-height: 0;
+    overflow: hidden;
 `;
 
 /** 2. 메인 컴포넌트 **/
-export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, filter, refreshTrigger }) {
+export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, filter, refreshTrigger, checkedClientIds, setCheckedClientIds }) {
     const toast = useToast();
-    const [sortKey, setSortKey] = useState<string | null>(null);
+    const [sortKey, setSortKey] = useState<string | null>("client_name");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
     const [page, setPage] = useState(1);
     const [pageSize] = useState(20);
@@ -90,7 +91,7 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
     const headers = [
         { key: "client_code", label: "거래처 코드" },
         { key: "client_type", label: "거래처 구분" },
-        { key: "client_name", label: "거래처명" },
+        { key: "client_name", label: "거래처명", stickyLeft: "0px", width: "120px" },
         { key: "classification", label: "직위" },
         { key: "operational_status", label: "사용1" },
         { key: "client_status", label: "사용2" },
@@ -126,9 +127,16 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
             <CommonListHeader
                 title="거래처 목록"
                 actions={
-                    <CustomIconButton onClick={handleAddClient} title="거래처 추가">
-                        <Plus size={16} weight="bold" />
-                    </CustomIconButton>
+                    <>
+                        {checkedClientIds.length > 0 && (
+                            <span style={{ fontSize: "12px", color: "#2563eb", fontWeight: 700, marginRight: 4 }}>
+                                {checkedClientIds.length}개 선택됨
+                            </span>
+                        )}
+                        <CustomIconButton onClick={handleAddClient} title="거래처 추가">
+                            <Plus size={16} weight="bold" />
+                        </CustomIconButton>
+                    </>
                 }
             />
 
@@ -148,6 +156,9 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
                     pageSize={pageSize}
                     totalCount={totalCount}
                     onPageChange={handlePageChange}
+                    showCheckbox={true}
+                    selectedIds={checkedClientIds}
+                    onSelectionChange={setCheckedClientIds}
                 />
             </TableWrapper>
         </CommonSectionCard>

@@ -225,8 +225,8 @@ export function OrderDetail({
     }, [selectedOrderList?.id, filterStartDate, searchClient.theater?.id, isFilterMode, sortKey, sortOrder, toast]);
 
     const headers = [
-        { key: "movie", label: "영화" },
         { key: "format", label: "포맷" },
+        { key: "movie", label: "영화" },
         { key: "client", label: "극장명" },
         { key: "release_date", label: "개봉일", editable: true },
         { key: "end_date", label: "종영일", editable: true }, // 업데이트될 대상
@@ -336,7 +336,7 @@ export function OrderDetail({
                     formatCell={(key, value, row) => {
                         const movie = row.movie;
                         const client = row.client;
-                        if (key === "movie") return movie?.title_ko ?? "";
+                        if (key === "movie") return (movie?.title_ko ?? "").replace(/\s*\([^)]+\)$/, "").trim();
                         if (key === "client") return client?.client_name ?? "";
                         if (key === "format")
                             return `${movie?.media_type || ""} ${movie?.audio_mode || ""} ${movie?.viewing_dimension || ""} ${movie?.screening_type || ""

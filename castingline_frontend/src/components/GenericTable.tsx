@@ -136,6 +136,7 @@ const TR = styled.tr<{ $isHighlight?: boolean }>`
     td {
       color: #ffffff !important;
       border-right-color: #334155 !important;
+      background-color: #1e293b !important;
     }
   }
 `;

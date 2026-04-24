@@ -42,6 +42,8 @@ const LeftSection = styled.div`
     flex-direction: column;
     gap: 16px;
     min-width: 0;
+    height: calc(100vh - 192px);
+    overflow: hidden;
 `;
 
 const RightSection = styled.div`
@@ -52,7 +54,8 @@ const RightSection = styled.div`
 const SubTableGrid = styled.div`
     display: flex;
     gap: 16px;
-    flex: 1;
+    height: 240px;
+    flex-shrink: 0;
     & > div {
         flex: 1;
     }
@@ -81,11 +84,13 @@ export function ManageClient() {
     const [editScreenValue, setEditScreenValue] = useState<string | number>("");
     const [editingFee, setEditingFee] = useState<{ id: number | null }>({ id: null });
 
+    const [checkedClientIds, setCheckedClientIds] = useState<number[]>([]);
+
     // 필터 상태
     const [filter, setFilter] = useState({
-        clientType: "",
+        clientType: "극장",
         clientName: "",
-        status: "false", // 기본값 "false" (사용)
+        status: "true", // 기본값 "true" (사용)
         classification: "전체",
         multi: "전체",
     });
@@ -163,22 +168,52 @@ export function ManageClient() {
     };
     const handleUpdateClient = () => {
         if (!selectedClient) return;
+        if (!validateForm()) return;
 
-        // 전송 전 유효성 검사 실시
-        if (!validateForm()) {
-            return; // 검사 탈락 시 함수 종료
+        const otherCheckedIds = checkedClientIds.filter((id) => id !== selectedClient.id);
+
+        const doUpdate = () => {
+            // 변경된 필드만 감지
+            const changedFields = Object.keys(formData).reduce((acc: any, key) => {
+                if (formData[key] !== selectedClient[key]) acc[key] = formData[key];
+                return acc;
+            }, {});
+
+            AxiosPatch(`clients/${selectedClient.id}`, formData)
+                .then((res) => {
+                    setClients((prev) => prev.map((c) => (c.id === selectedClient.id ? res.data : c)));
+                    setSelectedClient(res.data);
+
+                    if (otherCheckedIds.length > 0 && Object.keys(changedFields).length > 0) {
+                        Promise.all(otherCheckedIds.map((id) => AxiosPatch(`clients/${id}`, changedFields)))
+                            .then(() => {
+                                toast.success(`총 ${otherCheckedIds.length + 1}개 거래처에 변경사항이 적용되었습니다.`);
+                                setRefreshTrigger((prev) => prev + 1);
+                            })
+                            .catch(() => {
+                                toast.warning("일부 거래처 일괄 적용에 실패했습니다.");
+                                setRefreshTrigger((prev) => prev + 1);
+                            });
+                    } else {
+                        toast.success("거래처 정보가 수정되었습니다.");
+                    }
+                })
+                .catch(() => {
+                    toast.error("거래처 수정에 실패했습니다.");
+                });
+        };
+
+        if (otherCheckedIds.length > 0) {
+            showAlert(
+                "일괄 적용 확인",
+                `체크된 ${otherCheckedIds.length}개의 거래처에도 변경사항을 동일하게 적용합니다. 계속하시겠습니까?`,
+                "warning",
+                doUpdate,
+                true,
+            );
+        } else {
+            doUpdate();
         }
-
-        AxiosPatch(`clients/${selectedClient.id}`, formData)
-            .then((res) => {
-                setClients((prev) => prev.map((c) => (c.id === selectedClient.id ? res.data : c)));
-                setSelectedClient(res.data);
-                toast.success("거래처 정보가 수정되었습니다.");
-            })
-            .catch((err) => {
-                console.error(err);
-                toast.error("거래처 수정에 실패했습니다.");
-            });
     };
 
     const handleAddClient = () => {
@@ -329,15 +364,19 @@ export function ManageClient() {
 
             <MainGrid>
                 <LeftSection>
-                    <ClientList
-                        clients={clients}
-                        setClients={setClients}
-                        selectedClient={selectedClient}
-                        handleSelectClient={handleSelectClient}
-                        handleAddClient={handleAddClient}
-                        filter={filter}
-                        refreshTrigger={refreshTrigger}
-                    />
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                        <ClientList
+                            clients={clients}
+                            setClients={setClients}
+                            selectedClient={selectedClient}
+                            handleSelectClient={handleSelectClient}
+                            handleAddClient={handleAddClient}
+                            filter={filter}
+                            refreshTrigger={refreshTrigger}
+                            checkedClientIds={checkedClientIds}
+                            setCheckedClientIds={setCheckedClientIds}
+                        />
+                    </div>
 
                     <SubTableGrid>
                         <Theater

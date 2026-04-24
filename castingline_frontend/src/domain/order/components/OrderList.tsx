@@ -93,6 +93,14 @@ export function OrderList({ orderList, setOrderList, selectedOrderList, setSelec
 
     const headers = [
         { key: "start_date", label: "기준일자", editable: true },
+        {
+            key: "_format",
+            label: "포맷",
+            renderCell: (_: any, item: any) => {
+                const m = (item.movie?.title_ko || "").match(/\(([^)]+)\)$/);
+                return m ? m[1] : "";
+            },
+        },
         { key: "movie", label: "영화" },
         { key: "distributor", label: "배급사" },
         { key: "production_company", label: "제작사" },
@@ -263,7 +271,7 @@ export function OrderList({ orderList, setOrderList, selectedOrderList, setSelec
                             const movie = row.movie;
                             if (key === "distributor") return movie?.distributor?.client_name ?? "";
                             if (key === "production_company") return movie?.production_company?.client_name ?? "";
-                            if (key === "movie") return movie?.title_ko ?? "";
+                            if (key === "movie") return (movie?.title_ko ?? "").replace(/\s*\([^)]+\)$/, "").trim();
                             if (key === "movie_code") return movie?.movie_code ?? "";
                             if (key === "release_date") return movie?.release_date ?? "";
                             if (key === "end_date") return movie?.end_date ?? "";

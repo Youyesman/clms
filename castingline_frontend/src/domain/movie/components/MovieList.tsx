@@ -30,8 +30,8 @@ const TableWrapper = styled.div`
 /** 2. 메인 컴포넌트 **/
 export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie, handleAddMovie, handleBulkDelete, selectedMovieIds, onSelectionChange, filters }) {
     const toast = useToast();
-    const [sortKey, setSortKey] = useState<string | null>("created_date");
-    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+    const [sortKey, setSortKey] = useState<string | null>(null);
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
     const [isExcelLoading, setIsExcelLoading] = useState(false);
     const [page, setPage] = useState(1);
     const [pageSize] = useState(20);
@@ -46,7 +46,8 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
     }, [filters]);
 
     const fetchSortedMovies = (key: string | null, order: "asc" | "desc", currentPage = 1) => {
-        const ordering = key ? `${order === "asc" ? "" : "-"}${key}` : "";
+        const base = "movie_code,-is_primary_movie";
+        const ordering = key ? `${order === "asc" ? "" : "-"}${key},${base}` : `-created_date,${base}`;
 
         // 검색 파라미터 조립
         const params = new URLSearchParams({
@@ -111,9 +112,19 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
     };
 
     const headers = [
-        { key: "movie_code", label: "영화 코드" },
-        { key: "is_primary_movie", label: "대표 영화" },
-        { key: "title_ko", label: "한글 제목" },
+        { key: "movie_code", label: "영화 코드", stickyLeft: "0px", width: "100px" },
+        { key: "is_primary_movie", label: "대표 영화", stickyLeft: "100px", width: "80px" },
+        {
+            key: "_format",
+            label: "포맷",
+            stickyLeft: "180px",
+            width: "160px",
+            renderCell: (_: any, item: any) => {
+                const m = (item.title_ko || "").match(/\(([^)]+)\)$/);
+                return m ? m[1] : "";
+            },
+        },
+        { key: "title_ko", label: "한글 제목", stickyLeft: "340px", width: "180px" },
         { key: "title_en", label: "영어 제목" },
         { key: "running_time_minutes", label: "상영 시간(분)" },
         { key: "distributor", label: "배급사" },
@@ -172,6 +183,9 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
                             return value ? "Y" : "N";
                         if ((key === "distributor" || key === "production_company") && value) {
                             return value.client_name || "";
+                        }
+                        if (key === "title_ko" && value) {
+                            return (value as string).replace(/\s*\([^)]+\)$/, "").trim();
                         }
                         return value ?? "";
                     }}

@@ -552,21 +552,18 @@ export function SupplyPricePage() {
                 <FilterRow>
                     <SearchWrapper ref={searchWrapperRef}>
                         <SearchLabel>SEARCH (영화명)</SearchLabel>
-                        <div style={{ display: "flex", gap: 4 }}>
-                            <SearchInput
-                                placeholder="영화명 검색..."
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                        setShowSuggestions(false);
-                                        handleSearch();
-                                    }
-                                    if (e.key === "Escape") setShowSuggestions(false);
-                                }}
-                            />
-                            <SearchBtn onClick={handleSearch}>검색</SearchBtn>
-                        </div>
+                        <SearchInput
+                            placeholder="영화명 검색..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    setShowSuggestions(false);
+                                    handleSearch();
+                                }
+                                if (e.key === "Escape") setShowSuggestions(false);
+                            }}
+                        />
                         {showSuggestions && (
                             <SuggestionList>
                                 {movieSuggestions.map((m) => (
@@ -601,9 +598,7 @@ export function SupplyPricePage() {
                             <SearchInput
                                 placeholder="극장명 검색..."
                                 value={theaterInput}
-                                onChange={(e) => {
-                                    setTheaterInput(e.target.value);
-                                }}
+                                onChange={(e) => setTheaterInput(e.target.value)}
                                 onKeyDown={(e) => {
                                     if (e.key === "Escape") setShowTheaterSuggestions(false);
                                 }}
@@ -626,6 +621,10 @@ export function SupplyPricePage() {
                             </SuggestionList>
                         )}
                     </SearchWrapper>
+
+                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                        <SearchBtn onClick={handleSearch}>검색</SearchBtn>
+                    </div>
                 </FilterRow>
 
                 {/* Row 2: 필터들 */}

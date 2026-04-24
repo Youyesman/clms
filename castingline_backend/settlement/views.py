@@ -91,7 +91,7 @@ class SettlementMovieListView(APIView):
 
 
 class SettlementListView(APIView):
-    def get_processed_data(self, yyyy_mm, movie_id, target_filter):
+    def get_processed_data(self, yyyy_mm, movie_id, target_filter, client_id=None):
         """API와 엑셀에서 공통으로 사용하는 핵심 계산 및 집계 로직"""
         yyyy, mm = map(int, yyyy_mm.split("-"))
 
@@ -114,6 +114,9 @@ class SettlementListView(APIView):
         scores = Score.objects.filter(
             entry_date__year=yyyy, entry_date__month=mm, movie_id__in=all_related_movie_ids
         ).select_related("client", "movie").order_by("entry_date")
+
+        if client_id:
+            scores = scores.filter(client_id=client_id)
 
         if not scores.exists():
             return []
@@ -199,11 +202,12 @@ class SettlementListView(APIView):
         yyyy_mm = request.query_params.get("yyyyMm")
         movie_id = request.query_params.get("movie_id")
         target_filter = request.query_params.get("target", "전체극장")
+        client_id = request.query_params.get("client_id") or None
 
         if not yyyy_mm or not movie_id:
             return Response({"error": "년월과 영화를 선택해주세요."}, status=400)
 
-        results = self.get_processed_data(yyyy_mm, movie_id, target_filter)
+        results = self.get_processed_data(yyyy_mm, movie_id, target_filter, client_id=client_id)
         return Response(results)
 
     # 헬퍼 함수들
