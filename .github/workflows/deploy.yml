@@ -43,6 +43,7 @@ jobs:
             ./deployment/setup_backend.sh
             sudo systemctl restart clms-backend
             sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
+            sudo a2enmod headers rewrite
             sudo systemctl reload apache2
 
       # 5. 러너에서 만든 최신 빌드를 서버에 업로드 (git reset 이후라 덮어씀)
