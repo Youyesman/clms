@@ -9,6 +9,19 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = "__all__"
+        # create_user/update_user는 TimeStampedModel.save()에서 자동 설정되므로
+        # 쓰기 입력(중첩 dict 포함)을 무시한다.
+        read_only_fields = ["create_user", "update_user"]
+
+    def to_internal_value(self, data):
+        # 읽기 시 movie/client를 중첩 dict로 내려보내므로, 전체 객체를 그대로
+        # PATCH로 되돌려도 동작하도록 dict는 id(pk)로 평탄화한다.
+        data = data.copy()
+        for field in ("movie", "client"):
+            value = data.get(field)
+            if isinstance(value, dict):
+                data[field] = value.get("id")
+        return super().to_internal_value(data)
 
     def to_representation(self, instance):
         """
@@ -42,6 +55,9 @@ class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderList
         fields = "__all__"
+        # create_user/update_user는 TimeStampedModel.save()에서 자동 설정되므로
+        # 쓰기 입력(중첩 dict 포함)을 무시한다.
+        read_only_fields = ["create_user", "update_user"]
 
     def to_representation(self, instance):
         """응답 데이터에서 movie와 create_user는 상세 정보로 출력"""

@@ -36,6 +36,10 @@ class MovieSerializer(serializers.ModelSerializer):
     class Meta:
         model = Movie
         fields = "__all__"
+        # create_user/update_user는 TimeStampedModel.save()에서 자동 설정되므로
+        # 쓰기 입력(중첩 dict 포함)을 무시한다. 미설정 시 PATCH에서
+        # "Expected pk value, received dict." 400 에러 발생.
+        read_only_fields = ["create_user", "update_user"]
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
