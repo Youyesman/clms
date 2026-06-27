@@ -9,7 +9,37 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Execute remote ssh commands
+      # 1. 소스 체크아웃
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Node 설치
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. 프론트엔드 빌드 (서버 OOM 회피 위해 러너에서 빌드)
+      - name: Build frontend on runner
+        run: |
+          cd castingline_frontend
+          yarn install
+          CI=false GENERATE_SOURCEMAP=false yarn build
+
+      # 4. 빌드 산출물을 서버로 업로드
+      - name: Upload build to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "castingline_frontend/build/*"
+          target: "/home/clms/castingline_frontend/build"
+          strip_components: 2
+          overwrite: true
+
+      # 5. 서버에서 코드 최신화 + 백엔드 설정 + 서비스 재시작
+      - name: Deploy backend & restart services
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -17,26 +47,18 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             # 어느 단계든 실패하면 즉시 중단하고 잡을 '실패'로 보고
-            # (이전엔 set -e가 없어, yarn build가 실패해도 마지막 명령만 성공하면 success로 둔갑했음)
             set -e
 
-            # 1. 프로젝트 폴더로 이동 및 코드 최신화
             cd /home/clms
             git fetch origin
+            # build/ 는 .gitignore 라 위에서 업로드한 새 빌드가 보존됨
             git reset --hard origin/main
 
-            # 2. 백엔드 설정 및 빌드 (venv, migrations, static 등)
             chmod +x deployment/*.sh
+            # 백엔드만 셋업 (venv, pip, migrate, collectstatic). 프론트 빌드는 러너에서 끝냄.
             ./deployment/setup_backend.sh
 
-            # 3. 프론트엔드 빌드 (yarn install, yarn build 등)
-            ./deployment/setup_frontend.sh
-
-            # 4. 서비스 재시작
-            # (Gunicorn 서비스 이름이 clms-backend인 경우)
             sudo systemctl restart clms-backend
-            
-            # 5. Apache 설정 파일이 바뀌었을 수 있으므로 다시 적용 및 리로드
+
             sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
             sudo systemctl reload apache2
-
