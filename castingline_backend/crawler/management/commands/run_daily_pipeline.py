@@ -12,10 +12,11 @@ from crawler.models import CrawlerRunHistory, MovieSchedule, LotteScheduleLog, C
 from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
 from crawler.management.commands.run_megabox_pipeline import MegaboxPipelineService
+from crawler.management.commands.run_kobis_pipeline import KobisPipelineService
 
 
 def _send_daily_slack(target_dates=None, total_collected=0, total_created=0,
-                      cgv_created=0, lotte_created=0, mega_created=0,
+                      cgv_created=0, lotte_created=0, mega_created=0, kobis_created=0,
                       all_failures=None, success=True, error_msg=""):
     """데일리 파이프라인 통합 결과 Slack 알림"""
     token = getattr(settings, 'SLACK_BOT_TOKEN', '')
@@ -39,7 +40,7 @@ def _send_daily_slack(target_dates=None, total_collected=0, total_created=0,
             f"✅ [Daily Pipeline] 완료\n"
             f"📅 대상: {dates_str}\n"
             f"📦 수집 로그: {total_collected}건 | 🎬 스케줄 생성: {total_created}건\n"
-            f"  CGV {cgv_created} / 롯데 {lotte_created} / 메가박스 {mega_created}\n"
+            f"  CGV {cgv_created} / 롯데 {lotte_created} / 메가박스 {mega_created} / 일반극장 {kobis_created}\n"
             f"⚠️ 실패: {len(all_failures)}건" + (f"\n{fail_lines}" if fail_lines else "")
         )
         blocks = [
@@ -50,6 +51,7 @@ def _send_daily_slack(target_dates=None, total_collected=0, total_created=0,
                 {"type": "mrkdwn", "text": f"*CGV:*\n{cgv_created}건"},
                 {"type": "mrkdwn", "text": f"*롯데:*\n{lotte_created}건"},
                 {"type": "mrkdwn", "text": f"*메가박스:*\n{mega_created}건"},
+                {"type": "mrkdwn", "text": f"*일반극장:*\n{kobis_created}건"},
                 {"type": "mrkdwn", "text": f"*실패:*\n{len(all_failures)}건"},
             ]},
         ]
@@ -94,7 +96,7 @@ class Command(BaseCommand):
             configuration={
                 'target_dates': target_dates,
                 'mode': 'Daily Automation',
-                'brands': ['CGV', 'LOTTE', 'MEGABOX']
+                'brands': ['CGV', 'LOTTE', 'MEGABOX', '일반극장']
             }
         )
         print(f"✅ History Created: ID #{history.id}")
@@ -106,10 +108,10 @@ class Command(BaseCommand):
             for tm in active_targets:
                 clean_t, _ = MovieSchedule.parse_and_normalize_title(tm.title)
                 target_titles.append(clean_t)
-            cgv_target_titles = lotte_target_titles = mega_target_titles = target_titles
+            cgv_target_titles = lotte_target_titles = mega_target_titles = kobis_target_titles = target_titles
             print(f"🎬 크롤 대상 {len(target_titles)}편: {target_titles}")
         else:
-            cgv_target_titles = lotte_target_titles = mega_target_titles = None
+            cgv_target_titles = lotte_target_titles = mega_target_titles = kobis_target_titles = None
             print("🎬 크롤 대상 영화 미지정 → 전체 저장")
 
         total_collected = 0
@@ -202,6 +204,26 @@ class Command(BaseCommand):
             if mega_errors:
                 print(f"   ⚠️ Megabox Transform Errors: {len(mega_errors)}")
 
+            # --- KOBIS 일반극장 ---
+            print("\n[Pipeline] 4. Running KOBIS(일반극장)...")
+            kobis_collected, kobis_theaters, kobis_failures = KobisPipelineService.collect_schedule_logs(
+                dates=target_dates, crawler_run=history
+            )
+            total_collected += len(kobis_collected)
+            for f in kobis_failures:
+                f['brand'] = '일반극장'
+            all_failures.extend(kobis_failures)
+
+            # Transform KOBIS: 이번 run으로 수집한 로그만 변환 (brand='일반극장')
+            print(f"   ↳ Generating Schedules from {len(kobis_collected)} KOBIS logs ({kobis_theaters} theaters)...")
+            kobis_created, kobis_errors = KobisPipelineService.transform_logs_to_schedule(
+                log_ids=[c['log_id'] for c in kobis_collected],
+                target_titles=kobis_target_titles,
+            )
+            total_created += kobis_created
+            if kobis_errors:
+                print(f"   ⚠️ KOBIS Transform Errors: {len(kobis_errors)}")
+
             # --- Finalize ---
             # 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
             SKIP_REASONS = {"Date Button Disabled", "Date Button Not Found"}
@@ -216,6 +238,7 @@ class Command(BaseCommand):
                 'cgv_created': cgv_created,
                 'lotte_created': lotte_created,
                 'mega_created': mega_created,
+                'kobis_created': kobis_created,
                 'total_failures': len(real_failures),
                 'total_skipped': len(skipped),
                 'failure_summary': [
@@ -242,6 +265,7 @@ class Command(BaseCommand):
                 cgv_created=cgv_created,
                 lotte_created=lotte_created,
                 mega_created=mega_created,
+                kobis_created=kobis_created,
                 all_failures=all_failures,
                 success=True
             )
