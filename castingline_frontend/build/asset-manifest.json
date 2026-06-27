@@ -1,0 +1,20 @@
+{
+  "files": {
+    "main.css": "/static/css/main.57073bfc.css",
+    "main.js": "/static/js/main.2a6d2043.js",
+    "static/media/Gemini_Generated_Image_uln0pquln0pquln0.png": "/static/media/Gemini_Generated_Image_uln0pquln0pquln0.6f286e5892cc6df96fd9.png",
+    "static/media/Gemini_Generated_Image_jjem9jjem9jjem9j.png": "/static/media/Gemini_Generated_Image_jjem9jjem9jjem9j.d7cface6cb76668a4c19.png",
+    "static/media/logo_vertical.png": "/static/media/logo_vertical.2140dc11ebd8008a911b.png",
+    "static/media/Gemini_Generated_Image_f0kkycf0kkycf0kk.png": "/static/media/Gemini_Generated_Image_f0kkycf0kkycf0kk.8182295cb7b7184cac0e.png",
+    "static/media/logo-horizontal-white@2x.png": "/static/media/logo-horizontal-white@2x.97469d0625a1988d4404.png",
+    "static/media/logo-icon-white.png": "/static/media/logo-icon-white.8d0fd63589d1c4d723bc.png",
+    "static/media/logo-horizontal-white.png": "/static/media/logo-horizontal-white.06a28247679846469ade.png",
+    "static/media/index.cjs": "/static/media/index.95e33e1029655362ecbb.cjs",
+    "static/media/checking_done_img.png": "/static/media/checking_done_img.b9b617e7f49da6da3128.png",
+    "index.html": "/index.html"
+  },
+  "entrypoints": [
+    "static/css/main.57073bfc.css",
+    "static/js/main.2a6d2043.js"
+  ]
+}

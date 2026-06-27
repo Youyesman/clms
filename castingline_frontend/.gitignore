@@ -9,7 +9,7 @@
 /coverage
 
 # production
-/build
+# /build  (운영 서버가 빌드를 못 해 prebuilt build/ 를 커밋해서 배포)
 
 # misc
 .DS_Store

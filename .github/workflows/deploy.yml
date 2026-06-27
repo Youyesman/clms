@@ -9,56 +9,25 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1. 소스 체크아웃
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # 2. Node 설치
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # 3. 프론트엔드 빌드 (서버 OOM 회피 위해 러너에서 빌드)
-      - name: Build frontend on runner
-        run: |
-          cd castingline_frontend
-          yarn install
-          CI=false GENERATE_SOURCEMAP=false yarn build
-
-      # 4. 빌드 산출물을 서버로 업로드
-      - name: Upload build to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "castingline_frontend/build/*"
-          target: "/home/clms/castingline_frontend/build"
-          strip_components: 2
-          overwrite: true
-
-      # 5. 서버에서 코드 최신화 + 백엔드 설정 + 서비스 재시작
-      - name: Deploy backend & restart services
+      - name: Execute remote ssh commands
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 어느 단계든 실패하면 즉시 중단하고 잡을 '실패'로 보고
-            set -e
-
+            # 1. 코드 최신화 (프론트 build/ 는 repo에 커밋되어 함께 내려옴 — 서버 빌드 안 함)
             cd /home/clms
             git fetch origin
-            # build/ 는 .gitignore 라 위에서 업로드한 새 빌드가 보존됨
             git reset --hard origin/main
 
+            # 2. 백엔드 셋업 (venv, pip, migrate, collectstatic)
             chmod +x deployment/*.sh
-            # 백엔드만 셋업 (venv, pip, migrate, collectstatic). 프론트 빌드는 러너에서 끝냄.
             ./deployment/setup_backend.sh
 
+            # 3. 서비스 재시작
             sudo systemctl restart clms-backend
 
+            # 4. Apache 설정 재적용 및 리로드
             sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
             sudo systemctl reload apache2

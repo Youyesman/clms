@@ -38,3 +38,7 @@ nul
 
 # DB 백업 덤프 (git 제외)
 db_backups/
+
+# 운영 서버가 React 빌드를 못 해, 프론트 prebuilt build/ 를 커밋해서 배포
+!/castingline_frontend/build/
+!/castingline_frontend/build/**
