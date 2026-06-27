@@ -248,6 +248,7 @@ const BrandBadge = styled.span<{ $brand: string }>`
         if ($brand === "CGV") return `background:#fee2e2; color:#dc2626;`;
         if ($brand === "LOTTE") return `background:#f3e8ff; color:#7c3aed;`;
         if ($brand === "MEGABOX") return `background:#dbeafe; color:#1d4ed8;`;
+        if ($brand === "일반극장") return `background:#dcfce7; color:#15803d;`;
         return `background:#f1f5f9; color:#475569;`;
     }}
 `;
@@ -408,12 +409,14 @@ export function ScheduleViewerPage() {
         CGV: "#dc2626",
         LOTTE: "#7c3aed",
         MEGABOX: "#1d4ed8",
+        일반극장: "#15803d",
     };
 
     const brandLabels: Record<string, string> = {
         CGV: "CGV",
         LOTTE: "롯데",
         MEGABOX: "메가박스",
+        일반극장: "일반극장",
     };
 
     return (
@@ -440,6 +443,7 @@ export function ScheduleViewerPage() {
                         <option value="CGV">CGV</option>
                         <option value="LOTTE">롯데시네마</option>
                         <option value="MEGABOX">메가박스</option>
+                        <option value="일반극장">일반극장</option>
                     </FilterSelect>
                 </FilterGroup>
                 <FilterGroup>

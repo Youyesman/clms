@@ -24,6 +24,9 @@ class Client(TimeStampedModel):
     excel_theater_name = models.CharField(
         max_length=255, null=True, blank=True
     )  # 엑셀극장명
+    kofic_theater_name = models.CharField(
+        max_length=255, null=True, blank=True
+    )  # 영진위극장명 (영진위 일반극장 업로드 매칭용)
     region_code = models.CharField(max_length=255, null=True, blank=True)  # 지역
     theater_kind = models.CharField(max_length=255, null=True, blank=True)  # 멀티
     business_operator = models.CharField(
@@ -96,6 +99,9 @@ class Theater(TimeStampedModel):
     auditorium = models.CharField(max_length=10, null=True, blank=True)
     seat_count = models.CharField(max_length=10, null=True, blank=True)
     auditorium_name = models.CharField(max_length=100, null=True, blank=True)
+    kofic_auditorium_name = models.CharField(
+        max_length=100, null=True, blank=True
+    )  # 영진위관이름 (영진위 일반극장 업로드 매칭용)
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
 

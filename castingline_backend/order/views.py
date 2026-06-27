@@ -144,6 +144,21 @@ class OrderViewSet(viewsets.ModelViewSet):
             serializer.data, status=status.HTTP_201_CREATED, headers=headers
         )
 
+    def perform_create(self, serializer):
+        # Order(오더 상세 내역) 저장
+        order = serializer.save()
+
+        # ✅ 해당 영화의 OrderList(오더)가 없으면 자동 생성 (OneToOne 중복 방지)
+        if order.movie_id:
+            OrderList.objects.get_or_create(
+                movie_id=order.movie_id,
+                defaults={
+                    "start_date": order.start_date or order.release_date,
+                    "is_auto_generated": True,
+                    "remark": "오더 생성 시 자동 생성",
+                },
+            )
+
 
 class OrderListViewSet(viewsets.ModelViewSet):
     # ✅ select_related를 사용하여 Movie, 배급사, 제작사 정보를 한 번에 조인(Join)해서 가져옵니다.

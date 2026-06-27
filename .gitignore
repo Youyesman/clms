@@ -35,3 +35,6 @@ tmp/
 *.log
 nul
 *.xlsx
+
+# DB 백업 덤프 (git 제외)
+db_backups/

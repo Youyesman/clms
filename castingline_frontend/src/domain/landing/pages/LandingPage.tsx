@@ -631,7 +631,7 @@ export default function LandingPage() {
         "20년의 업력으로 신뢰를 쌓아왔습니다",
     ], 60, 2000);
 
-    const goSystem = () => navigate((account as any)?.is_superuser ? "/manage" : "/score");
+    const goSystem = () => navigate((account as any)?.is_superuser ? "/manage" : "/dashboard");
 
     const steps = [
         { icon: <Database size={26} weight="bold" />, label: "극장 데이터 수집" },
@@ -733,9 +733,9 @@ export default function LandingPage() {
                         <FeatDesc>매일 제공되는 좌석수 데이터를 이용한 그래프, 대시보드 등의 세세한 비교 데이터 제공</FeatDesc>
                     </GlowCard>
                     <GlowCard visible={featView.inView} delay={3}>
-                        <FeatIconWrap><ArrowRight size={24} weight="bold" /></FeatIconWrap>
-                        <FeatTitle>배급사 전산망 다이렉트 API</FeatTitle>
-                        <FeatDesc>이중 입력의 번거로움 없이 입회 데이터 및 정산 완료 내역을 배급사 측 자체 ERP와 다이렉트로 안전하게 동기화합니다.</FeatDesc>
+                        <FeatIconWrap><Database size={24} weight="bold" /></FeatIconWrap>
+                        <FeatTitle>20년 누적 빅데이터 인사이트</FeatTitle>
+                        <FeatDesc>20년 이상 누적된 스크린·스코어 아카이브에 기반해 최적의 타겟 상영관 배정 전략과 예상 수익성 모델링을 제안합니다.</FeatDesc>
                     </GlowCard>
                 </FeatGrid>
             </FeatSection>

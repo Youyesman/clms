@@ -42,7 +42,11 @@
       "Bash(python manage.py shell -c \":*)",
       "Bash(npm install -g @anthropic-ai/claude-code)",
       "Bash(python -X utf8 manage.py makemigrations crawler --name crawltargetmovie)",
-      "Bash(/c/clms/castingline_backend/crawler/views.py:*)"
+      "Bash(/c/clms/castingline_backend/crawler/views.py:*)",
+      "PowerShell(Test-NetConnection *)",
+      "PowerShell(foreach \\($p in 22,2222,2022,22022,2200,3389\\) { $r = Test-NetConnection -ComputerName 211.57.203.40 -Port $p -WarningAction SilentlyContinue; \"Port {0,-6} : {1}\" -f $p, $r.TcpTestSucceeded })",
+      "PowerShell(foreach \\($p in 445,139,1433,5985,5986\\) { $r = Test-NetConnection -ComputerName 211.57.203.40 -Port $p -WarningAction SilentlyContinue; \"Port {0,-6} : {1}\" -f $p, $r.TcpTestSucceeded })",
+      "PowerShell($env:SQLCMDPASSWORD='kk338790!@'; sqlcmd -S 211.57.203.40,1433 -U logsen -d master -l 8 -Q \"SELECT @@VERSION; SELECT name FROM sys.databases;\" -h -1 2>&1 | Select-Object -First 30)"
     ],
     "additionalDirectories": [
       "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",

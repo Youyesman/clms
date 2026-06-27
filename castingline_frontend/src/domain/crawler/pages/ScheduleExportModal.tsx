@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { AxiosPost } from "../../../axios/Axios";
+import { AxiosPost, AxiosGet } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, DownloadSimple, Spinner } from "@phosphor-icons/react";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
@@ -38,8 +38,8 @@ const ModalContainer = styled.div`
     background-color: white;
     padding: 24px;
     border-radius: 12px;
-    width: 420px;
-    max-width: 90%;
+    width: 640px;
+    max-width: 92%;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
@@ -175,22 +175,31 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
 }) => {
     const toast = useToast();
     const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
-    const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true });
+    const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true, normal: true });
     const [exportStartDate, setExportStartDate] = useState(startDate);
     const [exportEndDate, setExportEndDate] = useState(endDate || startDate);
     const [isExporting, setIsExporting] = useState(false);
+    const [specialKeyword, setSpecialKeyword] = useState(""); // 특수상영 키워드 (쉼표 구분)
+    // 특수상영용 영화 선택 (크롤 대상 영화 전체에서)
+    const [crawlTargets, setCrawlTargets] = useState<CrawlTarget[]>([]);
+    const [specialMovieId, setSpecialMovieId] = useState<number | null>(null);
 
     // props 변경 시 날짜 동기화
     React.useEffect(() => {
         if (isOpen) {
             setExportStartDate(startDate);
             setExportEndDate(endDate || startDate);
+            // 크롤 대상 영화 목록 로드
+            AxiosGet("crawler/targets")
+                .then((res: any) => setCrawlTargets(res.data || []))
+                .catch(() => setCrawlTargets([]));
         }
     }, [isOpen, startDate, endDate]);
 
     if (!isOpen) return null;
 
     const selectedMovie = mainMovies.find((m) => m.id === selectedMovieId) || (mainMovies.length === 1 ? mainMovies[0] : null);
+    const specialMovie = crawlTargets.find((m) => m.id === specialMovieId) || null;
 
     const handleExport = async () => {
         if (!selectedMovie) {
@@ -202,6 +211,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
         if (brandFilter.cgv) brands.push("CGV");
         if (brandFilter.lotte) brands.push("LOTTE");
         if (brandFilter.mega) brands.push("MEGABOX");
+        if (brandFilter.normal) brands.push("일반극장");
 
         if (brands.length === 0) {
             toast.warning("계열사를 하나 이상 선택해주세요.");
@@ -217,7 +227,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     start_date: exportStartDate,
                     end_date: exportEndDate,
                     movie_title: selectedMovie.clean_title || selectedMovie.title,
-                    brands: brands.length < 3 ? brands : undefined,
+                    brands: brands.length < 4 ? brands : undefined,
                 },
                 { responseType: "blob" }
             );
@@ -247,6 +257,72 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
         } catch (error: any) {
             console.error(error);
             toast.error("다운로드 실패: " + (error.response?.data?.error || "데이터가 없거나 오류가 발생했습니다."));
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    // 특수상영(무대인사·GV 등) 키워드 다운로드 — 선택한 영화 한정, 이미 수집된 시간표에서 필터 (쉼표 다중 입력)
+    const handleSpecialExport = async () => {
+        if (!specialMovie) {
+            toast.warning("크롤 대상 영화를 선택해주세요.");
+            return;
+        }
+        const keyword = specialKeyword.trim();
+        if (!keyword) {
+            toast.warning("특수상영 키워드를 입력해주세요. (예: 무대인사, GV)");
+            return;
+        }
+        const brands: string[] = [];
+        if (brandFilter.cgv) brands.push("CGV");
+        if (brandFilter.lotte) brands.push("LOTTE");
+        if (brandFilter.mega) brands.push("MEGABOX");
+        if (brandFilter.normal) brands.push("일반극장");
+        if (brands.length === 0) {
+            toast.warning("계열사를 하나 이상 선택해주세요.");
+            return;
+        }
+
+        setIsExporting(true);
+        try {
+            toast.success("특수상영 엑셀 생성 중...");
+            const response: any = await AxiosPost(
+                "crawler/schedules/special_export",
+                {
+                    start_date: exportStartDate,
+                    end_date: exportEndDate,
+                    keyword,
+                    movie_title: specialMovie.clean_title || specialMovie.title,
+                    brands: brands.length < 4 ? brands : undefined,
+                },
+                { responseType: "blob" }
+            );
+            const blob = new Blob([response.data], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            const contentDisposition = response.headers?.["content-disposition"];
+            let filename = `특수상영_${keyword}_${exportStartDate}.xlsx`;
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (match?.[1]) filename = decodeURIComponent(match[1]);
+            }
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            toast.success("특수상영 엑셀이 다운로드 되었습니다.");
+        } catch (error: any) {
+            let msg = "데이터가 없거나 오류가 발생했습니다.";
+            if (error.response?.data instanceof Blob) {
+                try { msg = JSON.parse(await error.response.data.text()).error || msg; } catch {}
+            } else {
+                msg = error.response?.data?.error || msg;
+            }
+            toast.error("다운로드 실패: " + msg);
         } finally {
             setIsExporting(false);
         }
@@ -292,7 +368,42 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                             <CustomCheckbox label="CGV" checked={brandFilter.cgv} onChange={() => setBrandFilter((p) => ({ ...p, cgv: !p.cgv }))} />
                             <CustomCheckbox label="Lotte" checked={brandFilter.lotte} onChange={() => setBrandFilter((p) => ({ ...p, lotte: !p.lotte }))} />
                             <CustomCheckbox label="Megabox" checked={brandFilter.mega} onChange={() => setBrandFilter((p) => ({ ...p, mega: !p.mega }))} />
+                            <CustomCheckbox label="일반극장" checked={brandFilter.normal} onChange={() => setBrandFilter((p) => ({ ...p, normal: !p.normal }))} />
                         </BrandRow>
+                    </div>
+
+                    <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
+                        <SectionLabel>특수상영 다운로드</SectionLabel>
+                        <div style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 8px" }}>
+                            <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV 등)가 든 스케줄만 위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                            <select
+                                value={specialMovieId ?? ""}
+                                onChange={(e) => setSpecialMovieId(e.target.value ? Number(e.target.value) : null)}
+                                style={{ flex: 1, minWidth: 0, height: 38, padding: "0 10px", border: "1px solid #cbd5e1", borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', background: "#fff", textOverflow: "ellipsis" }}
+                            >
+                                <option value="">크롤 대상 영화 선택</option>
+                                {crawlTargets.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.title}{m.movie_type === "competitor" ? " (경쟁작)" : ""}{!m.is_active ? " [비활성]" : ""}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <DateInput
+                                type="text"
+                                style={{ flex: 1 }}
+                                value={specialKeyword}
+                                onChange={(e) => setSpecialKeyword(e.target.value)}
+                                placeholder="예: 무대인사, GV"
+                            />
+                            <Button $variant="primary" onClick={handleSpecialExport} disabled={isExporting || !specialKeyword.trim() || !specialMovie}>
+                                {isExporting ? <Spinner className="spin" size={16} /> : <DownloadSimple size={16} weight="bold" />}
+                                특수상영
+                            </Button>
+                        </div>
                     </div>
                 </Body>
                 <Footer>

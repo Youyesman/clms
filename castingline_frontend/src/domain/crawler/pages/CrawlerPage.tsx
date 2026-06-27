@@ -14,6 +14,7 @@ interface IChoiceCompany {
     cgv: boolean;
     mega: boolean;
     lotte: boolean;
+    normal: boolean; // 일반극장 (KOBIS)
 }
 
 interface ICrawlerConfig {
@@ -98,7 +99,8 @@ const INITIAL_CONFIG: ICrawlerConfig = {
     choiceCompany: {
         cgv: true,
         mega: true,
-        lotte: true
+        lotte: true,
+        normal: true
     }
 };
 
@@ -881,6 +883,7 @@ export const CrawlerPage = () => {
                                     <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
                                     <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
                                     <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
+                                    <CustomCheckbox label="일반극장" checked={config.choiceCompany.normal} onChange={() => handleCompanyChange('normal')} />
                                 </div>
                             </div>
                         </div>

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { CloudArrowUp, WarningCircle, CheckCircle, FunnelIcon, MinusCircle } from "@phosphor-icons/react";
 import { AxiosPost } from "../../../axios/Axios";
@@ -7,6 +7,8 @@ import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
+import { AutocompleteInputMovie } from "../../../components/common/AutocompleteInputMovie";
+import { TheaterQuickEdit } from "./TheaterQuickEdit";
 
 /* ---------------- Styled Components ---------------- */
 
@@ -15,6 +17,7 @@ const Container = styled.div`
     flex-direction: column;
     gap: 20px;
     padding: 10px;
+    position: relative;
 `;
 
 const DropZone = styled.div<{ $isDragging: boolean }>`
@@ -109,6 +112,34 @@ const ErrorText = styled.span`
     font-weight: 700;
 `;
 
+const FixButton = styled.button`
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #ffffff;
+    background: #ef4444;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover { background: #dc2626; }
+`;
+
+const ErrorBanner = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #ef4444;
+    border-radius: 4px;
+    color: #dc2626;
+    font-size: 13px;
+    font-weight: 800;
+`;
+
 const TotalRow = styled.tr`
     background-color: #f8fafc;
     font-weight: 800;
@@ -116,6 +147,52 @@ const TotalRow = styled.tr`
         border-top: 2px solid #64748b !important;
         color: #0f172a;
     }
+`;
+
+const OrderSection = styled.div`
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+`;
+
+const OrderHeader = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+
+    .counts {
+        display: flex;
+        gap: 8px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+`;
+
+const OrderBadge = styled.span<{ $kind: "create" | "update" | "unchanged" }>`
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 800;
+    white-space: nowrap;
+    background: ${({ $kind }) =>
+        $kind === "create" ? "#ecfdf5" : $kind === "update" ? "#eff6ff" : "#f1f5f9"};
+    color: ${({ $kind }) =>
+        $kind === "create" ? "#059669" : $kind === "update" ? "#2563eb" : "#64748b"};
+    border: 1px solid
+        ${({ $kind }) =>
+            $kind === "create" ? "#a7f3d0" : $kind === "update" ? "#bfdbfe" : "#e2e8f0"};
+`;
+
+const OrderTableWrap = styled.div`
+    max-height: 220px;
+    overflow-y: auto;
 `;
 
 const StyledButton = styled.button<{ $primary?: boolean; $disabled?: boolean }>`
@@ -144,6 +221,18 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
     const [previewData, setPreviewData] = useState<any[]>([]);
     const [dragging, setDragging] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    // 재검사를 위해 업로드한 파일 보관 + 관 정보 인라인 수정 대상
+    const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+    const [editingTheater, setEditingTheater] = useState<
+        { clientId: number; clientName: string; rawAud: string } | null
+    >(null);
+
+    // 영진위(일반극장) 업로드용 영화 선택 (파일에 영화명이 없어 직접 지정)
+    const [movieForm, setMovieForm] = useState<{ movie: { id?: string; title_ko: string } }>({
+        movie: { title_ko: "" },
+    });
+    const [movieInput, setMovieInput] = useState("");
 
     // 필터 상태
     const [showOnlyErrors, setShowOnlyErrors] = useState(false);
@@ -184,8 +273,13 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
 
     const handleFileProcess = async (file: File) => {
         if (!validateFile(file)) return;
+        setUploadedFile(file); // 재검사용 보관
         const formData = new FormData();
         formData.append("file", file);
+        // 영진위(일반극장) 파일은 영화를 함께 전달 (선택된 경우에만)
+        if (movieForm.movie?.id) {
+            formData.append("movie_id", String(movieForm.movie.id));
+        }
         setLoading(true);
         try {
             const res = await AxiosPost("score/preview_upload", formData, {
@@ -222,11 +316,114 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
         );
     };
 
+    // 매칭된(영화+극장) 행 수
+    const matchedCount = useMemo(() => previewData.filter((d) => d.is_matched).length, [previewData]);
+
+    // 오더 생성 대상 = 매칭된 행의 고유 (극장+영화) 조합 수 (오더는 조합당 1건)
+    const orderTargetCount = useMemo(() => {
+        const keys = new Set<string>();
+        previewData.forEach((d) => {
+            if (d.is_matched && d.client_id && d.movie_id) keys.add(`${d.client_id}_${d.movie_id}`);
+        });
+        return keys.size;
+    }, [previewData]);
+
+    // 오더 생성 미리보기 (어떤 오더가 신규/갱신될지 dry-run으로 조회)
+    const [orderPlan, setOrderPlan] = useState<any[]>([]);
+    const [orderPlanLoading, setOrderPlanLoading] = useState(false);
+
+    useEffect(() => {
+        if (previewData.length === 0) {
+            setOrderPlan([]);
+            return;
+        }
+        let cancelled = false;
+        setOrderPlanLoading(true);
+        AxiosPost("score/preview_order_save", { data: previewData })
+            .then((res) => {
+                if (!cancelled) setOrderPlan(res.data?.data || []);
+            })
+            .catch(() => {
+                if (!cancelled) setOrderPlan([]);
+            })
+            .finally(() => {
+                if (!cancelled) setOrderPlanLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [previewData]);
+
+    const orderPlanCounts = useMemo(() => {
+        return orderPlan.reduce(
+            (acc, o) => {
+                if (o.status === "create") acc.create += 1;
+                else if (o.status === "update") acc.update += 1;
+                else acc.unchanged += 1;
+                return acc;
+            },
+            { create: 0, update: 0, unchanged: 0 }
+        );
+    }, [orderPlan]);
+
+    // 스코어 저장 전, 업로드 내역을 바탕으로 오더(OrderList/Order)만 생성/갱신
+    const handleConfirmOrders = () => {
+        if (orderTargetCount === 0) {
+            toast.warning("오더를 생성할 매칭된 데이터가 없습니다.");
+            return;
+        }
+        showAlert(
+            `매칭된 ${matchedCount}건으로 극장·영화 ${orderTargetCount}개 오더를 생성하시겠습니까?`,
+            "극장·영화별로 오더(상영기간)가 생성/갱신됩니다. (이미 있으면 기간만 갱신) 스코어는 저장되지 않습니다.",
+            "warning",
+            async () => {
+                setLoading(true);
+                try {
+                    const res = await AxiosPost("score/confirm_order_save", { data: previewData });
+                    toast.success(res.data?.message || "오더가 생성되었습니다.");
+                } catch (err) {
+                    toast.error(handleBackendErrors(err));
+                } finally {
+                    setLoading(false);
+                }
+            },
+            true
+        );
+    };
+
     const hasMatchError = previewData.some((d) => !d.is_matched);
+    const errorCount = useMemo(() => previewData.filter((d) => !d.is_matched).length, [previewData]);
+
+    // 관 정보 수정 패널 닫기: 변경이 있었으면 파일을 다시 분석해 재매칭
+    const handleTheaterEditClose = (changed: boolean) => {
+        setEditingTheater(null);
+        if (changed && uploadedFile) {
+            toast.info("관 정보가 변경되어 다시 분석합니다.");
+            handleFileProcess(uploadedFile);
+        }
+    };
 
     return (
         <Container>
             {previewData.length === 0 ? (
+              <>
+                {/* 영진위(일반극장) 파일은 영화명 컬럼이 없어 영화를 먼저 선택해야 함 */}
+                <div>
+                    <div style={{ width: "100%", maxWidth: "420px" }}>
+                        <AutocompleteInputMovie
+                            label="영화 선택"
+                            formData={movieForm}
+                            setFormData={setMovieForm}
+                            inputValue={movieInput}
+                            setInputValue={setMovieInput}
+                            placeholder="영진위(일반극장) 업로드 시 영화 검색 (포맷별로 표시)"
+                            labelWidth="70px"
+                        />
+                    </div>
+                    <div style={{ marginTop: "6px", fontSize: "11px", color: "#94a3b8" }}>
+                        ※ 영진위 일반극장 파일은 영화를 먼저 선택하세요. (CGV·메가박스·롯데는 자동 제외됩니다.)
+                    </div>
+                </div>
                 <DropZone
                     $isDragging={dragging}
                     onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -253,8 +450,15 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                         {loading ? "분석 중..." : "엑셀 파일을 드래그하거나 클릭하여 업로드하세요."}
                     </div>
                 </DropZone>
+              </>
             ) : (
                 <>
+                    {errorCount > 0 && (
+                        <ErrorBanner>
+                            <WarningCircle size={20} weight="fill" />
+                            에러 데이터 {errorCount}건이 있습니다. 에러를 해결해야 저장할 수 있습니다.
+                        </ErrorBanner>
+                    )}
                     <FilterBar>
                         <div className="filter-group">
                             {/* ✅ 마이너스 관객수 확인 필터 (왼쪽 배치) */}
@@ -306,6 +510,9 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                                     visibleData.map((row, idx) => {
                                         const isMinusVisitor = (parseInt(row.visitor) || 0) < 0;
                                         const isError = !row.is_matched;
+                                        // 극장은 매칭됐으나 관(상영관)이 없어서 난 에러 → 인라인 관 등록 가능
+                                        const isAudMissing =
+                                            isError && row.client_id && String(row.match_error || "").includes("관 정보 없음");
 
                                         return (
                                             <tr key={idx} className={`${isError ? "error" : ""} ${isMinusVisitor ? "minus-error" : ""}`}>
@@ -323,6 +530,19 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                                                         {isMinusVisitor && "[마이너스 관객] "}
                                                         {row.match_error}
                                                     </ErrorText>
+                                                    {isAudMissing && (
+                                                        <FixButton
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setEditingTheater({
+                                                                    clientId: row.client_id,
+                                                                    clientName: row.client_name,
+                                                                    rawAud: row.auditorium || row.display_auditorium,
+                                                                })
+                                                            }>
+                                                            관 등록
+                                                        </FixButton>
+                                                    )}
                                                 </td>
                                                 <td>{row.entry_date}</td>
                                                 <td>{row.movie_name}</td>
@@ -352,9 +572,67 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                         </PreviewTable>
                     </PreviewWrapper>
 
+                    {/* 오더 저장 미리보기: 어떤 오더가 신규/갱신될지 표시 */}
+                    <OrderSection>
+                        <OrderHeader>
+                            <span>
+                                오더 저장 미리보기
+                                {orderPlanLoading ? " (계산 중...)" : ` · 총 ${orderPlan.length}건`}
+                            </span>
+                            <div className="counts">
+                                <OrderBadge $kind="create">신규 {orderPlanCounts.create}</OrderBadge>
+                                <OrderBadge $kind="update">갱신 {orderPlanCounts.update}</OrderBadge>
+                                <OrderBadge $kind="unchanged">유지 {orderPlanCounts.unchanged}</OrderBadge>
+                            </div>
+                        </OrderHeader>
+                        <OrderTableWrap>
+                            <PreviewTable>
+                                <thead>
+                                    <tr>
+                                        <th style={{ width: "70px" }}>구분</th>
+                                        <th>영화명</th>
+                                        <th>극장명</th>
+                                        <th style={{ width: "110px" }}>시작일</th>
+                                        <th style={{ width: "110px" }}>종료일</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {orderPlan.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} style={{ textAlign: "center", padding: "24px", color: "#94a3b8" }}>
+                                                {orderPlanLoading ? "오더 미리보기를 계산하는 중입니다..." : "생성/갱신할 오더가 없습니다."}
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        orderPlan.map((o, idx) => (
+                                            <tr key={idx}>
+                                                <td style={{ textAlign: "center" }}>
+                                                    <OrderBadge $kind={o.status}>
+                                                        {o.status === "create" ? "신규" : o.status === "update" ? "갱신" : "유지"}
+                                                    </OrderBadge>
+                                                </td>
+                                                <td>{o.movie_name}</td>
+                                                <td>{o.client_name}</td>
+                                                <td>{o.start_date}</td>
+                                                <td>{o.end_date}</td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </PreviewTable>
+                        </OrderTableWrap>
+                    </OrderSection>
+
                     <ActionFooter>
-                        <StyledButton onClick={() => setPreviewData([])}>
+                        <StyledButton onClick={() => { setPreviewData([]); setUploadedFile(null); setEditingTheater(null); }}>
                             다시 업로드
+                        </StyledButton>
+                        <StyledButton
+                            $disabled={loading || orderTargetCount === 0}
+                            disabled={loading || orderTargetCount === 0}
+                            onClick={handleConfirmOrders}
+                            title="매칭된 내역의 극장·영화 조합으로 오더(상영기간)만 생성/갱신합니다.">
+                            {loading ? "처리 중..." : `오더 저장 (${orderTargetCount}건)`}
                         </StyledButton>
                         <StyledButton
                             $primary
@@ -370,6 +648,16 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                         </div>
                     )}
                 </>
+            )}
+
+            {/* 관 정보 없음 에러 행에서 '관 등록' 클릭 시 인라인 수정 패널 */}
+            {editingTheater && (
+                <TheaterQuickEdit
+                    clientId={editingTheater.clientId}
+                    clientName={editingTheater.clientName}
+                    rawAud={editingTheater.rawAud}
+                    onClose={handleTheaterEditClose}
+                />
             )}
         </Container>
     );

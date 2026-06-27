@@ -26,23 +26,34 @@ const ScorePageWrapper = styled.div`
 
 const SortTabGroup = styled.div`
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+`;
+
+const SortTabLabel = styled.span`
+    font-size: 13px;
+    font-weight: 800;
+    color: #dc2626;
+    margin-right: 4px;
+    letter-spacing: -0.3px;
 `;
 
 const SortTab = styled.button<{ $active: boolean }>`
-    padding: 6px 14px;
-    border-radius: 4px;
-    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
-    color: ${({ $active }) => ($active ? "#2563eb" : "#475569")};
-    font-size: 13px;
-    font-weight: ${({ $active }) => ($active ? "700" : "500")};
+    padding: 10px 22px;
+    border-radius: 6px;
+    border: 2px solid ${({ $active }) => ($active ? "#dc2626" : "#fca5a5")};
+    background: ${({ $active }) => ($active ? "#dc2626" : "#fff5f5")};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#dc2626")};
+    font-size: 14px;
+    font-weight: ${({ $active }) => ($active ? "800" : "600")};
     cursor: pointer;
     transition: all 0.15s ease;
+    box-shadow: ${({ $active }) => ($active ? "0 2px 8px rgba(220,38,38,0.35)" : "none")};
 
     &:hover {
-        border-color: #2563eb;
-        color: #2563eb;
+        border-color: #dc2626;
+        background: ${({ $active }) => ($active ? "#dc2626" : "#fee2e2")};
+        transform: translateY(-1px);
     }
 `;
 
@@ -323,6 +334,7 @@ export function ScorePage() {
                 <FilterBar>
                     {/* 0열: 분류 탭 */}
                     <SortTabGroup>
+                        <SortTabLabel>분류</SortTabLabel>
                         <SortTab $active={searchParams.sort_by === "region"} onClick={() => handleSortChange("region")}>지역별총괄</SortTab>
                         <SortTab $active={searchParams.sort_by === "multi"} onClick={() => handleSortChange("multi")}>멀티별총괄</SortTab>
                         <SortTab $active={searchParams.sort_by === "version"} onClick={() => handleSortChange("version")}>버전별총괄</SortTab>

@@ -14,6 +14,7 @@ from crawler.models import CrawlerRunHistory, CrawlTargetMovie, MovieSchedule
 from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
 from crawler.management.commands.run_megabox_pipeline import MegaboxPipelineService
+from crawler.management.commands.run_kobis_pipeline import KobisPipelineService
 
 # Import Utils
 from crawler.utils.excel_exporter import export_schedules_to_excel
@@ -24,6 +25,15 @@ def run_crawler_background(history_id, data):
     """
     백그라운드에서 실행될 크롤러 로직
     """
+    # Windows 한글 콘솔(cp949)에서 이모지(🎯 등) print 시 UnicodeEncodeError로
+    # 크롤이 죽는 것을 방지: 인코딩 불가 문자는 '?'로 대체.
+    import sys
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(errors='replace')
+        except Exception:
+            pass
+
     try:
         # 0. Retrieve History Object
         history = CrawlerRunHistory.objects.get(id=history_id)
@@ -49,7 +59,8 @@ def run_crawler_background(history_id, data):
         run_cgv = choice_company.get('cgv', False)
         run_lotte = choice_company.get('lotte', False)
         run_mega = choice_company.get('mega', False)
-        
+        run_normal = choice_company.get('normal', False)  # 일반극장 (KOBIS)
+
         # 3. Parse Movie Settings (Target Titles)
         movie_settings = data.get('movieSettings', [])
         target_titles = set()
@@ -144,12 +155,31 @@ def run_crawler_background(history_id, data):
                 logger.error(f"Megabox Failure: {e}")
                 return None
 
+        def run_normal_wrapper():
+            if not run_normal: return None
+            try:
+                check_stop_signal()
+                print(f"Executing 일반극장(KOBIS) for {date_list}")
+                logs, cnt, failures = KobisPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+                check_stop_signal()
+                KobisPipelineService.send_slack_message("SUCCESS", {
+                    "collected": len(logs), "collected_list": logs,
+                    "created": 0, "failures": failures, "total_master": cnt
+                })
+                return 'Normal', failures
+            except InterruptedError:
+                raise
+            except Exception as e:
+                logger.error(f"KOBIS Failure: {e}")
+                return None
+
         # Run Parallel
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
             if run_cgv: futures.append(executor.submit(run_cgv_wrapper))
             if run_lotte: futures.append(executor.submit(run_lotte_wrapper))
             if run_mega: futures.append(executor.submit(run_mega_wrapper))
+            if run_normal: futures.append(executor.submit(run_normal_wrapper))
 
             for future in as_completed(futures):
                 try:
@@ -165,6 +195,7 @@ def run_crawler_background(history_id, data):
                         if comp_name == 'CGV': companies_for_export.append('CGV')
                         elif comp_name == 'Lotte': companies_for_export.append('LOTTE')
                         elif comp_name == 'Megabox': companies_for_export.append('MEGABOX')
+                        elif comp_name == 'Normal': companies_for_export.append('일반극장')
                 except InterruptedError:
                     raise
                 except Exception as e:
@@ -226,12 +257,23 @@ def run_crawler_background(history_id, data):
             transform_results['Megabox'] = cnt
             total_created += cnt
 
+        if run_normal:
+            from crawler.models import KobisScheduleLog
+            kobis_logs = KobisScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
+            cnt = 0
+            for log in kobis_logs:
+                c, _ = MovieSchedule.create_from_kobis_log(log, target_titles=crawl_target_titles)
+                cnt += c
+            transform_results['Normal'] = cnt
+            total_created += cnt
+
         # 6. Export transformed schedules
         from crawler.utils.excel_exporter import export_transformed_schedules
         target_brands = []
         if run_cgv: target_brands.append('CGV')
         if run_lotte: target_brands.append('LOTTE')
         if run_mega: target_brands.append('MEGABOX')
+        if run_normal: target_brands.append('일반극장')
 
         schedule_qs = MovieSchedule.objects.filter(
             play_date__gte=start_date.date(),
@@ -429,7 +471,8 @@ def run_transform_background(new_history_id, source_history_id):
         run_cgv = choice_company.get('cgv', False)
         run_lotte = choice_company.get('lotte', False)
         run_mega = choice_company.get('mega', False)
-        
+        run_normal = choice_company.get('normal', False)  # 일반극장 (KOBIS)
+
         processing_context = {"stage": "init", "log_id": None, "brand": None}
         
         results = {}
@@ -511,15 +554,34 @@ def run_transform_background(new_history_id, source_history_id):
                 total_created += cnt
             else:
                 results['Megabox'] = {"created": 0, "message": "No logs found"}
-                
+
+        # 4-1. 일반극장(KOBIS) Transformation
+        if run_normal:
+            from crawler.models import KobisScheduleLog
+            log_ids = KobisScheduleLog.objects.filter(query_date__in=date_list).values_list('id', flat=True)
+            if log_ids:
+                cnt = 0
+                errors = []
+                logs = KobisScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                for log in logs:
+                    processing_context = {"stage": "Normal", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
+                    c, e = MovieSchedule.create_from_kobis_log(log, title_map=title_map)
+                    cnt += c
+                    errors.extend(e)
+                results['Normal'] = {"created": cnt, "errors": len(errors)}
+                total_created += cnt
+            else:
+                results['Normal'] = {"created": 0, "message": "No logs found"}
+
         # 5. Export to Excel
         from crawler.models import MovieSchedule
         from crawler.utils.excel_exporter import export_transformed_schedules
-        
+
         target_brands = []
         if run_cgv: target_brands.append('CGV')
         if run_lotte: target_brands.append('LOTTE')
         if run_mega: target_brands.append('MEGABOX')
+        if run_normal: target_brands.append('일반극장')
 
         qs = MovieSchedule.objects.filter(
             play_date__gte=start_date.date(),
@@ -882,6 +944,66 @@ class CrawlerScheduleExportView(APIView):
             return Response({"error": "Invalid date format"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Schedule Export Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerSpecialExportView(APIView):
+    """
+    특수상영(무대인사 등) 키워드 기반 평면 엑셀 다운로드.
+    Body: start_date, end_date(optional), keyword(예: '무대'), brands(optional), movie_title(optional)
+    movie_title 지정 시 해당 영화로 한정. 키워드는 영화 태그(구분) 또는 제목에 포함되면 매칭.
+    """
+    def post(self, request):
+        start_date_str = request.data.get('start_date') or request.data.get('date')
+        end_date_str = request.data.get('end_date') or start_date_str
+        keyword = (request.data.get('keyword') or '').strip()
+        brands = request.data.get('brands')
+        movie_title = (request.data.get('movie_title') or '').strip()
+
+        if not start_date_str or not keyword:
+            return Response({"error": "start_date와 keyword는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            def parse_date(s):
+                s = s.strip()
+                return datetime.strptime(s, "%Y-%m-%d").date() if '-' in s else datetime.strptime(s, "%Y%m%d").date()
+
+            start_date = parse_date(start_date_str)
+            end_date = parse_date(end_date_str)
+
+            from crawler.models import MovieSchedule
+            from crawler.utils.excel_exporter import export_special_screenings
+
+            qs = MovieSchedule.objects.filter(play_date__gte=start_date, play_date__lte=end_date)
+            if brands and isinstance(brands, list):
+                qs = qs.filter(brand__in=brands)
+
+            # 키워드 매칭 + (지정 시) 영화 제목 매칭
+            keywords = [k.replace(" ", "").lower() for k in keyword.split(",") if k.strip()]
+            matched = []
+            for s in qs:
+                title_norm = str(s.movie_title or "").replace(" ", "").lower()
+                tag_norms = [str(t).replace(" ", "").lower() for t in (s.tags or [])]
+                kw_ok = any(k in title_norm or any(k in tn for tn in tag_norms) for k in keywords)
+                if not kw_ok:
+                    continue
+                # 특정 영화 한정 (선택 시)
+                if movie_title and not MovieSchedule.title_matches(movie_title, s.movie_title):
+                    continue
+                matched.append(s.id)
+            qs = MovieSchedule.objects.filter(id__in=matched)
+
+            if not qs.exists():
+                msg = f"'{movie_title}'의 " if movie_title else ""
+                return Response({"error": f"{msg}'{keyword}' 키워드에 해당하는 스케줄이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+            file_path = export_special_screenings(qs, keyword=keyword, start_date=start_date, end_date=end_date)
+            return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=os.path.basename(file_path))
+
+        except ValueError:
+            return Response({"error": "날짜 형식 오류"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Special Export Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

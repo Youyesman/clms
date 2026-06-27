@@ -188,7 +188,7 @@ export function Login() {
             if (user_data.is_superuser) {
                 navigate("/manage/manage_client");
             } else {
-                navigate("/");
+                navigate("/dashboard");
             }
         } catch (err: any) {
             console.error(err);

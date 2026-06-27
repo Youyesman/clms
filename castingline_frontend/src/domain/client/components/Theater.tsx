@@ -300,6 +300,7 @@ export const Theater = ({
                             <th style={{ width: "60px" }}>관</th>
                             <th style={{ width: "80px" }}>좌석</th>
                             <th>관이름</th>
+                            <th>영진위관이름</th>
                         </tr>
                     </THead>
                     <tbody>
@@ -362,17 +363,35 @@ export const Theater = ({
                                                 item.auditorium_name
                                             )}
                                         </TD>
+                                        <TD onDoubleClick={() => handleEditScreen(item, "kofic_auditorium_name")}>
+                                            {editingScreen.id === item.id && editingScreen.field === "kofic_auditorium_name" ? (
+                                                <EditInput
+                                                    autoComplete="off"
+                                                    value={editScreenValue}
+                                                    onChange={(e) => setEditScreenValue(e.target.value)}
+                                                    onBlur={() => handleSaveScreen(item, "kofic_auditorium_name")}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === "Enter") handleSaveScreen(item, "kofic_auditorium_name");
+                                                        if (e.key === "Escape") handleCancelEditScreen();
+                                                    }}
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                item.kofic_auditorium_name
+                                            )}
+                                        </TD>
                                     </TR>
                                 ))}
                                 <TR style={{ backgroundColor: "#f1f5f9", fontWeight: "bold" }}>
                                     <TD>합계</TD>
                                     <TD>{totalSeats.toLocaleString()}</TD>
                                     <TD>{totalScreens}개관</TD>
+                                    <TD />
                                 </TR>
                             </>
                         ) : (
                             <TR>
-                                <TD colSpan={3} style={{ padding: "40px", color: "#94a3b8" }}>
+                                <TD colSpan={4} style={{ padding: "40px", color: "#94a3b8" }}>
                                     데이터가 없습니다.
                                 </TD>
                             </TR>

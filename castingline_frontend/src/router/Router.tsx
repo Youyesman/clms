@@ -18,6 +18,7 @@ import { TheaterCountPage } from "../customer/domain/time_table/pages/TheaterCou
 import { ScreenCountPage } from "../customer/domain/time_table/pages/ScreenCountPage";
 import { ShowCountPage } from "../customer/domain/time_table/pages/ShowCountPage";
 import LandingPage from "../domain/landing/pages/LandingPage";
+import { CustomerDashboard } from "../customer/domain/dashboard/pages/CustomerDashboard";
 
 const router = createBrowserRouter([
     {
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
             { path: "login", element: <Login /> },
 
             // ── 일반 유저용 페이지 ──
+            { path: "dashboard", element: <CustomerDashboard /> },
             { path: "score", element: <ScorePage /> },
             { path: "score/criteria", element: <CriteriaPage /> },
             { path: "score/daily", element: <DailyStatusPage /> },

@@ -16,6 +16,14 @@ urlpatterns = [
     path('score/confirm_save/', confirm_score_save,
          name='score-confirm-save'),
 
+    # 2-1. 오더만 생성 API (스코어 저장 전, 미리보기 데이터로 오더 생성/갱신)
+    path('score/confirm_order_save/', confirm_order_save,
+         name='score-confirm-order-save'),
+
+    # 2-2. 오더 생성 미리보기 API (생성/갱신될 오더 목록 dry-run)
+    path('score/preview_order_save/', preview_order_save,
+         name='score-preview-order-save'),
+
     # 3. 배급사별 연도별 영화 목록 API
     path('score/movies-by-year/', movies_by_year,
          name='score-movies-by-year'),

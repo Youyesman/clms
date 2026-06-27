@@ -75,6 +75,9 @@ HEADER_FONT = Font(name='맑은 고딕', size=10, bold=True)
 WHITE_FONT = Font(name='맑은 고딕', size=10, bold=True, color="FFFFFF")
 DATA_FONT = Font(name='맑은 고딕', size=10)
 BOLD_FONT = Font(name='맑은 고딕', size=10, bold=True)
+# 일반극장 매핑 안 됨 강조 (빨강)
+UNMAPPED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+UNMAPPED_FONT = Font(name='맑은 고딕', size=10, bold=True, color="9C0006")
 
 
 def _safe_int(val):
@@ -174,6 +177,64 @@ def _format_theater_name(brand, theater):
     return f"{brand} {clean}"
 
 
+def _build_normal_theater_index():
+    """
+    일반극장(KOBIS) 행 보강용 인덱스.
+    - name_to_client: 정규화된 (영진위극장명 우선 → 극장명) -> Client
+    - seat_idx: client_id -> {kofic/name/num: 관 -> 좌석수}
+    """
+    from client.models import Client, Theater
+
+    qs = Client.objects.exclude(theater_kind__in=['CGV', '메가박스', '롯데']).only(
+        'id', 'client_name', 'kofic_theater_name', 'region_code'
+    )
+    name_to_client = {}
+    # 1) 영진위극장명 우선
+    for c in qs:
+        if c.kofic_theater_name:
+            name_to_client.setdefault(re.sub(r'\s+', '', c.kofic_theater_name).lower(), c)
+    # 2) 그 다음 극장명
+    for c in qs:
+        if c.client_name:
+            name_to_client.setdefault(re.sub(r'\s+', '', c.client_name).lower(), c)
+
+    seat_idx = {}
+    for t in Theater.objects.all().only(
+        'client_id', 'auditorium_name', 'kofic_auditorium_name', 'seat_count'
+    ):
+        d = seat_idx.setdefault(t.client_id, {'kofic': {}, 'name': {}, 'num': {}})
+        if t.kofic_auditorium_name:
+            d['kofic'][re.sub(r'\s+', '', t.kofic_auditorium_name).lower()] = t.seat_count
+        if t.auditorium_name:
+            d['name'][re.sub(r'\s+', '', t.auditorium_name).lower()] = t.seat_count
+            m = re.search(r'(\d+)', t.auditorium_name)
+            if m:
+                d['num'].setdefault(int(m.group(1)), t.seat_count)
+    return name_to_client, seat_idx
+
+
+def _resolve_normal_theater(theater_name, screen_name, normal_index):
+    """일반극장 행: 영진위극장명→극장명 순으로 Client 매칭. 미매칭이면 None."""
+    name_to_client, seat_idx = normal_index
+    norm = re.sub(r'\s+', '', str(theater_name or '')).lower()
+    c = name_to_client.get(norm)
+    if not c:
+        return None
+    region = c.region_code or '-'
+    seat = 0
+    d = seat_idx.get(c.id, {})
+    sn = re.sub(r'\s+', '', str(screen_name or '')).lower()
+    if sn in d.get('kofic', {}):
+        seat = d['kofic'][sn]
+    elif sn in d.get('name', {}):
+        seat = d['name'][sn]
+    else:
+        m = re.search(r'(\d+)', str(screen_name or ''))
+        if m and int(m.group(1)) in d.get('num', {}):
+            seat = d['num'][int(m.group(1))]
+    return {'region': region, 'seat': _safe_int(seat), 'client_name': c.client_name}
+
+
 def _extract_format_and_type(tags):
     """Extract format (2D/IMAX/DOLBY...) and sub_type (일반/자막/더빙) from tags."""
     fmt = "2D"
@@ -252,9 +313,11 @@ def _filter_cine_de_chef(schedules):
     return normal_items
 
 
-def _process_to_rows(schedules, region_map):
+def _process_to_rows(schedules, region_map, normal_index=None):
     """Process schedule queryset into structured rows for display and aggregation."""
     schedules = _filter_cine_de_chef(list(schedules))
+    if normal_index is None:
+        normal_index = _build_normal_theater_index()
 
     grouped = {}
     for sch in schedules:
@@ -276,6 +339,20 @@ def _process_to_rows(schedules, region_map):
 
         total_capacity = _safe_int(items[0].total_seats) if items else 0
         show_count = len(items)
+
+        # 일반극장(KOBIS): '일반극장' 접두 제거 + 영진위극장명/극장명 매칭으로 지역·좌석수 보강
+        unmapped = False
+        if brand == '일반극장':
+            info = _resolve_normal_theater(theater, screen, normal_index)
+            if info:
+                display_theater = info['client_name']
+                region = info['region']
+                if info['seat']:
+                    total_capacity = info['seat']
+            else:
+                display_theater = theater  # 접두어 없이 원본 극장명
+                region = '매핑안됨'
+                unmapped = True
 
         total_seats_sum = 0
         sold_seats_sum = 0
@@ -304,6 +381,7 @@ def _process_to_rows(schedules, region_map):
             'show_count': show_count,
             'total_seats': total_seats_sum,
             'sold_seats': sold_seats_sum,
+            'unmapped': unmapped,
         })
 
     rows.sort(key=lambda x: (
@@ -437,6 +515,13 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
                 cell.border = THIN_BORDER
                 cell.alignment = CENTER
                 cell.font = DATA_FONT
+
+            # 매핑 안 된 일반극장 행: 지역·극장명 셀을 빨갛게 강조
+            if row.get('unmapped'):
+                for ci in (1, 2):
+                    c = ws.cell(row=ri, column=ci)
+                    c.fill = UNMAPPED_FILL
+                    c.font = UNMAPPED_FONT
 
             ri += 1
 
@@ -1021,6 +1106,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 
     # ========== Region Mapping ==========
     region_map = _build_region_map()
+    normal_index = _build_normal_theater_index()  # 일반극장 지역·좌석수 보강용
 
     # ========== Collect Main Data Per Date ==========
     available_dates = list(
@@ -1036,7 +1122,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 
     for d in available_dates:
         sub_qs = queryset.filter(play_date=d)
-        rows, max_shows = _process_to_rows(sub_qs, region_map)
+        rows, max_shows = _process_to_rows(sub_qs, region_map, normal_index)
         if rows:
             all_data[d] = rows
             global_max_shows = max(global_max_shows, max_shows)
@@ -1053,7 +1139,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
             comp_data = {}
             for d in available_dates:
                 sub_qs = comp_qs.filter(play_date=d)
-                rows, _ = _process_to_rows(sub_qs, region_map)
+                rows, _ = _process_to_rows(sub_qs, region_map, normal_index)
                 if rows:
                     comp_data[d] = rows
             if comp_data:
@@ -1121,4 +1207,150 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 
     wb.save(file_path)
     logger.info(f"Schedule Excel exported: {file_path}")
+    return file_path
+
+
+# =============================================================================
+# 특수상영(무대인사 등) 키워드 기반 평면 엑셀 내보내기
+# =============================================================================
+
+_SPECIAL_FORMAT_KEYWORDS = [
+    "2D", "3D", "4D", "디지털", "DIGITAL", "자막", "더빙", "IMAX", "4DX", "SCREENX",
+    "SCREEN-X", "DOLBY", "ATMOS", "LASER", "SPHEREX", "리클라이너",
+]
+
+
+def _special_category_tags(tags):
+    """포맷(2D/자막/IMAX 등)을 제외한 구분 태그(무대인사·GV 등)만 반환."""
+    out = []
+    for t in (tags or []):
+        tu = str(t).upper()
+        if any(f in tu for f in [k.upper() for k in _SPECIAL_FORMAT_KEYWORDS]):
+            continue
+        out.append(str(t))
+    return out
+
+
+def _brand_to_multi(brand):
+    """MovieSchedule.brand -> 엑셀 '멀티' 표기 (예시 파일 기준: MEGABOX->MEGA)."""
+    if brand == "MEGABOX":
+        return "MEGA"
+    return brand or ""
+
+
+def export_special_screenings(queryset, keyword=None, start_date=None, end_date=None):
+    """
+    특수상영(무대인사 등) 평면 엑셀 내보내기.
+    컬럼: 영화명·날짜·지역·멀티·극장명·관·포맷1·구분1·상영시간·총회차·총스크린·총좌석수·판매좌석수·잔여좌석수·좌석판매율
+    """
+    save_dir = os.path.join(settings.BASE_DIR, 'media', 'crawler_exports')
+    os.makedirs(save_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    kw = re.sub(r'[^0-9A-Za-z가-힣]', '', str(keyword or "특수상영"))
+    filename = f"특수상영_{kw}_{timestamp}.xlsx"
+    file_path = os.path.join(save_dir, filename)
+
+    region_map = _build_region_map()
+
+    headers = [
+        "영화명", "날짜", "지역", "멀티", "극장명", "관", "포맷1", "구분1",
+        "상영시간", "총회차", "총스크린", "총좌석수", "판매좌석수", "잔여좌석수", "좌석판매율",
+    ]
+
+    rows = list(queryset)
+
+    # 멀티(브랜드) 순서: CGV → MEGA → LOTTE → 일반극장 (예시 파일 기준)
+    BRAND_ORD = {'CGV': 0, 'MEGABOX': 1, 'LOTTE': 2, '일반극장': 3}
+    BRAND_LABEL = {'CGV': 'CGV', 'MEGABOX': 'MEGA', 'LOTTE': 'LOTTE', '일반극장': '일반극장'}
+
+    def sort_key(s):
+        return (
+            BRAND_ORD.get(s.brand, 9),
+            str(s.play_date or (s.start_time.date() if s.start_time else "")),
+            s.theater_name or "",
+            s.screen_name or "",
+            s.start_time or dj_timezone.now(),
+        )
+    rows.sort(key=sort_key)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "특수상영"
+
+    # 예시 파일 색상: 헤더 회색 / 소계 분홍 / 총계 파랑+흰글씨
+    HEAD_FILL = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+    SUB_FILL = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+    TOTAL_FILL = PatternFill(start_color="0033CC", end_color="0033CC", fill_type="solid")
+    HEAD_FONT = Font(bold=True, size=10)
+    SUB_FONT = Font(bold=True, size=10)
+    TOTAL_FONT = Font(bold=True, size=10, color="FFFFFF")
+    DATA_FONT_ = Font(size=10)
+    thin = Side(style="thin", color="D9D9D9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+    NUMFMT = '#,##0'
+
+    def write_cells(rr, values, fill=None, font=None):
+        for c, v in enumerate(values, 1):
+            cell = ws.cell(row=rr, column=c, value=v)
+            cell.border = border
+            cell.alignment = center
+            if fill:
+                cell.fill = fill
+            cell.font = font or DATA_FONT_
+            if c in (10, 11, 12, 13, 14) and isinstance(v, (int, float)):
+                cell.number_format = NUMFMT
+
+    write_cells(1, headers, fill=HEAD_FILL, font=HEAD_FONT)
+
+    r = 2
+    grand = [0, 0, 0, 0, 0]  # 총회차, 총스크린, 총좌석수, 판매좌석수, 잔여좌석수
+    i, n = 0, len(rows)
+    while i < n:
+        brand = rows[i].brand
+        agg = [0, 0, 0, 0, 0]
+        # 같은 브랜드 데이터 행 작성
+        while i < n and rows[i].brand == brand:
+            s = rows[i]
+            total = int(s.total_seats or 0)
+            remain = int(s.remaining_seats or 0)
+            sold = max(0, total - remain)
+            rate = f"{(sold / total * 100):.1f}%" if total > 0 else ""
+            fmt, sub_type = _extract_format_and_type(s.tags)
+            format1 = f"{fmt}({sub_type})" if sub_type and sub_type != "일반" else fmt
+            category1 = " ".join(_special_category_tags(s.tags))
+            play_date = s.play_date or (s.start_time.date() if s.start_time else None)
+            region = _resolve_region(brand, s.theater_name, region_map)
+            write_cells(r, [
+                s.movie_title,
+                str(play_date) if play_date else "",
+                region,
+                _brand_to_multi(brand),
+                s.theater_name,
+                s.screen_name,
+                format1,
+                category1,
+                dj_timezone.localtime(s.start_time).strftime("%H:%M") if s.start_time else "",
+                1, 1, total, sold, remain, rate,
+            ])
+            r += 1
+            agg[0] += 1; agg[1] += 1; agg[2] += total; agg[3] += sold; agg[4] += remain
+            i += 1
+        # 멀티별 소계
+        s_rate = f"{round(agg[3] / agg[2] * 100)}%" if agg[2] else ""
+        write_cells(r, ["", "", "", "", f"{BRAND_LABEL.get(brand, brand)} 소계", "", "", "", "",
+                        agg[0], agg[1], agg[2], agg[3], agg[4], s_rate], fill=SUB_FILL, font=SUB_FONT)
+        r += 1
+        for k in range(5):
+            grand[k] += agg[k]
+
+    # 총 계
+    g_rate = f"{round(grand[3] / grand[2] * 100)}%" if grand[2] else ""
+    write_cells(r, ["", "", "", "", "총 계", "", "", "", "",
+                    grand[0], grand[1], grand[2], grand[3], grand[4], g_rate], fill=TOTAL_FILL, font=TOTAL_FONT)
+
+    _auto_width(ws, min_row=1)
+    ws.freeze_panes = "A2"
+    wb.save(file_path)
+    logger.info(f"특수상영 Excel exported: {file_path} ({len(rows)} rows)")
     return file_path

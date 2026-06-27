@@ -56,6 +56,26 @@ class LotteScheduleLog(models.Model):
         return f"[Lotte] {self.theater_name} ({self.query_date})"
 
 
+class KobisScheduleLog(models.Model):
+    """
+    KOBIS(영화관입장권 통합전산망) 극장별 시간표 API 응답 원본 저장 로그.
+    findSchedule.do 응답({theater, schedule})을 그대로 저장한다.
+    """
+    query_date = models.CharField(max_length=8)  # YYYYMMDD
+    site_code = models.CharField(max_length=20)  # KOBIS theaCd
+    theater_name = models.CharField(max_length=100, blank=True)  # 크롤된 극장명 (cdNm)
+    response_json = models.JSONField(null=True, blank=True)
+    status = models.CharField(max_length=20, default='success')
+    crawler_run = models.ForeignKey('CrawlerRunHistory', on_delete=models.SET_NULL, null=True, blank=True, related_name='kobis_logs')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('query_date', 'site_code')]
+
+    def __str__(self):
+        return f"[KOBIS] {self.theater_name} ({self.query_date})"
+
+
 class MovieSchedule(models.Model):
     """
     통합 영화 스케줄 모델 (CGV, 롯데, 메가박스 등 통합)
@@ -64,6 +84,7 @@ class MovieSchedule(models.Model):
         ('CGV', 'CGV'),
         ('LOTTE', 'Lotte Cinema'),
         ('MEGABOX', 'Megabox'),
+        ('일반극장', '일반극장'),
         ('OTHER', 'Other'),
     )
 
@@ -267,6 +288,26 @@ class MovieSchedule(models.Model):
         
         return name
 
+    # 특수상영(이벤트) 키워드: 무대인사·상영회·관객이벤트 등. 단순 할인/패키지 프로모션은 제외.
+    SPECIAL_EVENT_KEYWORDS = [
+        "무대인사", "상영회", "관객과", "GV", "시사회", "생중계", "싱어롱",
+        "특별상영", "기획전", "오픈채팅", "메가토크", "시네마톡", "무비토크",
+        "관크", "단체관람",
+    ]
+
+    @classmethod
+    def extract_special_event_tags(cls, *texts):
+        """주어진 텍스트들 중 특수상영 이벤트 키워드가 든 것을 태그(원문)로 반환."""
+        tags = []
+        for text in texts:
+            s = str(text or "").strip()
+            if not s:
+                continue
+            if any(kw in s for kw in cls.SPECIAL_EVENT_KEYWORDS):
+                if s not in tags:
+                    tags.append(s)
+        return tags
+
     @classmethod
     def create_from_cgv_log(cls, log, target_titles=None, title_map=None):
         """
@@ -298,8 +339,14 @@ class MovieSchedule(models.Model):
             try:
                 # 필수 필드 추출 (CGV API 키 매핑 수정됨)
                 movie_title = item.get("movNm")
-                
-                # [Filtering Logic]
+
+                # CGV 특수상영(무대인사·상영회 등)은 videoAddexp 필드에 표기됨
+                special_event_tags = cls.extract_special_event_tags(
+                    item.get("videoAddexpCdNm"), item.get("videoAddexpCont")
+                )
+                is_special_event = bool(special_event_tags)
+
+                # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
                 if target_titles:
                     is_target = False
                     matched_target = None
@@ -310,8 +357,8 @@ class MovieSchedule(models.Model):
                              matched_target = t
                              break
                     if is_target and matched_target != movie_title:
-                        print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
-                    if not is_target:
+                        print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
+                    if not is_target and not is_special_event:
                         continue
                 
                 screen_name = cls.normalize_screen_name(item.get("scnsNm"))
@@ -356,7 +403,10 @@ class MovieSchedule(models.Model):
                 # Title Consistency Logic
                 # 1. Parse Metadata
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
-                
+                # CGV 특수상영 이벤트(무대인사 등)를 태그에 추가 → 키워드 검색/내보내기 가능
+                if special_event_tags:
+                    extracted_tags = list(extracted_tags) + [t for t in special_event_tags if t not in extracted_tags]
+
                 final_title = clean_title
                 if title_map is not None:
                     norm_title = cls.normalize_title(clean_title)
@@ -472,6 +522,143 @@ class MovieSchedule(models.Model):
     def __str__(self):
         return f"[{self.brand}] {self.theater_name} - {self.movie_title} ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
 
+    @staticmethod
+    def map_kobis_theater_name(crawled_name):
+        """크롤된 KOBIS 극장명을 기존 DB 극장(Client)과 매핑. 매칭되면 client_name, 아니면 원본 반환."""
+        import re, html
+        from client.models import Client
+        # KOBIS는 '&'를 이중 인코딩(&amp;amp;)하는 경우가 있어 두 번 unescape
+        crawled_name = html.unescape(html.unescape(str(crawled_name or "")))
+        norm = re.sub(r'\s+', '', crawled_name).lower()
+        if not norm:
+            return crawled_name, None
+        # 캐시 (이름정규화 -> client) : 첫 호출 시 1회 구축
+        cache = getattr(MovieSchedule, '_kobis_client_cache', None)
+        if cache is None:
+            cache = {}
+            for c in Client.objects.all().only('id', 'client_name', 'excel_theater_name', 'kofic_theater_name'):
+                for nm in (c.kofic_theater_name, c.excel_theater_name, c.client_name):
+                    if nm:
+                        k = re.sub(r'\s+', '', nm).lower()
+                        cache.setdefault(k, c)
+            MovieSchedule._kobis_client_cache = cache
+        c = cache.get(norm)
+        if c:
+            return c.client_name, c.id
+        return crawled_name, None
+
+    @classmethod
+    def create_from_kobis_log(cls, log, target_titles=None, title_map=None):
+        """
+        KobisScheduleLog -> MovieSchedule 변환 (brand='일반극장').
+        KOBIS 응답: {theater:[{homepgUrl}], schedule:[{scrnNm, movieNm, movieCd, showTm}]}
+        showTm 은 콤마 구분 시각 문자열 "0830,1040,1310".
+        """
+        from datetime import datetime, timedelta
+
+        json_data = log.response_json
+        if isinstance(json_data, str):
+            try:
+                import json
+                json_data = json.loads(json_data)
+            except Exception:
+                json_data = {}
+        if not json_data or "schedule" not in json_data:
+            return 0, []
+
+        schedule_list = json_data.get("schedule") or []
+        theater_info = json_data.get("theater") or [{}]
+        homepg = theater_info[0].get("homepgUrl") if theater_info else None
+
+        # 극장명: 기존 DB 극장과 매핑
+        mapped_theater_name, _client_id = cls.map_kobis_theater_name(log.theater_name)
+
+        parsed_items = []
+        errors = []
+        for item in schedule_list:
+            try:
+                movie_title = item.get("movieNm")
+                if not movie_title:
+                    continue
+                # 대상 영화 필터
+                if target_titles:
+                    if not any(cls.title_matches(t, movie_title) for t in target_titles):
+                        continue
+
+                screen_name = cls.normalize_screen_name(item.get("scrnNm"))
+                clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
+                final_title = clean_title
+                if title_map is not None:
+                    norm_title = cls.normalize_title(clean_title)
+                    if norm_title in title_map:
+                        final_title = title_map[norm_title]
+                    else:
+                        title_map[norm_title] = clean_title
+
+                show_tm = str(item.get("showTm") or "")
+                for tm in [t.strip() for t in show_tm.split(",") if t.strip()]:
+                    start_dt = cls.parse_robust_datetime(log.query_date, tm[:4])
+                    if not start_dt:
+                        continue
+                    parsed_items.append({
+                        'brand': '일반극장',
+                        'theater_name': mapped_theater_name,
+                        'screen_name': screen_name,
+                        'start_time': start_dt,
+                        'movie_title': final_title,
+                        'tags': extracted_tags,
+                        'booking_url': homepg,
+                        'play_date': start_dt.date(),
+                    })
+            except Exception as e:
+                errors.append({
+                    'theater': log.theater_name,
+                    'site_code': log.site_code,
+                    'movie': item.get('movieNm', 'Unknown'),
+                    'error': str(e),
+                    'item': str(item)[:200],
+                })
+                continue
+
+        if not parsed_items:
+            return 0, errors
+
+        # 기존 스케줄 조회 (brand+theater 범위)
+        all_start = [i['start_time'] for i in parsed_items]
+        existing_qs = cls.objects.filter(
+            brand='일반극장',
+            theater_name=mapped_theater_name,
+            start_time__gte=min(all_start),
+            start_time__lte=max(all_start) + timedelta(hours=1),
+        )
+        existing_map = {(o.screen_name, o.start_time): o for o in existing_qs}
+
+        to_create, to_update = [], []
+        seen = set()
+        for item in parsed_items:
+            key = (item['screen_name'], item['start_time'])
+            if key in seen:
+                continue
+            seen.add(key)
+            if key in existing_map:
+                obj = existing_map[key]
+                obj.movie_title = item['movie_title']
+                obj.tags = item['tags']
+                obj.booking_url = item['booking_url']
+                to_update.append(obj)
+            else:
+                to_create.append(cls(**item))
+
+        created_count = updated_count = 0
+        if to_create:
+            cls.objects.bulk_create(to_create, ignore_conflicts=True)
+            created_count = len(to_create)
+        if to_update:
+            cls.objects.bulk_update(to_update, ['movie_title', 'tags', 'booking_url', 'updated_at'])
+            updated_count = len(to_update)
+
+        return created_count + updated_count, errors
+
     @classmethod
     def create_from_megabox_log(cls, log, target_titles=None, title_map=None):
         """
@@ -501,8 +688,11 @@ class MovieSchedule(models.Model):
         
         for movie in movie_list:
             movie_title = movie.get("movieNm", "제목없음")
-            
-            # [Filtering Logic]
+
+            # 메가박스 특수상영은 제목 대괄호([무대인사],[메가토크] 등)로 표기됨
+            is_special_event = bool(cls.extract_special_event_tags(movie_title))
+
+            # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
             if target_titles:
                 is_target = False
                 matched_target = None
@@ -512,8 +702,8 @@ class MovieSchedule(models.Model):
                             matched_target = t
                             break
                 if is_target and matched_target != movie_title:
-                    print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
-                if not is_target:
+                    print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
+                if not is_target and not is_special_event:
                     continue
 
             # 메가박스 필드명 추정: 
@@ -696,8 +886,12 @@ class MovieSchedule(models.Model):
             try:
                 # 롯데는 필드명이 다양함. MovieNameKR, ScreenNameKR 등
                 movie_title = item.get("MovieNameKR") or item.get("MovieName") or item.get("FilmName", "제목없음")
-                
-                # [Filtering Logic]
+
+                # 롯데 특수상영(무대인사·관객시사회 등)은 AccompanyTypeNameKR 필드에 표기됨
+                special_event_tags = cls.extract_special_event_tags(item.get("AccompanyTypeNameKR"))
+                is_special_event = bool(special_event_tags)
+
+                # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
                 if target_titles:
                     is_target = False
                     matched_target = None
@@ -707,8 +901,8 @@ class MovieSchedule(models.Model):
                                 matched_target = t
                                 break
                     if is_target and matched_target != movie_title:
-                        print(f"      🎯 Title Match: \"{movie_title}\" ← target: \"{matched_target}\"")
-                    if not is_target:
+                        print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
+                    if not is_target and not is_special_event:
                         continue
 
                 # 시간 파싱
@@ -800,7 +994,10 @@ class MovieSchedule(models.Model):
                 
                 # Title Consistency Logic
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
-                
+                # 롯데 특수상영 이벤트(무대인사 등)를 태그에 추가
+                if special_event_tags:
+                    extracted_tags = list(extracted_tags) + [t for t in special_event_tags if t not in extracted_tags]
+
                 final_title = clean_title
                 if title_map is not None:
                     norm_title = cls.normalize_title(clean_title)

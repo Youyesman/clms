@@ -815,8 +815,11 @@ def preview_score_upload(request):
     if not file:
         return Response({"error": "파일이 업로드되지 않았습니다."}, status=400)
 
+    # 영진위(일반극장) 업로드는 영화명 컬럼이 없어 movie_id를 함께 받는다.
+    movie_id = request.data.get("movie_id") or request.POST.get("movie_id")
+
     # ✅ 분기 처리는 이미 score_parsers.py의 handle_score_file_upload에 정의되어 있습니다.
-    result = handle_score_file_upload(file)
+    result = handle_score_file_upload(file, movie_id=movie_id)
 
     # 에러가 포함되어 있으면 400 에러 반환
     if "error" in result:
@@ -831,6 +834,30 @@ def confirm_score_save(request):
     data_list = request.data.get("data", [])
     count = save_confirmed_scores(data_list)
     return Response({"message": f"{count}건의 데이터가 저장되었습니다."}, status=200)
+
+
+@api_view(["POST"])
+def preview_order_save(request):
+    """오더 저장 시 생성/갱신될 오더 목록을 미리 계산해 반환 (DB 미반영)."""
+    data_list = request.data.get("data", [])
+    return Response({"data": preview_order_changes(data_list)}, status=200)
+
+
+@api_view(["POST"])
+def confirm_order_save(request):
+    """미리보기 데이터로 오더(OrderList/Order)만 생성/갱신 (스코어 저장 전 단계)."""
+    data_list = request.data.get("data", [])
+    result = save_confirmed_orders(data_list)
+    return Response(
+        {
+            "message": (
+                f"오더 {result['order_created']}건 생성, "
+                f"{result['order_updated']}건 갱신되었습니다."
+            ),
+            "detail": result,
+        },
+        status=200,
+    )
 
 
 # ── 배급사(유저)별 연도별 영화 목록 API ──

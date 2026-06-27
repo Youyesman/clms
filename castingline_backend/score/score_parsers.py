@@ -16,13 +16,20 @@ from datetime import datetime, date
 
 
 class BulkMatcher:
-    def __init__(self, theater_kind):
+    def __init__(self, theater_kind, exclude_kinds=None):
         """
         데이터를 메모리에 로드하고 중복 지점을 지능적으로 처리하기 위한 구조 생성
+
+        exclude_kinds가 주어지면 해당 theater_kind들을 제외한 전체 극장을 로드한다.
+        (영진위 일반극장 업로드 시 CGV/메가박스/롯데를 제외하기 위해 사용)
         """
         self.kind = theater_kind
-        clients = Client.objects.filter(theater_kind=theater_kind)
+        if exclude_kinds:
+            clients = Client.objects.exclude(theater_kind__in=exclude_kinds)
+        else:
+            clients = Client.objects.filter(theater_kind=theater_kind)
 
+        self.relaxed_aud = bool(exclude_kinds)
         self.name_to_clients = {}  # 정규화이름 -> [Client 객체 리스트]
 
         for c in clients:
@@ -31,6 +38,9 @@ class BulkMatcher:
                 names.add(c.excel_theater_name.replace(" ", "").lower())
             if c.client_name:
                 names.add(c.client_name.replace(" ", "").lower())
+            # 영진위극장명: 영진위 업로드(relaxed) 전용 명시적 매핑 키
+            if self.relaxed_aud and c.kofic_theater_name:
+                names.add(c.kofic_theater_name.replace(" ", "").lower())
 
             for name in names:
                 if name not in self.name_to_clients:
@@ -38,10 +48,33 @@ class BulkMatcher:
                 self.name_to_clients[name].append(c)
 
         # 상영관 로드 (Key: (client_id, 정규화된 관이름))
-        theaters = Theater.objects.annotate(
-            name_norm=Lower(Replace("auditorium_name", Value(" "), Value("")))
+        theaters = list(
+            Theater.objects.annotate(
+                name_norm=Lower(Replace("auditorium_name", Value(" "), Value("")))
+            )
         )
         self.theater_dict = {(t.client_id, t.name_norm): t for t in theaters}
+
+        # 영진위관이름 명시적 인덱스 + 관 번호 보조 인덱스 (relaxed 모드 전용)
+        # 영진위 관명("산천어관" 등)은 영진위관이름 필드로 매핑하고,
+        # "02관" vs DB "2관" 같은 표기 차이는 관 번호로 폴백 매칭한다.
+        self.theater_by_kofic = {}  # (client_id, 정규화된 영진위관이름) -> Theater
+        self.theater_by_num = {}    # (client_id, 관번호) -> Theater
+        if self.relaxed_aud:
+            for t in theaters:
+                if t.kofic_auditorium_name:
+                    k = (t.client_id, t.kofic_auditorium_name.replace(" ", "").lower())
+                    self.theater_by_kofic[k] = t
+                num = self._extract_aud_num(t.auditorium_name)
+                if num is None:
+                    num = self._extract_aud_num(t.auditorium)  # 코드(예: '004') 폴백
+                if num is None:
+                    continue
+                key = (t.client_id, num)
+                # "N관" 정확 명칭을 우선 채택 (접미사 있는 명칭보다 우선)
+                name_norm = (t.auditorium_name or "").replace(" ", "")
+                if key not in self.theater_by_num or name_norm == f"{num}관":
+                    self.theater_by_num[key] = t
 
         # 영화 로드 (전체 속성 필드 반영)
         self.movie_list = list(
@@ -50,11 +83,33 @@ class BulkMatcher:
             )
         )
 
+    @staticmethod
+    def _extract_aud_num(s):
+        """관 이름/코드에서 관 번호를 추출. '02관'->2, '2관(삼척관)'->2, '004'->4, '산천어관'->None"""
+        if not s:
+            return None
+        s = str(s)
+        m = re.search(r"(\d+)\s*관", s)
+        if m:
+            return int(m.group(1))
+        m = re.fullmatch(r"\s*0*(\d+)\s*", s)  # 순수 숫자/코드
+        if m:
+            return int(m.group(1))
+        return None
+
     def _match_theater_logic(self, client_id, raw_aud):
         """내부용: 특정 클라이언트 내에서 상영관 매칭 시도 (정제 규칙 포함)"""
         if not client_id or not raw_aud:
             return None
         raw_aud_str = str(raw_aud).strip()
+
+        # 0. 영진위관이름 명시적 매핑 (relaxed 모드 최우선)
+        if self.relaxed_aud:
+            t = self.theater_by_kofic.get(
+                (client_id, raw_aud_str.replace(" ", "").lower())
+            )
+            if t:
+                return t
 
         # 1. 전체 일치
         t = self.theater_dict.get((client_id, raw_aud_str.replace(" ", "").lower()))
@@ -70,11 +125,25 @@ class BulkMatcher:
 
         # 3. 일반 정제: 첫 공백, [, ( 이전 텍스트
         clean_core = re.split(r"[\[\(\s]", raw_aud_str)[0]
-        return self.theater_dict.get((client_id, clean_core.replace(" ", "").lower()))
+        t = self.theater_dict.get((client_id, clean_core.replace(" ", "").lower()))
+        if t:
+            return t
+
+        # 4. relaxed(영진위) 폴백: 관 번호로 매칭 ("02관"=="2관", "가람 2관"=="2관(삼척관)")
+        if self.relaxed_aud:
+            num = self._extract_aud_num(raw_aud_str)
+            if num is not None:
+                t = self.theater_by_num.get((client_id, num))
+                if t:
+                    return t
+
+        return None
 
     def check_client_and_theater(self, raw_client, raw_aud):
         """
         ✅ 중복 해결 로직: 극장명이 중복되어도 관 이름으로 유일한 극장 하나를 찾아냄.
+        영진위(relaxed) 모드에서는 극장명을 client_name/excel_theater_name/영진위극장명으로
+        정확 매칭한다. (표기가 다른 극장은 영진위극장명 필드에 등록해 매핑)
         """
         norm_c = str(raw_client).replace(" ", "").lower()
         candidates = self.name_to_clients.get(norm_c, [])
@@ -244,17 +313,167 @@ def parse_screening_attributes(text):
 # ==========================================
 
 
-def handle_score_file_upload(file):
+# 영진위(일반극장) 업로드 시 제외할 멀티플렉스 체인
+KOFIC_EXCLUDE_KINDS = ["CGV", "메가박스", "롯데"]
+
+
+def _is_kofic_file(file):
+    """엑셀 내용으로 영진위 '회원용통계(영화사별)상세' 양식인지 판별한다."""
+    if file.name.endswith(".csv"):
+        return False
+    try:
+        file.seek(0)
+        df = pd.read_excel(file, header=None, nrows=3)
+        text = " ".join(str(v) for v in df.fillna("").values.flatten())
+        return ("회원용통계" in text) or (
+            "스크린" in text and "좌석수" in text and "발권금액" in text
+        )
+    except Exception:
+        return False
+    finally:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+
+
+def _is_cgv_file(file):
+    """엑셀/CSV 내용으로 CGV '관객현황' 양식인지 판별한다. (파일명에 CGV가 없는 ScoreMail 등 대응)"""
+    try:
+        file.seek(0)
+        if file.name.endswith(".csv"):
+            df = pd.read_csv(file, header=None, nrows=8, dtype=str)
+        else:
+            df = pd.read_excel(file, header=None, nrows=8)
+        text = " ".join(str(v) for v in df.fillna("").values.flatten())
+        return "CGV" in text and ("관객현황" in text or "CJ CGV" in text)
+    except Exception:
+        return False
+    finally:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+
+
+def handle_score_file_upload(file, movie_id=None):
     name = file.name
+    # 영진위(일반극장)는 파일명 또는 내용으로 판별 (영화명 컬럼이 없어 movie_id 필수)
+    if "영진위" in name or _is_kofic_file(file):
+        return preview_kofic_format(file, movie_id)
     if "롯데" in name:
         return preview_lotte_format(file)
     elif "메가박스" in name:
         return preview_megabox_format(file)
     elif "씨네큐" in name:
         return preview_cineq_format(file)
-    elif "CGV" in name:
+    # CGV: 파일명에 CGV가 없어도 내용으로 판별 (예: ScoreMail_백룸_YYYYMMDD.xlsx)
+    elif "CGV" in name or _is_cgv_file(file):
         return preview_cgv_format(file)
     return {"error": "지원하지 않는 파일 양식입니다."}
+
+
+def _is_excluded_kofic_theater(theater_name):
+    """영진위 극장명이 CGV/메가박스/롯데 체인인지 판별 (제외 대상)."""
+    norm = str(theater_name).replace(" ", "")
+    low = norm.lower()
+    return (
+        norm.startswith("CGV")
+        or norm.startswith("메가박스")
+        or norm.startswith("롯데")
+        # CINE de CHEF(씨네 드 쉐프)는 메가박스 프리미엄 브랜드 → 제외
+        or low.startswith("cinedechef")
+        or "씨네드쉐프" in norm
+        or "씨네드셰프" in norm
+    )
+
+
+def preview_kofic_format(file, movie_id):
+    """
+    영진위 '회원용통계(영화사별)상세' 양식 파서.
+    - 파일에 영화명 컬럼이 없으므로 사용자가 선택한 movie_id로 전체 행을 매칭한다.
+    - CGV/메가박스/롯데 체인 행은 제외하고 나머지 일반극장 데이터만 추출한다.
+    - 여러 시트(날짜별 분할)를 모두 합산 처리한다.
+
+    레이아웃(0-indexed):
+      row0: 제목 / row1: 날짜|지역|극장명|스크린|좌석수|전체|...|회차 / row2: 발권금액|매출액|관객수...
+      data: col0 날짜, col1 지역, col2 극장명, col3 스크린, col4 좌석수, col5 발권금액(요금),
+            col6/7 전체 매출액/관객수, 이후 1~8회 (매출액, 관객수) 쌍
+    """
+    if not movie_id:
+        return {"error": "영진위(일반극장) 파일은 영화를 먼저 선택해야 합니다."}
+
+    try:
+        movie = Movie.objects.get(id=movie_id)
+    except (Movie.DoesNotExist, ValueError, TypeError):
+        return {"error": "선택한 영화를 찾을 수 없습니다."}
+
+    try:
+        matcher = BulkMatcher(theater_kind="일반극장", exclude_kinds=KOFIC_EXCLUDE_KINDS)
+
+        # 모든 시트를 읽어 합산 (영진위는 날짜별로 시트가 분할될 수 있음)
+        sheets = pd.read_excel(file, sheet_name=None, header=None)
+
+        preview_data = []
+        for _sheet_name, df in sheets.items():
+            for _, row in df.iterrows():
+                date_raw = str(row.iloc[0]).strip() if len(row) > 0 else ""
+                # 데이터 행만 처리 (날짜가 YYYYMMDD 8자리 숫자인 행)
+                if not re.fullmatch(r"\d{8}", date_raw):
+                    continue
+
+                theater_name = str(row.iloc[2]).strip()
+                # CGV/메가박스/롯데 체인은 제외
+                if _is_excluded_kofic_theater(theater_name):
+                    continue
+
+                raw_aud = str(row.iloc[3]).strip()
+                entry_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
+                fare = int(pd.to_numeric(row.iloc[5], errors="coerce") or 0)
+
+                # 극장/상영관 매칭 (영화는 사용자가 선택한 것으로 고정)
+                client, theater, err_msg = matcher.check_client_and_theater(
+                    theater_name, raw_aud
+                )
+
+                # 회차 1~8: 관객수 컬럼 = 7 + 2*h
+                for h in range(1, 9):
+                    vis_col = 7 + 2 * h
+                    if vis_col >= len(row):
+                        break
+                    vis = pd.to_numeric(row.iloc[vis_col], errors="coerce")
+                    if not vis or vis == 0:
+                        continue
+
+                    match_errs = []
+                    if err_msg:
+                        match_errs.append(err_msg)
+
+                    preview_data.append(
+                        {
+                            "entry_date": entry_date,
+                            "movie_name": movie.title_ko,
+                            "movie_id": movie.id,
+                            "client_name": (
+                                client.client_name if client else theater_name
+                            ),
+                            "client_id": client.id if client else None,
+                            "display_auditorium": (
+                                f"{theater.auditorium}({theater.auditorium_name})"
+                                if theater
+                                else raw_aud
+                            ),
+                            "auditorium": theater.auditorium if theater else raw_aud,
+                            "show_count": str(h).zfill(2),
+                            "fare": fare,
+                            "visitor": int(vis),
+                            "is_matched": not match_errs,
+                            "match_error": " / ".join(match_errs),
+                        }
+                    )
+        return {"data": preview_data}
+    except Exception as e:
+        return {"error": f"영진위 분석 오류: {str(e)}"}
 
 
 def preview_cgv_format(file):
@@ -296,12 +515,19 @@ def preview_cgv_format(file):
         ]
 
         for _, row in df.iterrows():
+            # 극장명/영화명은 극장 블록 첫 줄에만 있고, 같은 극장의 다른 상영관 줄에는 비어있음.
+            # 각 필드를 독립적으로 갱신해 직전 값이 유지되도록 한다.
+            # (한 번에 묶어 갱신하면 빈칸이 'nan'으로 들어가 'CGVnan' 미매칭이 발생함)
             if pd.notna(row.get("상영관")):
-                cur_aud, cur_client, cur_movie = (
-                    str(row["상영관"]).strip(),
-                    str(row["극장명"]).strip(),
-                    str(row["영화명"]).strip(),
-                )
+                cur_aud = str(row["상영관"]).strip()
+            if pd.notna(row.get("극장명")):
+                cur_client = str(row["극장명"]).strip()
+            if pd.notna(row.get("영화명")):
+                cur_movie = str(row["영화명"]).strip()
+
+            # 상영관 소계행("CGV 강남(계)" 등)은 데이터가 아니므로 건너뜀
+            if cur_aud and "(계)" in cur_aud:
+                continue
 
             price_raw = str(row.get("가격", ""))
             if "원" in price_raw:
@@ -318,7 +544,8 @@ def preview_cgv_format(file):
 
                 for i, col_name in enumerate(show_cols):
                     vis = pd.to_numeric(row.get(col_name), errors="coerce")
-                    if vis and vis != 0:
+                    # 빈 셀(NaN)은 건너뜀 (NaN은 truthy라 별도 처리 필요)
+                    if pd.notna(vis) and vis != 0:
                         match_errs = []
                         if not movie:
                             match_errs.append(f"영화 없음({exp_title})")
@@ -346,7 +573,7 @@ def preview_cgv_format(file):
                                     theater.auditorium if theater else cur_aud
                                 ),
                                 "show_count": display_show_count,
-                                "fare": int(re.sub(r"[^0-9]", "", price_raw)),
+                                "fare": int(re.sub(r"[^0-9]", "", price_raw) or 0),
                                 "visitor": int(vis),
                                 "is_matched": not match_errs,
                                 "match_error": " / ".join(match_errs),
@@ -578,16 +805,12 @@ def parse_date(date_val):
     return None
 
 
-def save_confirmed_scores(data_list):
+def _build_order_changes(valid_data):
     """
-    엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함
+    유효 데이터(valid_data)로부터 OrderList/Order 생성·수정 객체 목록을 만든다. (DB 미반영)
+    반환: (ols_to_create, orders_to_create, orders_to_update)
     """
-    # 1. 유효 데이터 필터링 (영화와 극장이 모두 매칭된 데이터만)
-    valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
-    if not valid_data:
-        return 0
-
-    # 2. 데이터 집계 및 준비
+    # 1. 극장+영화 조합별 기간(min/max) 집계
     order_data_map = {}  # key: (client_id, movie_id), value: {min_date, max_date}
     all_movie_ids = set()
 
@@ -599,8 +822,6 @@ def save_confirmed_scores(data_list):
             continue
 
         all_movie_ids.add(m_id)
-
-        # Order용 (극장+영화 조합의 기간 추출)
         o_key = (c_id, m_id)
         if o_key not in order_data_map:
             order_data_map[o_key] = {"min": entry_date, "max": entry_date}
@@ -610,8 +831,7 @@ def save_confirmed_scores(data_list):
             if entry_date > order_data_map[o_key]["max"]:
                 order_data_map[o_key]["max"] = entry_date
 
-    # 3. OrderList 처리 (OneToOneField 중복 제외 생성)
-    # DB에 이미 존재하는 OrderList의 영화 ID들을 조회
+    # 2. OrderList 처리 (OneToOneField 중복 제외 생성)
     existing_ol_movie_ids = set(
         OrderList.objects.filter(movie_id__in=list(all_movie_ids)).values_list(
             "movie_id", flat=True
@@ -620,16 +840,11 @@ def save_confirmed_scores(data_list):
 
     ols_to_create = []
     processed_movie_ids = set()  # 이번 배치 루프 내 중복 방지
-
     for m_id in all_movie_ids:
-        # DB에도 없고, 생성 예정 리스트에도 없는 경우에만 추가
         if m_id not in existing_ol_movie_ids and m_id not in processed_movie_ids:
-            # 해당 영화의 데이터 중 가장 이른 날짜를 시작일로 설정
-            # (order_data_map에 있는 해당 영화의 모든 client 데이터 중 최소값)
             min_start_date = min(
                 [v["min"] for k, v in order_data_map.items() if k[1] == m_id]
             )
-
             ols_to_create.append(
                 OrderList(
                     movie_id=m_id,
@@ -640,7 +855,7 @@ def save_confirmed_scores(data_list):
             )
             processed_movie_ids.add(m_id)
 
-    # 4. Order 처리 (극장+영화별 업데이트 또는 생성)
+    # 3. Order 처리 (극장+영화별 업데이트 또는 생성)
     existing_orders = Order.objects.filter(
         client_id__in=[k[0] for k in order_data_map.keys()],
         movie_id__in=[k[1] for k in order_data_map.keys()],
@@ -649,31 +864,25 @@ def save_confirmed_scores(data_list):
 
     orders_to_create = []
     orders_to_update = []
-
     for (c_id, m_id), dates in order_data_map.items():
         if (c_id, m_id) in existing_o_map:
-            # ✅ 기존 오더가 있는 경우: 날짜 범위 확장 업데이트
+            # 기존 오더: 날짜 범위 확장 업데이트
             order = existing_o_map[(c_id, m_id)]
             changed = False
-
-            # 개봉일(release_date) 업데이트: 더 빠른 날짜가 들어오면 갱신
             if not order.release_date or dates["min"] < order.release_date:
                 order.release_date = dates["min"]
                 order.start_date = dates["min"]
                 changed = True
-
-            # 마지막 상영일(last_screening_date) 업데이트: 더 늦은 날짜가 들어오면 갱신
             if (
                 not order.last_screening_date
                 or dates["max"] > order.last_screening_date
             ):
                 order.last_screening_date = dates["max"]
                 changed = True
-
             if changed:
                 orders_to_update.append(order)
         else:
-            # ✅ 오더가 없는 경우: 신규 생성
+            # 신규 생성
             orders_to_create.append(
                 Order(
                     client_id=c_id,
@@ -686,7 +895,119 @@ def save_confirmed_scores(data_list):
                 )
             )
 
-    # 5. Score 객체 준비
+    return ols_to_create, orders_to_create, orders_to_update
+
+
+def _apply_order_changes(ols_to_create, orders_to_create, orders_to_update):
+    """_build_order_changes로 만든 객체들을 DB에 반영한다. (호출자가 트랜잭션 관리)"""
+    if ols_to_create:
+        OrderList.objects.bulk_create(ols_to_create)
+    if orders_to_create:
+        Order.objects.bulk_create(orders_to_create)
+    if orders_to_update:
+        Order.objects.bulk_update(
+            orders_to_update,
+            ["release_date", "start_date", "last_screening_date"],
+        )
+
+
+def preview_order_changes(data_list):
+    """
+    오더 저장 시 어떤 오더가 생성/갱신될지 미리 계산한다. (DB 미반영 dry-run)
+    반환: [{client_name, movie_name, start_date, end_date, status}, ...]
+      status = 'create'(신규) | 'update'(기간 갱신) | 'unchanged'(변화 없음)
+    """
+    valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
+    if not valid_data:
+        return []
+
+    # (client_id, movie_id) -> {min, max, 이름}
+    order_map = {}
+    for i in valid_data:
+        entry_date = parse_date(i["entry_date"])
+        if not entry_date:
+            continue
+        k = (i["client_id"], i["movie_id"])
+        if k not in order_map:
+            order_map[k] = {
+                "min": entry_date,
+                "max": entry_date,
+                "client_name": i.get("client_name"),
+                "movie_name": i.get("movie_name"),
+            }
+        else:
+            if entry_date < order_map[k]["min"]:
+                order_map[k]["min"] = entry_date
+            if entry_date > order_map[k]["max"]:
+                order_map[k]["max"] = entry_date
+
+    existing = Order.objects.filter(
+        client_id__in=[k[0] for k in order_map.keys()],
+        movie_id__in=[k[1] for k in order_map.keys()],
+    )
+    existing_map = {(o.client_id, o.movie_id): o for o in existing}
+
+    result = []
+    for (c_id, m_id), v in order_map.items():
+        o = existing_map.get((c_id, m_id))
+        if not o:
+            status = "create"
+        else:
+            will_update = (
+                (not o.release_date or v["min"] < o.release_date)
+                or (not o.last_screening_date or v["max"] > o.last_screening_date)
+            )
+            status = "update" if will_update else "unchanged"
+        result.append(
+            {
+                "client_id": c_id,
+                "movie_id": m_id,
+                "client_name": v["client_name"],
+                "movie_name": v["movie_name"],
+                "start_date": str(v["min"]),
+                "end_date": str(v["max"]),
+                "status": status,
+            }
+        )
+
+    rank = {"create": 0, "update": 1, "unchanged": 2}
+    result.sort(key=lambda r: (rank[r["status"]], r["movie_name"] or "", r["client_name"] or ""))
+    return result
+
+
+def save_confirmed_orders(data_list):
+    """
+    엑셀 미리보기 데이터로 오더(OrderList/Order)만 생성/갱신한다. (스코어는 저장하지 않음)
+    영화·극장이 모두 매칭된 행만 사용한다.
+    """
+    valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
+    if not valid_data:
+        return {"orderlist_created": 0, "order_created": 0, "order_updated": 0}
+
+    ols, oc, ou = _build_order_changes(valid_data)
+    with transaction.atomic():
+        _apply_order_changes(ols, oc, ou)
+
+    return {
+        "orderlist_created": len(ols),
+        "order_created": len(oc),
+        "order_updated": len(ou),
+    }
+
+
+def save_confirmed_scores(data_list):
+    """
+    엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함
+    """
+    # 1. 유효 데이터 필터링 (영화와 극장이 모두 매칭된 데이터만)
+    valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
+    if not valid_data:
+        return 0
+
+    # 2. 오더(OrderList/Order) 변경분 준비
+    ols_to_create, orders_to_create, orders_to_update = _build_order_changes(valid_data)
+
+    # 3. Score 객체 준비
     scores_to_save = [
         Score(
             entry_date=i["entry_date"],
@@ -700,42 +1021,25 @@ def save_confirmed_scores(data_list):
         for i in valid_data
     ]
 
-    # 6. DB 반영 (트랜잭션 보장)
-    try:
-        with transaction.atomic():
-            # OrderList 생성
-            if ols_to_create:
-                OrderList.objects.bulk_create(ols_to_create)
+    # 4. DB 반영 (트랜잭션 보장: 오더 + 스코어 원자적 처리)
+    with transaction.atomic():
+        _apply_order_changes(ols_to_create, orders_to_create, orders_to_update)
 
-            # Order 생성
-            if orders_to_create:
-                Order.objects.bulk_create(orders_to_create)
+        # Score 저장 (중복 시 관객수 업데이트)
+        if scores_to_save:
+            Score.objects.bulk_create(
+                scores_to_save,
+                update_conflicts=True,
+                unique_fields=[
+                    "entry_date",
+                    "client",
+                    "movie",
+                    "auditorium",
+                    "fare",
+                    "show_count",
+                ],
+                update_fields=["visitor"],
+                batch_size=500,
+            )
 
-            # Order 업데이트
-            if orders_to_update:
-                Order.objects.bulk_update(
-                    orders_to_update,
-                    ["release_date", "start_date", "last_screening_date"],
-                )
-
-            # Score 저장 (중복 시 관객수 업데이트)
-            if scores_to_save:
-                Score.objects.bulk_create(
-                    scores_to_save,
-                    update_conflicts=True,
-                    unique_fields=[
-                        "entry_date",
-                        "client",
-                        "movie",
-                        "auditorium",
-                        "fare",
-                        "show_count",
-                    ],
-                    update_fields=["visitor"],
-                    batch_size=500,
-                )
-
-        return len(scores_to_save)
-    except Exception as e:
-        # 로그 기록 등 예외 처리 필요 시 추가
-        raise e
+    return len(scores_to_save)

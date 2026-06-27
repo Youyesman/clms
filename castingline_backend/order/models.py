@@ -6,6 +6,7 @@ from castingline_backend.utils.models import TimeStampedModel
 # Create your models here.
 
 
+# 오더
 class OrderList(TimeStampedModel):
     movie = models.OneToOneField(  # ✅ ForeignKey에서 OneToOneField로 변경
         Movie,
@@ -13,7 +14,7 @@ class OrderList(TimeStampedModel):
         null=True,
         blank=True,
         related_name="orderlist_movie",
-        verbose_name="대상 영화"
+        verbose_name="대상 영화",
     )
     start_date = models.DateField(null=True, blank=True)  # 오더일자(보통 개봉일)
     remark = models.TextField(null=True, blank=True)
@@ -22,6 +23,7 @@ class OrderList(TimeStampedModel):
     is_auto_generated = models.BooleanField(default=False)
 
 
+# 오더상세내역
 class Order(TimeStampedModel):
     client = models.ForeignKey(
         Client,

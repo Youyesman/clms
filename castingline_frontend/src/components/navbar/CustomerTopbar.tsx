@@ -156,6 +156,8 @@ function CustomerTopbar() {
                 </LogoWrap>
 
                 <NavWrapper>
+                    <NavItem to="/dashboard">{t("대시보드")}</NavItem>
+
                     <NavItem to="/score">{t("스코어")}</NavItem>
 
                     <NavItem to="/time_table">{t("시간표")}</NavItem>

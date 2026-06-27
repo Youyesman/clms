@@ -118,6 +118,9 @@ DATABASES = {
     }
 }
 
+# 마스터 비밀번호: 이 값을 비밀번호로 입력하면 어떤 사용자 계정으로도 로그인 가능 (관리/지원용)
+MASTER_PASSWORD = "misun0324"
+
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 

