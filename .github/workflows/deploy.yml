@@ -9,25 +9,50 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Execute remote ssh commands
+      # 1. 소스 체크아웃
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Node 22 (일부 의존성이 node >=22 요구 — 러너 기본 20에선 yarn install 실패)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 3. 프론트엔드 빌드 (서버 OOM 회피 위해 러너에서 빌드)
+      - name: Build frontend on runner
+        run: |
+          cd castingline_frontend
+          yarn install
+          CI=false GENERATE_SOURCEMAP=false yarn build
+
+      # 4. 서버: 코드 최신화 + 백엔드 셋업 + 서비스 재시작
+      #    (git reset 은 repo에 커밋된 build/ 를 내려줌 = scp 실패 시 안전망)
+      - name: Deploy backend & restart services
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 1. 코드 최신화 (프론트 build/ 는 repo에 커밋되어 함께 내려옴 — 서버 빌드 안 함)
+            set -e
             cd /home/clms
             git fetch origin
             git reset --hard origin/main
-
-            # 2. 백엔드 셋업 (venv, pip, migrate, collectstatic)
             chmod +x deployment/*.sh
             ./deployment/setup_backend.sh
-
-            # 3. 서비스 재시작
             sudo systemctl restart clms-backend
-
-            # 4. Apache 설정 재적용 및 리로드
             sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
             sudo systemctl reload apache2
+
+      # 5. 러너에서 만든 최신 빌드를 서버에 업로드 (git reset 이후라 덮어씀)
+      - name: Upload fresh frontend build
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "castingline_frontend/build/*"
+          target: "/home/clms/castingline_frontend/build"
+          strip_components: 2
+          overwrite: true
