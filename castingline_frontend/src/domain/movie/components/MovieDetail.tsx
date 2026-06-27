@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import styled from "styled-components";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
-import { CustomButton } from "../../../components/common/CustomButton";
 import { AutocompleteInputClient } from "../../../components/common/AutocompleteInputClient";
 import { FloppyDisk, Printer } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
@@ -20,6 +19,45 @@ const DetailContainer = styled.div`
     border: 1px solid #94a3b8;
     border-radius: 4px;
     overflow: hidden;
+`;
+
+/* 헤더 액션의 프린트 영화 생성: 아이콘 버튼 + hover 시 popover 안내 */
+const PrintPopover = styled.div`
+    position: absolute;
+    top: 32px;
+    right: 0;
+    z-index: 20;
+
+    padding: 6px 10px;
+    background: #0f172a; /* Slate 900 */
+    color: #ffffff;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 6px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+
+    display: none;
+
+    &::after {
+        content: "";
+        position: absolute;
+        top: -4px;
+        right: 9px;
+        width: 8px;
+        height: 8px;
+        background: #0f172a;
+        transform: rotate(45deg);
+    }
+`;
+
+const PrintActionWrapper = styled.div`
+    position: relative;
+    display: inline-flex;
+
+    &:hover ${PrintPopover} {
+        display: block;
+    }
 `;
 
 
@@ -185,7 +223,12 @@ export function MovieDetail({
                 actions={
                     <>
                         {formData.is_primary_movie && (
-                            <CustomButton onClick={handleCreatePrintMovie} size="sm">프린트 영화 생성</CustomButton>
+                            <PrintActionWrapper>
+                                <CustomIconButton onClick={handleCreatePrintMovie} color="blue" title="">
+                                    <Printer size={16} />
+                                </CustomIconButton>
+                                <PrintPopover>프린트 영화 생성</PrintPopover>
+                            </PrintActionWrapper>
                         )}
                         <CustomIconButton onClick={handleUpdateMovie} title="저장">
                             <FloppyDisk size={16} />
