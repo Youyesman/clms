@@ -16,6 +16,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            # 어느 단계든 실패하면 즉시 중단하고 잡을 '실패'로 보고
+            # (이전엔 set -e가 없어, yarn build가 실패해도 마지막 명령만 성공하면 success로 둔갑했음)
+            set -e
+
             # 1. 프로젝트 폴더로 이동 및 코드 최신화
             cd /home/clms
             git fetch origin
