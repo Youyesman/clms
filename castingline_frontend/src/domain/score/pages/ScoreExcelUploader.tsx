@@ -9,6 +9,7 @@ import { useAppAlert } from "../../../atom/alertUtils";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { AutocompleteInputMovie } from "../../../components/common/AutocompleteInputMovie";
 import { TheaterQuickEdit } from "./TheaterQuickEdit";
+import { ClientMappingQuickEdit } from "./ClientMappingQuickEdit";
 
 /* ---------------- Styled Components ---------------- */
 
@@ -227,6 +228,8 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
     const [editingTheater, setEditingTheater] = useState<
         { clientId: number; clientName: string; rawAud: string } | null
     >(null);
+    // 등록 안 된 극장 매핑(영진위 극장명 등록) 대상
+    const [editingClient, setEditingClient] = useState<{ rawClientName: string } | null>(null);
 
     // 영진위(일반극장) 업로드용 영화 선택 (파일에 영화명이 없어 직접 지정)
     const [movieForm, setMovieForm] = useState<{ movie: { id?: string; title_ko: string } }>({
@@ -403,6 +406,15 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
         }
     };
 
+    // 극장 매핑 패널 닫기: 영진위 극장명이 등록됐으면 파일을 다시 분석해 재매칭
+    const handleClientEditClose = (changed: boolean) => {
+        setEditingClient(null);
+        if (changed && uploadedFile) {
+            toast.info("극장 매핑이 등록되어 다시 분석합니다.");
+            handleFileProcess(uploadedFile);
+        }
+    };
+
     return (
         <Container>
             {previewData.length === 0 ? (
@@ -513,6 +525,9 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                                         // 극장은 매칭됐으나 관(상영관)이 없어서 난 에러 → 인라인 관 등록 가능
                                         const isAudMissing =
                                             isError && row.client_id && String(row.match_error || "").includes("관 정보 없음");
+                                        // 극장 자체가 등록 안 됨(매칭 실패) → 인라인 극장 매핑 가능
+                                        const isClientMissing =
+                                            isError && !row.client_id && String(row.match_error || "").includes("등록안된");
 
                                         return (
                                             <tr key={idx} className={`${isError ? "error" : ""} ${isMinusVisitor ? "minus-error" : ""}`}>
@@ -541,6 +556,15 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                                                                 })
                                                             }>
                                                             관 등록
+                                                        </FixButton>
+                                                    )}
+                                                    {isClientMissing && (
+                                                        <FixButton
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setEditingClient({ rawClientName: row.client_name })
+                                                            }>
+                                                            극장 매핑
                                                         </FixButton>
                                                     )}
                                                 </td>
@@ -624,7 +648,7 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                     </OrderSection>
 
                     <ActionFooter>
-                        <StyledButton onClick={() => { setPreviewData([]); setUploadedFile(null); setEditingTheater(null); }}>
+                        <StyledButton onClick={() => { setPreviewData([]); setUploadedFile(null); setEditingTheater(null); setEditingClient(null); }}>
                             다시 업로드
                         </StyledButton>
                         <StyledButton
@@ -657,6 +681,14 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
                     clientName={editingTheater.clientName}
                     rawAud={editingTheater.rawAud}
                     onClose={handleTheaterEditClose}
+                />
+            )}
+
+            {/* 등록 안 된 극장 행에서 '극장 매핑' 클릭 시 영진위 극장명 등록 패널 */}
+            {editingClient && (
+                <ClientMappingQuickEdit
+                    rawClientName={editingClient.rawClientName}
+                    onClose={handleClientEditClose}
                 />
             )}
         </Container>
