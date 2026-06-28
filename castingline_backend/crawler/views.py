@@ -1073,3 +1073,179 @@ class CrawlTargetMovieBulkDeleteView(APIView):
             return Response({"error": "ids required"}, status=status.HTTP_400_BAD_REQUEST)
         deleted, _ = CrawlTargetMovie.objects.filter(pk__in=ids).delete()
         return Response({"deleted": deleted})
+
+
+# ── 메가박스 윙업 관람객현황(배급사) 스코어 크롤 → 엑셀 다운로드 ──
+import base64 as _base64
+import urllib.parse as _urlparse
+from django.http import HttpResponse
+from crawler.megabox_score import crawl_megabox_score, crawl_all_accounts
+
+
+class MegaboxScoreCrawlView(APIView):
+    """메가박스 윙업에서 기간/영화 조건으로 관람객현황을 크롤해 스코어 양식 엑셀로 반환.
+
+    GET 파라미터:
+      start    : 상영 시작일 (YYYY-MM-DD 또는 YYYYMMDD, 필수)
+      end      : 상영 종료일 (기본: start 와 동일)
+      include  : 영화명 포함 키워드 (예: 백룸)
+      exclude  : 제외 키워드, 콤마 구분 (예: 눈동자)
+    """
+
+    def get(self, request):
+        start = request.query_params.get("start", "").strip()
+        end = request.query_params.get("end", "").strip() or start
+        include = request.query_params.get("include", "").strip()
+        exclude_raw = request.query_params.get("exclude", "")
+        excludes = [e.strip() for e in exclude_raw.split(",") if e.strip()]
+
+        if not start:
+            return Response({"error": "start(상영일)은 필수입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            filename, xlsx, meta = crawl_megabox_score(start, end, include, excludes)
+        except Exception as e:
+            return Response({"error": f"메가박스 크롤 실패: {e}"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        resp = HttpResponse(
+            xlsx,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        quoted = _urlparse.quote(filename)
+        resp["Content-Disposition"] = f"attachment; filename*=UTF-8''{quoted}"
+        resp["X-Crawl-Meta"] = _urlparse.quote(str(meta.get("row_count", 0)))
+        return resp
+
+
+class MegaboxScoreAllView(APIView):
+    """모든 배급사 계정에 로그인해 관람객현황을 크롤 → 합본 엑셀(base64) + 계정별 상태.
+
+    POST body(JSON):
+      start    : 상영 시작일 (필수)
+      end      : 상영 종료일 (기본: start)
+      includes : 영화명 포함 키워드 (문자열 콤마구분 또는 배열). 비우면 전체 영화
+      excludes : 제외 키워드 (문자열 콤마구분 또는 배열)
+    """
+
+    def _to_list(self, v):
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return [x.strip() for x in str(v or "").split(",") if x.strip()]
+
+    def post(self, request):
+        data = request.data
+        start = str(data.get("start", "")).strip()
+        end = str(data.get("end", "")).strip() or start
+        includes = self._to_list(data.get("includes"))
+        excludes = self._to_list(data.get("excludes"))
+
+        if not start:
+            return Response({"error": "start(상영일)은 필수입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            summary = crawl_all_accounts(start, end, includes, excludes)
+        except Exception as e:
+            return Response({"error": f"메가박스 크롤 실패: {e}"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        accounts = []
+        total_rows = 0
+        for s in summary:
+            total_rows += s["row_count"]
+            accounts.append({
+                "name": s["name"],
+                "ok": s["ok"],
+                "error": s["error"],
+                "row_count": s["row_count"],
+                "movies": s["movies"],
+                "filename": s["filename"],
+                # 데이터가 있는 배급사만 파일(base64) 포함
+                "file_b64": _base64.b64encode(s["xlsx"]).decode("ascii") if s["xlsx"] else None,
+            })
+
+        return Response({
+            "start": start, "end": end,
+            "total_rows": total_rows,
+            "accounts": accounts,
+        })
+
+
+# ── 메가박스 배급사 계정(아이디/비밀번호) 관리 ──
+def _serialize_mega_account(a):
+    return {
+        "id": a.id,
+        "name": a.name,
+        "user": a.user,
+        "password": a.password,
+        "is_active": a.is_active,
+        "sort_order": a.sort_order,
+    }
+
+
+class MegaboxAccountView(APIView):
+    """메가박스 배급사 계정 목록/추가.
+    GET    /Api/crawler/megabox_accounts/  - 전체 목록
+    POST   /Api/crawler/megabox_accounts/  - 추가
+    """
+
+    def get(self, request):
+        from crawler.models import MegaboxDistributorAccount
+        accounts = MegaboxDistributorAccount.objects.all()
+        return Response([_serialize_mega_account(a) for a in accounts])
+
+    def post(self, request):
+        from crawler.models import MegaboxDistributorAccount
+        name = (request.data.get("name") or "").strip()
+        user = (request.data.get("user") or "").strip()
+        password = (request.data.get("password") or "").strip()
+        if not name or not user or not password:
+            return Response({"error": "배급사명/아이디/비밀번호는 필수입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        last = MegaboxDistributorAccount.objects.order_by('-sort_order').first()
+        next_order = (last.sort_order + 1) if last else 0
+        obj = MegaboxDistributorAccount.objects.create(
+            name=name, user=user, password=password,
+            is_active=bool(request.data.get("is_active", True)),
+            sort_order=next_order,
+        )
+        return Response(_serialize_mega_account(obj), status=status.HTTP_201_CREATED)
+
+
+class MegaboxAccountDetailView(APIView):
+    """메가박스 배급사 계정 수정/삭제.
+    PATCH  /Api/crawler/megabox_accounts/<pk>/  - 수정
+    DELETE /Api/crawler/megabox_accounts/<pk>/  - 삭제
+    """
+
+    def patch(self, request, pk):
+        from crawler.models import MegaboxDistributorAccount
+        try:
+            obj = MegaboxDistributorAccount.objects.get(pk=pk)
+        except MegaboxDistributorAccount.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ("name", "user", "password"):
+            if field in request.data:
+                val = (request.data.get(field) or "").strip()
+                if val:
+                    setattr(obj, field, val)
+        if "is_active" in request.data:
+            obj.is_active = bool(request.data.get("is_active"))
+        if "sort_order" in request.data:
+            try:
+                obj.sort_order = int(request.data.get("sort_order"))
+            except (ValueError, TypeError):
+                pass
+        obj.save()
+        return Response(_serialize_mega_account(obj))
+
+    def delete(self, request, pk):
+        from crawler.models import MegaboxDistributorAccount
+        try:
+            obj = MegaboxDistributorAccount.objects.get(pk=pk)
+        except MegaboxDistributorAccount.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

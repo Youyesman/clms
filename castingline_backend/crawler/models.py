@@ -1124,3 +1124,24 @@ class CrawlTargetMovie(models.Model):
 
     def __str__(self):
         return f"{'✅' if self.is_active else '⏸'} [{self.get_movie_type_display()}] {self.title}"
+
+
+class MegaboxDistributorAccount(models.Model):
+    """
+    메가박스 윙업(M SCORE) 배급사 로그인 계정.
+    하드코딩 대신 DB로 관리 — 스코어 크롤 시 활성 계정으로 로그인한다.
+    """
+    name = models.CharField(max_length=100, verbose_name="배급사명")
+    user = models.CharField(max_length=50, verbose_name="아이디")
+    password = models.CharField(max_length=100, verbose_name="비밀번호")
+    is_active = models.BooleanField(default=True, verbose_name="활성화")
+    sort_order = models.IntegerField(default=0, verbose_name="정렬순서")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'id']
+        verbose_name = "메가박스 배급사 계정"
+
+    def __str__(self):
+        return f"{'✅' if self.is_active else '⏸'} {self.name} ({self.user})"

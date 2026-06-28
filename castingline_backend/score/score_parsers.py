@@ -10,6 +10,35 @@ from collections import Counter
 from order.models import OrderList, Order
 from datetime import datetime, date
 
+
+# 제목 매칭용 정규화: 공백 + 특수문자(-, :, ~, ·, 콤마 등) 제거 후 소문자.
+# 예) "신극장판 은혼-요시와라 대염상" 과 "신극장판은혼:요시와라대염상" 이 같아진다.
+_TITLE_NORM_RE = re.compile(r"[\s\-:~·,.\'\"’“”!?/\\|()\[\]{}&+_=]+")
+
+
+def _norm_title(s):
+    if not s:
+        return ""
+    return _TITLE_NORM_RE.sub("", str(s)).lower()
+
+
+def _read_excel(file, **kwargs):
+    """엑셀을 읽되 openpyxl이 손상된 셀로 실패하면 calamine 엔진으로 재시도한다.
+
+    일부 극장(예: 롯데) 내보내기 파일은 셀 타입이 '숫자'인데 값은 '7,000' 처럼
+    콤마가 포함된 문자열로 저장돼 있어 openpyxl 이 int('7,000') 캐스팅 중
+    ValueError 로 죽는다. calamine(Rust 기반)은 이런 셀을 문자열로 관대하게 읽는다.
+    """
+    try:
+        return pd.read_excel(file, **kwargs)
+    except Exception:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+        return pd.read_excel(file, engine="calamine", **kwargs)
+
+
 # ==========================================
 # 1. 성능 최적화 및 지능형 중복 해결 매칭 클래스
 # ==========================================
@@ -76,12 +105,10 @@ class BulkMatcher:
                 if key not in self.theater_by_num or name_norm == f"{num}관":
                     self.theater_by_num[key] = t
 
-        # 영화 로드 (전체 속성 필드 반영)
-        self.movie_list = list(
-            Movie.objects.annotate(
-                title_norm=Lower(Replace("title_ko", Value(" "), Value("")))
-            )
-        )
+        # 영화 로드 (전체 속성 필드 반영). title_norm 은 공백+특수문자 제거 정규화.
+        self.movie_list = list(Movie.objects.all())
+        for _m in self.movie_list:
+            _m.title_norm = _norm_title(_m.title_ko)
 
     @staticmethod
     def _extract_aud_num(s):
@@ -184,7 +211,7 @@ class BulkMatcher:
 
         # 2. 제목 정규화: 괄호와 그 안의 텍스트(SOUNDX 등) 무조건 삭제
         pure_title = re.sub(r"\(.*?\)", "", raw_title).strip()
-        norm_raw = pure_title.replace(" ", "").lower()
+        norm_raw = _norm_title(pure_title)
 
         def match_logic(movie_list):
             for m in movie_list:
@@ -323,7 +350,7 @@ def _is_kofic_file(file):
         return False
     try:
         file.seek(0)
-        df = pd.read_excel(file, header=None, nrows=3)
+        df = _read_excel(file, header=None, nrows=3)
         text = " ".join(str(v) for v in df.fillna("").values.flatten())
         return ("회원용통계" in text) or (
             "스크린" in text and "좌석수" in text and "발권금액" in text
@@ -344,7 +371,7 @@ def _is_cgv_file(file):
         if file.name.endswith(".csv"):
             df = pd.read_csv(file, header=None, nrows=8, dtype=str)
         else:
-            df = pd.read_excel(file, header=None, nrows=8)
+            df = _read_excel(file, header=None, nrows=8)
         text = " ".join(str(v) for v in df.fillna("").values.flatten())
         return "CGV" in text and ("관객현황" in text or "CJ CGV" in text)
     except Exception:
@@ -412,7 +439,7 @@ def preview_kofic_format(file, movie_id):
         matcher = BulkMatcher(theater_kind="일반극장", exclude_kinds=KOFIC_EXCLUDE_KINDS)
 
         # 모든 시트를 읽어 합산 (영진위는 날짜별로 시트가 분할될 수 있음)
-        sheets = pd.read_excel(file, sheet_name=None, header=None)
+        sheets = _read_excel(file, sheet_name=None, header=None)
 
         preview_data = []
         for _sheet_name, df in sheets.items():
@@ -482,12 +509,12 @@ def preview_cgv_format(file):
         df_full = (
             pd.read_csv(file, header=None)
             if file.name.endswith(".csv")
-            else pd.read_excel(file, header=None)
+            else _read_excel(file, header=None)
         )
         df = (
             pd.read_csv(file, skiprows=header_idx)
             if file.name.endswith(".csv")
-            else pd.read_excel(file, skiprows=header_idx)
+            else _read_excel(file, skiprows=header_idx)
         )
 
         # ✅ 상영일자 추출: A5 셀 (index 4)
@@ -589,12 +616,13 @@ def preview_megabox_format(file):
         df = (
             pd.read_csv(file, skiprows=6)
             if file.name.endswith(".csv")
-            else pd.read_excel(file, skiprows=6)
+            else _read_excel(file, skiprows=6)
         )
         df.columns = df.columns.str.strip()
         df = df.dropna(subset=["지점", "상영일"])
         matcher = BulkMatcher(theater_kind="메가박스")
-        show_cols = ["특회", "1회", "2회", "3회", "4회", "5회", "6회", "7회"]
+        # 메가박스 회차: 특회(0회) + 1~15회. 파일에 존재하는 회차 컬럼만 사용한다.
+        show_cols = ["특회"] + [f"{i}회" for i in range(1, 16)]
         existing_show_cols = [col for col in show_cols if col in df.columns]
         df_melted = df.melt(
             id_vars=["지점", "상영일", "관", "상영영화", "상영종류", "티켓가"],
@@ -662,7 +690,7 @@ def preview_lotte_format(file):
         df = (
             pd.read_csv(file, skiprows=2)
             if file.name.endswith(".csv")
-            else pd.read_excel(file, skiprows=2)
+            else _read_excel(file, skiprows=2)
         )
         df.columns = df.columns.str.strip()
         df = df[
@@ -728,7 +756,7 @@ def preview_lotte_format(file):
 
 def preview_cineq_format(file):
     try:
-        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+        df = pd.read_csv(file) if file.name.endswith(".csv") else _read_excel(file)
         matcher = BulkMatcher(theater_kind="씨네큐")
         cur_client, cur_movie, cur_date, cur_aud = None, None, None, None
         preview_data = []

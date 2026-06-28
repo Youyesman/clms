@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "fund",
     "settlement",
     "crawler",
+    "mail",
 ]
 
 MIDDLEWARE = [
@@ -120,6 +121,20 @@ DATABASES = {
 
 # 마스터 비밀번호: 이 값을 비밀번호로 입력하면 어떤 사용자 계정으로도 로그인 가능 (관리/지원용)
 MASTER_PASSWORD = "misun0324"
+
+# 메가박스 윙업(M SCORE) 관람객현황 크롤용 계정. 환경변수 우선, 없으면 기본값.
+MEGABOX_WINGUP = {
+    "USER": os.getenv("MEGABOX_WINGUP_USER", "221200014"),
+    "PASSWORD": os.getenv("MEGABOX_WINGUP_PASSWORD", "BY4M1993!@#"),
+}
+
+# 관리자 메일함(IMAP) 조회용 계정 (네이버). 환경변수 우선, 없으면 기본값 사용.
+MAIL_IMAP = {
+    "HOST": os.getenv("MAIL_IMAP_HOST", "imap.naver.com"),
+    "PORT": int(os.getenv("MAIL_IMAP_PORT", "993")),
+    "USER": os.getenv("MAIL_IMAP_USER", "castingline"),
+    "PASSWORD": os.getenv("MAIL_IMAP_PASSWORD", "1LMJ99RTQ2UC"),
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

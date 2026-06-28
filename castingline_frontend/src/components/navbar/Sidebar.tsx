@@ -5,7 +5,7 @@ import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, MapPin, Receipt,
     SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table,
-    CurrencyDollar,
+    CurrencyDollar, EnvelopeSimple,
 } from "@phosphor-icons/react";
 import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
@@ -52,6 +52,8 @@ const MENU: NavMenuGroup[] = [
             { path: "/manage/manage_theater_map", label: "극장명 매핑", icon: <MapPin /> },
             { path: "/manage/crawler", label: "크롤러 관리", icon: <Bug /> },
             { path: "/manage/crawler/schedules", label: "시간표 수집", icon: <Table /> },
+            { path: "/manage/crawler/megabox_score", label: "메가박스 스코어", icon: <FilmSlate /> },
+            { path: "/manage/mailbox", label: "메일함", icon: <EnvelopeSimple /> },
         ],
     },
     {

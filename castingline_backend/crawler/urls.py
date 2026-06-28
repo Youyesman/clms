@@ -3,7 +3,8 @@ from .views import (CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadVie
                     CrawlerTransformView, CrawlerScheduleOptionsView, CrawlerScheduleExportView,
                     CrawlerSpecialExportView,
                     CrawlerScheduleListView, CrawlTargetMovieView, CrawlTargetMovieDetailView,
-                    CrawlTargetMovieBulkDeleteView)
+                    CrawlTargetMovieBulkDeleteView, MegaboxScoreCrawlView,
+                    MegaboxScoreAllView, MegaboxAccountView, MegaboxAccountDetailView)
 
 urlpatterns = [
     path('run/', CrawlerExecutionView.as_view(), name='crawler_run'),
@@ -18,4 +19,8 @@ urlpatterns = [
     path('targets/', CrawlTargetMovieView.as_view(), name='crawl_targets'),
     path('targets/bulk_delete/', CrawlTargetMovieBulkDeleteView.as_view(), name='crawl_target_bulk_delete'),
     path('targets/<int:pk>/', CrawlTargetMovieDetailView.as_view(), name='crawl_target_detail'),
+    path('megabox_score/', MegaboxScoreCrawlView.as_view(), name='megabox_score_crawl'),
+    path('megabox_score_all/', MegaboxScoreAllView.as_view(), name='megabox_score_all'),
+    path('megabox_accounts/', MegaboxAccountView.as_view(), name='megabox_accounts'),
+    path('megabox_accounts/<int:pk>/', MegaboxAccountDetailView.as_view(), name='megabox_account_detail'),
 ]

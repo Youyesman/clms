@@ -215,7 +215,13 @@ const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
 
 /* ---------------- Main Component ---------------- */
 
-export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () => void }) {
+export function ScoreExcelUploader({
+    onUploadSuccess,
+    initialFile = null,
+}: {
+    onUploadSuccess: () => void;
+    initialFile?: File | null;
+}) {
     const toast = useToast();
     const { closeModal } = useGlobalModal();
     const { showAlert } = useAppAlert();
@@ -296,6 +302,14 @@ export function ScoreExcelUploader({ onUploadSuccess }: { onUploadSuccess: () =>
             setLoading(false);
         }
     };
+
+    // 외부(메일함 등)에서 전달된 파일이 있으면 마운트 시 자동 미리보기
+    useEffect(() => {
+        if (initialFile) {
+            handleFileProcess(initialFile);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleConfirmSave = () => {
         showAlert(
