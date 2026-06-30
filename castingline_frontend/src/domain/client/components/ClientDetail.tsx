@@ -138,6 +138,7 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                             />
                             <CustomInput label="바이포엠 극장코드" value={formData.by4m_theater_code || ""} setValue={(v) => updateField("by4m_theater_code", v)} />
                             <CustomInput label="엑셀 극장명" value={formData.excel_theater_name || ""} setValue={(v) => updateField("excel_theater_name", v)} />
+                            <CustomInput label="엑셀 극장명2" value={formData.excel_theater_name2 || ""} setValue={(v) => updateField("excel_theater_name2", v)} />
                             <CustomInput label="영진위 극장명" value={formData.kofic_theater_name || ""} setValue={(v) => updateField("kofic_theater_name", v)} />
                             <CustomInput label="전화번호(대표)" value={formData.representative_phone_number || ""} setValue={(v) => updateField("representative_phone_number", v)} />
                             <CustomInput label="팩스번호" value={formData.fax_number || ""} setValue={(v) => updateField("fax_number", v)} />

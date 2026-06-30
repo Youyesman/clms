@@ -54,12 +54,9 @@ class Command(BaseCommand):
                 client = clients.get(row.get("ctm_code"))
                 movie = movies.get(row.get("tt_code"))
 
-                # region_code 기반 share_rate 결정
-                region_code = client.region_code if client else ""
-                if region_code in ["경강", "서울"]:
-                    share_value = row.get("theater_share")
-                else:
-                    share_value = row.get("dist_share")
+                # 우리 화면은 '배급사 부율'을 보여주므로 항상 dist_share 사용
+                # (구버전은 서울/경강만 theater_share를 가져와 부율이 반대로 저장되는 버그가 있었음)
+                share_value = row.get("dist_share")
 
                 # Rate 객체 생성
                 rate = Rate(

@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import styled from "styled-components";
 import { useToast } from "../../../../components/common/CustomToast";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
 import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../../components/common/CustomInput";
@@ -20,6 +21,9 @@ import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
 const fmtR = (r: number) => `${r.toFixed(2)}%`;
+// 부율 미설정(null) 시 빈칸 처리
+const fmtNn = (n: number | null) => (n == null ? "" : n.toLocaleString("ko-KR"));
+const fmtRn = (r: number | null) => (r == null ? "" : `${r.toFixed(2)}%`);
 
 const getYesterday = () => {
     const d = new Date();
@@ -41,11 +45,12 @@ interface SettlementRow {
     ticket_revenue: number;
     fund_excluded: number;
     vat_excluded: number;
-    rate: number;
-    supply_value: number;
-    vat: number;
-    total_payment: number;
-    unit_price: number;
+    // 해당 포맷의 부율이 없으면 부율 의존 값은 null(빈칸)으로 내려옴
+    rate: number | null;
+    supply_value: number | null;
+    vat: number | null;
+    total_payment: number | null;
+    unit_price: number | null;
 }
 
 interface SettlementData {
@@ -151,6 +156,16 @@ const SuggestionList = styled.ul`
     z-index: 100;
     max-height: 200px;
     overflow-y: auto;
+`;
+
+const SuggestionGroupLabel = styled.li`
+    padding: 4px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #94a3b8;
+    background: #f8fafc;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 `;
 
 const SuggestionItem = styled.li`
@@ -298,6 +313,7 @@ export function SettlementDetailPage() {
         dir: "asc" | "desc";
     }>({ key: null, dir: "asc" });
     const [movieSuggestions, setMovieSuggestions] = useState<MovieSuggestion[]>([]);
+    const [theaterSuggestions, setTheaterSuggestions] = useState<string[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     const [validationErrors, setValidationErrors] = useState<
@@ -376,19 +392,19 @@ export function SettlementDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    /* ── 영화명 자동완성 ── */
+    /* ── 영화명 + 극장명 자동완성 (통합 API, 단일 호출) ── */
     useEffect(() => {
-        if (searchInput.length < 2) {
+        const kw = searchInput.trim();
+        if (kw.length < 2) {
             setMovieSuggestions([]);
-            setShowSuggestions(false);
+            setTheaterSuggestions([]);
             return;
         }
         const timer = setTimeout(() => {
-            AxiosGet(`score/movies-search/`, { params: { q: searchInput } })
+            AxiosGet(`score/settlement-search/`, { params: { q: kw } })
                 .then((res) => {
-                    const list = res.data || [];
-                    setMovieSuggestions(list);
-                    setShowSuggestions(list.length > 0);
+                    setMovieSuggestions(res.data?.movies || []);
+                    setTheaterSuggestions(res.data?.theaters || []);
                 })
                 .catch(() => {});
         }, 300);
@@ -416,6 +432,12 @@ export function SettlementDetailPage() {
         setSearchInput("");
         setShowSuggestions(false);
         fetchMovieFormats(movie.id.toString());
+    };
+
+    const handleTheaterSelect = (name: string) => {
+        setSearchInput(name);
+        setTableFilter(name);
+        setShowSuggestions(false);
     };
 
     /* ── 검색 실행 ── */
@@ -519,9 +541,9 @@ export function SettlementDetailPage() {
             s.ticket_revenue += r.ticket_revenue;
             s.fund_excluded += r.fund_excluded;
             s.vat_excluded += r.vat_excluded;
-            s.supply_value += r.supply_value;
-            s.vat += r.vat;
-            s.total_payment += r.total_payment;
+            s.supply_value += r.supply_value ?? 0;
+            s.vat += r.vat ?? 0;
+            s.total_payment += r.total_payment ?? 0;
         }
         const unit_price =
             s.visitor > 0 ? Math.round(s.supply_value / s.visitor) : 0;
@@ -534,6 +556,91 @@ export function SettlementDetailPage() {
         useDistName
             ? row.distributor_theater || row.theater
             : row.theater;
+
+    /* ── 엑셀 다운로드 (RatioDetail 양식과 동일: HTML 테이블 .xls, 지역별 소계 + 전체 합계) ── */
+    const handleExcelDownload = () => {
+        if (filteredRows.length === 0) {
+            toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+            return;
+        }
+
+        const COLS = [
+            "지역명", "멀티", "분류", "영화관명", "날짜(From)", "날짜(To)",
+            "인원", "금액(입장료)", "기금제외금액", "부가세제외금액", "부율",
+            "공급가액", "부가세", "당사입금액", "객단가",
+        ];
+
+        const td = (v: string | number) =>
+            `<td colspan="1" rowspan="1" >${v === "" || v == null ? "&nbsp;" : v}</td>`;
+        const tr = (cells: (string | number)[]) => `<tr>${cells.map(td).join("")}</tr>`;
+
+        // 지역별 그룹핑 (등장 순서 유지)
+        const groups = new Map<string, SettlementRow[]>();
+        for (const row of filteredRows) {
+            const key = row.region || "";
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(row);
+        }
+
+        type Agg = {
+            visitor: number; ticket_revenue: number; fund_excluded: number;
+            vat_excluded: number; supply_value: number; vat: number; total_payment: number;
+        };
+        const newAgg = (): Agg => ({
+            visitor: 0, ticket_revenue: 0, fund_excluded: 0, vat_excluded: 0,
+            supply_value: 0, vat: 0, total_payment: 0,
+        });
+        const addAgg = (a: Agg, r: SettlementRow) => {
+            a.visitor += r.visitor; a.ticket_revenue += r.ticket_revenue;
+            a.fund_excluded += r.fund_excluded; a.vat_excluded += r.vat_excluded;
+            a.supply_value += r.supply_value ?? 0; a.vat += r.vat ?? 0; a.total_payment += r.total_payment ?? 0;
+        };
+        const unitOf = (a: Agg) => (a.visitor > 0 ? Math.round(a.supply_value / a.visitor) : 0);
+        // 집계 행 셀 (부율칸 공백, 라벨은 날짜(To) 위치)
+        const aggCells = (regionCell: string, label: string, a: Agg) => [
+            regionCell, "", "", "", "", label,
+            fmtN(a.visitor), fmtN(a.ticket_revenue), fmtN(a.fund_excluded), fmtN(a.vat_excluded),
+            "", fmtN(a.supply_value), fmtN(a.vat), fmtN(a.total_payment), fmtN(unitOf(a)),
+        ];
+
+        const grand = newAgg();
+        const bodyRows: string[] = [];
+        groups.forEach((rows, region) => {
+            const sub = newAgg();
+            for (const row of rows) {
+                addAgg(sub, row);
+                addAgg(grand, row);
+                const name = getTheaterName(row);
+                bodyRows.push(tr([
+                    row.region, row.multi, row.classification,
+                    row.format ? `${name}(${row.format})` : name,
+                    row.min_date, row.max_date,
+                    fmtN(row.visitor), fmtN(row.ticket_revenue), fmtN(row.fund_excluded),
+                    fmtN(row.vat_excluded), row.rate == null ? "" : row.rate.toFixed(2),
+                    fmtNn(row.supply_value), fmtNn(row.vat), fmtNn(row.total_payment), fmtNn(row.unit_price),
+                ]));
+            }
+            bodyRows.push(tr(aggCells(region, "합계", sub)));
+        });
+        bodyRows.push(tr(aggCells("", "전체 합계", grand)));
+
+        const html =
+            '﻿\n<table border="1">' + tr(COLS) + bodyRows.join("") + "</table>";
+
+        const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        const movieTitle = meta?.movie_title || settlementFilter.movieTitle || "정산내역";
+        link.setAttribute(
+            "download",
+            `부금정산상세_${movieTitle}_${searchParams.date_from}~${searchParams.date_to}.xls`,
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+    };
 
     return (
         <PageWrapper>
@@ -557,7 +664,11 @@ export function SettlementDetailPage() {
                                 value={searchInput}
                                 onChange={(e) => {
                                     setSearchInput(e.target.value);
+                                    setShowSuggestions(!!e.target.value);
                                     if (!e.target.value) setTableFilter("");
+                                }}
+                                onFocus={() => {
+                                    if (searchInput) setShowSuggestions(true);
                                 }}
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") {
@@ -569,20 +680,52 @@ export function SettlementDetailPage() {
                             />
                             <SearchBtn onClick={handleSearch}>검색</SearchBtn>
                         </div>
-                        {showSuggestions && (
-                            <SuggestionList>
-                                {movieSuggestions.map((m) => (
-                                    <SuggestionItem
-                                        key={m.id}
-                                        onMouseDown={() => handleMovieSelect(m)}
-                                    >
-                                        {m.title_ko}
-                                        <span>({m.release_date})</span>
-                                    </SuggestionItem>
-                                ))}
-                            </SuggestionList>
-                        )}
+                        {showSuggestions &&
+                            (theaterSuggestions.length > 0 ||
+                                movieSuggestions.length > 0) && (
+                                <SuggestionList>
+                                    {theaterSuggestions.length > 0 && (
+                                        <>
+                                            <SuggestionGroupLabel>극장명</SuggestionGroupLabel>
+                                            {theaterSuggestions.map((name) => (
+                                                <SuggestionItem
+                                                    key={`th-${name}`}
+                                                    onMouseDown={() =>
+                                                        handleTheaterSelect(name)
+                                                    }
+                                                >
+                                                    {name}
+                                                </SuggestionItem>
+                                            ))}
+                                        </>
+                                    )}
+                                    {movieSuggestions.length > 0 && (
+                                        <>
+                                            <SuggestionGroupLabel>영화명</SuggestionGroupLabel>
+                                            {movieSuggestions.map((m) => (
+                                                <SuggestionItem
+                                                    key={`mv-${m.id}`}
+                                                    onMouseDown={() =>
+                                                        handleMovieSelect(m)
+                                                    }
+                                                >
+                                                    {m.title_ko}
+                                                    <span>({m.release_date})</span>
+                                                </SuggestionItem>
+                                            ))}
+                                        </>
+                                    )}
+                                </SuggestionList>
+                            )}
                     </SearchWrapper>
+
+                    <div style={{ marginLeft: "auto" }}>
+                        <ExcelIconButton
+                            onClick={handleExcelDownload}
+                            disabled={filteredRows.length === 0}
+                            title="정산 상세 엑셀 다운로드"
+                        />
+                    </div>
                 </FilterRow>
 
                 {/* Row 2: 필터 드롭다운들 */}
@@ -769,11 +912,11 @@ export function SettlementDetailPage() {
                                 <td>{fmtN(row.ticket_revenue)}</td>
                                 <td>{fmtN(row.fund_excluded)}</td>
                                 <td>{fmtN(row.vat_excluded)}</td>
-                                <td>{fmtR(row.rate)}</td>
-                                <td>{fmtN(row.supply_value)}</td>
-                                <td>{fmtN(row.vat)}</td>
-                                <td>{fmtN(row.total_payment)}</td>
-                                <td>{fmtN(row.unit_price)}</td>
+                                <td>{fmtRn(row.rate)}</td>
+                                <td>{fmtNn(row.supply_value)}</td>
+                                <td>{fmtNn(row.vat)}</td>
+                                <td>{fmtNn(row.total_payment)}</td>
+                                <td>{fmtNn(row.unit_price)}</td>
                             </tr>
                         ))}
                         {sortedRows.length > 0 && (

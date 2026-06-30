@@ -177,6 +177,20 @@ def _format_theater_name(brand, theater):
     return f"{brand} {clean}"
 
 
+def _norm_aud_key(name):
+    """
+    상영관 이름 정규화 키 (영진위관 ↔ DB관 매칭용).
+    - 크롤된 screen_name 과 동일하게 괄호/메타 제거 + 'N관' 추출
+      (예: 'DMZ관 [상서면관]' -> 'DMZ관', '5관(리클라이너)' -> '5관')
+    - 선행 0 제거 ('04관' -> '4관') 후 공백제거·소문자
+    """
+    s = MovieSchedule.normalize_screen_name(name)
+    m = re.match(r'0*(\d+)\s*관$', s)
+    if m:
+        s = f"{int(m.group(1))}관"
+    return re.sub(r'\s+', '', s).lower()
+
+
 def _build_normal_theater_index():
     """
     일반극장(KOBIS) 행 보강용 인덱스.
@@ -203,11 +217,14 @@ def _build_normal_theater_index():
         'client_id', 'auditorium_name', 'kofic_auditorium_name', 'seat_count'
     ):
         d = seat_idx.setdefault(t.client_id, {'kofic': {}, 'name': {}, 'num': {}})
-        if t.kofic_auditorium_name:
-            d['kofic'][re.sub(r'\s+', '', t.kofic_auditorium_name).lower()] = t.seat_count
-        if t.auditorium_name:
-            d['name'][re.sub(r'\s+', '', t.auditorium_name).lower()] = t.seat_count
-            m = re.search(r'(\d+)', t.auditorium_name)
+        # 영진위관이름·DB관이름 모두 동일 정규화로 색인 + 'N관' 숫자 색인(둘 다)
+        for raw, bucket in ((t.kofic_auditorium_name, 'kofic'), (t.auditorium_name, 'name')):
+            if not raw:
+                continue
+            key = _norm_aud_key(raw)
+            if key:
+                d[bucket].setdefault(key, t.seat_count)
+            m = re.search(r'(\d+)', raw)
             if m:
                 d['num'].setdefault(int(m.group(1)), t.seat_count)
     return name_to_client, seat_idx
@@ -223,12 +240,12 @@ def _resolve_normal_theater(theater_name, screen_name, normal_index):
     region = c.region_code or '-'
     seat = 0
     d = seat_idx.get(c.id, {})
-    sn = re.sub(r'\s+', '', str(screen_name or '')).lower()
-    if sn in d.get('kofic', {}):
+    sn = _norm_aud_key(screen_name)
+    if sn in d.get('kofic', {}):           # 1) 영진위관이름 매칭 우선
         seat = d['kofic'][sn]
-    elif sn in d.get('name', {}):
+    elif sn in d.get('name', {}):          # 2) DB관이름 매칭
         seat = d['name'][sn]
-    else:
+    else:                                  # 3) 'N관' 숫자 매칭 (영진위/DB관 공통)
         m = re.search(r'(\d+)', str(screen_name or ''))
         if m and int(m.group(1)) in d.get('num', {}):
             seat = d['num'][int(m.group(1))]
@@ -1039,10 +1056,77 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         k[1]   # theater name
     ))
 
-    # Write data rows
+    # ----- helpers for brand subtotals / grand total -----
+    def _key_brand(k):
+        """이 (날짜, 극장) 행이 속한 브랜드. 집계작 우선, 없으면 첫 영화 기준."""
+        mv = theater_movie_index[k]
+        main_rows = mv.get(movie_title)
+        if main_rows:
+            return main_rows[0].get('brand', '')
+        first = next(iter(mv.values()), None)
+        return first[0].get('brand', '') if first else ''
+
+    BRAND_TOTAL_LABEL = {
+        'CGV': 'CGV 총계',
+        'LOTTE': '롯데 총계',
+        'MEGABOX': '메가박스 총계',
+        '일반극장': '일반극장 총계',
+    }
+
+    def _new_agg():
+        return {mt: {'screens': 0, 'shows': 0, 'total': 0, 'sold': 0} for mt in movie_titles}
+
+    def _accumulate(agg, movie_rows):
+        for mt in movie_titles:
+            for r in movie_rows.get(mt, []):
+                a = agg[mt]
+                a['screens'] += 1
+                a['shows'] += r['show_count']
+                a['total'] += r['total_seats']
+                a['sold'] += r['sold_seats']
+
+    def _write_total_row(rr, label, agg, fill, font):
+        for ci in range(1, total_cols + 1):
+            cell = ws.cell(row=rr, column=ci)
+            cell.border = THIN_BORDER
+            cell.alignment = CENTER
+            cell.fill = fill
+            cell.font = font
+        ws.cell(row=rr, column=2, value=label)
+        for mi, mt in enumerate(movie_titles):
+            base_col = fixed_cols + 1 + mi * cols_per_movie
+            a = agg[mt]
+            if a['screens'] == 0:
+                continue
+            rate = round(a['sold'] / a['total'] * 100, 1) if a['total'] > 0 else 0
+            # 상영관, 회차, 좌석수(공란), 총좌석수, 판매좌석수, 판매좌석율
+            vals = [a['screens'], a['shows'], '', a['total'], a['sold'], f"{rate}%"]
+            for si, v in enumerate(vals):
+                ws.cell(row=rr, column=base_col + si, value=v)
+
+    # Write data rows (with per-brand subtotals and a grand total)
     row_idx = 5
-    for (proc_date, theater) in sorted_keys:
-        movie_rows = theater_movie_index[(proc_date, theater)]
+    grand_agg = _new_agg()
+    brand_agg = None
+    current_brand = None
+
+    for key in sorted_keys:
+        (proc_date, theater) = key
+        kb = _key_brand(key)
+
+        if current_brand is None:
+            current_brand = kb
+            brand_agg = _new_agg()
+        elif kb != current_brand:
+            _write_total_row(row_idx, BRAND_TOTAL_LABEL.get(current_brand, f"{current_brand} 총계"),
+                             brand_agg, PINK_FILL, BOLD_FONT)
+            row_idx += 1
+            current_brand = kb
+            brand_agg = _new_agg()
+
+        movie_rows = theater_movie_index[key]
+        _accumulate(brand_agg, movie_rows)
+        _accumulate(grand_agg, movie_rows)
 
         # Find max screens for this theater across all movies
         max_screens = max(len(rows) for rows in movie_rows.values())
@@ -1084,6 +1168,16 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                     cell.font = DATA_FONT
 
             row_idx += 1
+
+    # flush 마지막 브랜드 소계
+    if current_brand is not None:
+        _write_total_row(row_idx, BRAND_TOTAL_LABEL.get(current_brand, f"{current_brand} 총계"),
+                         brand_agg, PINK_FILL, BOLD_FONT)
+        row_idx += 1
+
+    # 최하단: 모든 극장 총계
+    _write_total_row(row_idx, "모든극장 총계", grand_agg, TOTAL_BLUE_FILL, WHITE_FONT)
+    row_idx += 1
 
     ws.sheet_view.showGridLines = False
     _auto_width(ws, min_row=4)

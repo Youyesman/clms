@@ -54,6 +54,7 @@ const MENU: NavMenuGroup[] = [
             { path: "/manage/crawler/schedules", label: "시간표 수집", icon: <Table /> },
             { path: "/manage/crawler/megabox_score", label: "메가박스 스코어", icon: <FilmSlate /> },
             { path: "/manage/mailbox", label: "메일함", icon: <EnvelopeSimple /> },
+            { path: "/manage/settlement_mail", label: "정산서 수집", icon: <Receipt /> },
         ],
     },
     {

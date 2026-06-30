@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "settlement",
     "crawler",
     "mail",
+    "memo",
 ]
 
 MIDDLEWARE = [
@@ -135,6 +136,12 @@ MAIL_IMAP = {
     "USER": os.getenv("MAIL_IMAP_USER", "castingline"),
     "PASSWORD": os.getenv("MAIL_IMAP_PASSWORD", "1LMJ99RTQ2UC"),
 }
+
+# 정산서(부금계산서) 자동 수집 시 스캔할 메일함 목록. scan_settlements 커맨드 기본값.
+# 값은 메일함 표시명(display) 기준. 여러 폴더는 "||" 로 구분.
+SETTLEMENT_MAIL_FOLDERS = os.getenv(
+    "SETTLEMENT_MAIL_FOLDERS", "*부금계산서*/위탁,기타"
+).split("||")
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

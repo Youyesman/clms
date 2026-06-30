@@ -24,6 +24,9 @@ class Client(TimeStampedModel):
     excel_theater_name = models.CharField(
         max_length=255, null=True, blank=True
     )  # 엑셀극장명
+    excel_theater_name2 = models.CharField(
+        max_length=255, null=True, blank=True
+    )  # 엑셀극장명2 (스코어 업로드 추가 매칭용 별칭)
     kofic_theater_name = models.CharField(
         max_length=255, null=True, blank=True
     )  # 영진위극장명 (영진위 일반극장 업로드 매칭용)

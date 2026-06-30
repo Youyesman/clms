@@ -131,17 +131,16 @@ class SettlementListView(APIView):
         yearly_fund_map = {(f.client_id, f.yyyy): f.fund_yn for f in Fund.objects.filter(
             client_id__in=client_ids, yyyy=yyyy)}
 
-        # 부율(Rate)은 '대표영화' 기준으로 설정된 것을 따르는 것이 기본 정책
-        rates = Rate.objects.filter(movie_id=movie_id, client_id__in=client_ids).filter(
+        # 부율(Rate)은 실제 상영 포맷(하위영화)별로 설정된 것을 따른다.
+        # (대표영화 폴백 없음 — 행의 상영타입에 해당하는 포맷 부율을 그대로 사용)
+        rates = Rate.objects.filter(movie_id__in=all_related_movie_ids, client_id__in=client_ids).filter(
             Q(start_date__year=yyyy, start_date__month=mm) | Q(end_date__year=yyyy, end_date__month=mm) |
             Q(start_date__lte=datetime(yyyy, mm, 1), end_date__gte=datetime(
                 yyyy, mm, calendar.monthrange(yyyy, mm)[1]))
         )
         rate_map = {}
         for r in rates:
-            if r.client_id not in rate_map:
-                rate_map[r.client_id] = []
-            rate_map[r.client_id].append(r)
+            rate_map.setdefault((r.client_id, r.movie_id), []).append(r)
 
         theater_rate_map = {(tr.rate_id, tr.theater.auditorium_name): tr.share_rate for tr in TheaterRate.objects.filter(
             rate__in=rates).select_related("theater")}
@@ -154,9 +153,9 @@ class SettlementListView(APIView):
             c_id = client.id
             entry_date = score.entry_date
 
-            # 부율 조회는 넘겨받은 원본 movie_id(대표영화) 기준
+            # 부율 조회는 해당 스코어의 실제 하위영화(상영 포맷) 기준
             share_rate = self._get_cached_rate(
-                c_id, movie_id, entry_date, score.auditorium, rate_map, theater_rate_map, default_rate_map, client)
+                c_id, score.movie_id, entry_date, score.auditorium, rate_map, theater_rate_map, default_rate_map, client)
             is_fund_exempt = self._get_cached_fund(
                 c_id, entry_date, daily_fund_map, monthly_fund_map, yearly_fund_map)
 
@@ -222,17 +221,14 @@ class SettlementListView(APIView):
         return val if val is not None else False
 
     def _get_cached_rate(self, c_id, m_id, date, aud_name, r_map, tr_map, dr_map, client):
-        rate_list = r_map.get(c_id, [])
-        found_rate = None
-        for r in rate_list:
+        # 해당 포맷(하위영화)에 설정된 부율만 사용 (상영관 예외 우선)
+        for r in r_map.get((c_id, m_id), []):
             if r.start_date <= date <= r.end_date:
-                found_rate = r
-                break
-
-        if found_rate:
-            tr_val = tr_map.get((found_rate.id, aud_name))
-            return tr_val if tr_val is not None else found_rate.share_rate
-        return dr_map.get((client.region_code, client.theater_kind), Decimal("50.0"))
+                tr_val = tr_map.get((r.id, aud_name))
+                return tr_val if tr_val is not None else r.share_rate
+        # 포맷 부율이 없으면 기본부율(DefaultRate)만, 그것도 없으면 None → 화면 빈칸
+        # (대표영화 폴백·하드코딩 50 제거)
+        return dr_map.get((client.region_code, client.theater_kind))
 
     def _get_screening_type(self, movie):
         """영화의 모든 상영 타입 정보를 조합하여 반환 (필름/디지털, 자막/더빙, 2D/3D, 4DX 등)"""
@@ -258,7 +254,8 @@ class SettlementListView(APIView):
             "수신자이메일": client.invoice_email_address,
             "수신자이메일2": client.invoice_email_address2,
             "수신자 전화번호": client.settlement_phone_number,
-            "상영타입": self._get_screening_type(movie), "인원": 0, "부율": float(rate), "is_fund_exempt": exempt,
+            "상영타입": self._get_screening_type(movie), "인원": 0,
+            "부율": float(rate) if rate is not None else None, "is_fund_exempt": exempt,
             "_total_raw_amt": 0, "_total_excl_fund_sum": Decimal("0"), "_min_date": entry_date, "_max_date": entry_date,
             "classification": client.classification,
         }
@@ -294,6 +291,15 @@ class SettlementListView(APIView):
 
         total_amt = data["_total_raw_amt"]
         rounded_excl_fund = data["_total_excl_fund_sum"]
+
+        # 부율이 없으면(해당 포맷 부율 미설정) 부율에 의존하는 금액은 비움
+        if data["부율"] is None:
+            data.update({
+                "금액(입장료)": total_amt, "기금제외금액": int(rounded_excl_fund),
+                "부가세제외금액": None, "공급가액": None, "부가세": None, "영화사 지급금": None,
+            })
+            return data
+
         rate = Decimal(str(data["부율"]))
 
         rounded_excl_vat_total = (
@@ -356,13 +362,13 @@ class SettlementListView(APIView):
                 }
 
             processed.append(item)
-            section_sum["인원"] += item.get("인원", 0)
-            section_sum["금액(입장료)"] += item.get("금액(입장료)", 0)
-            section_sum["기금제외금액"] += item.get("기금제외금액", 0)
-            section_sum["부가세제외금액"] += item.get("부가세제외금액", 0)
-            section_sum["공급가액"] += item.get("공급가액", 0)
-            section_sum["부가세"] += item.get("부가세", 0)
-            section_sum["영화사 지급금"] += item.get("영화사 지급금", 0)
+            section_sum["인원"] += item.get("인원") or 0
+            section_sum["금액(입장료)"] += item.get("금액(입장료)") or 0
+            section_sum["기금제외금액"] += item.get("기금제외금액") or 0
+            section_sum["부가세제외금액"] += item.get("부가세제외금액") or 0
+            section_sum["공급가액"] += item.get("공급가액") or 0
+            section_sum["부가세"] += item.get("부가세") or 0
+            section_sum["영화사 지급금"] += item.get("영화사 지급금") or 0
 
         processed.append(self.make_subtotal_row(current_section, section_sum))
         return processed

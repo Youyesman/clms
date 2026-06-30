@@ -17,6 +17,7 @@ import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
 import { FadeIn } from "../../../components/common/MotionWrapper";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../../atom/TabState";
+import SharedMemo from "../components/SharedMemo";
 
 const DashboardContainer = styled.div`
     padding: 24px;
@@ -98,7 +99,7 @@ const MainContentGrid = styled.div`
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 24px;
-    
+
     @media (max-width: 1200px) {
         grid-template-columns: 1fr;
     }
@@ -336,6 +337,8 @@ export default function Main() {
                 </SummaryGrid>
 
                 <MainContentGrid>
+                    <SharedMemo />
+
                     <CommonSectionCard height="450px" padding="0">
                         <CommonListHeader
                             title="최근 생성 오더"
@@ -365,12 +368,10 @@ export default function Main() {
                             />
                         </div>
                     </CommonSectionCard>
-                </MainContentGrid>
 
-                <MainContentGrid>
-                    <CommonSectionCard height="auto" padding="0">
-                        <CommonListHeader 
-                            title="🎬 알짜배기 상영관 찾기 (Top 10)" 
+                    <CommonSectionCard height="450px" padding="0">
+                        <CommonListHeader
+                            title="🎬 알짜배기 상영관 찾기 (Top 10)"
                             actions={
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     <select
@@ -403,16 +404,16 @@ export default function Main() {
                                 </div>
                             }
                         />
-                        <div style={{ padding: '0', minHeight: '300px' }}>
+                        <div style={{ flex: 1, overflow: 'auto' }}>
                             {topTheaters.length > 0 ? (
-                                <GenericTable 
-                                    headers={topTheaterHeaders} 
-                                    data={topTheaters} 
+                                <GenericTable
+                                    headers={topTheaterHeaders}
+                                    data={topTheaters}
                                     getRowKey={(item) => item.id}
                                     hidePagination
                                 />
                             ) : (
-                                <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '14px' }}>
+                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '14px' }}>
                                     {movieOptions.length > 0 ? "데이터가 없습니다." : "해당 월에 상영 데이터가 있는 영화가 없습니다."}
                                 </div>
                             )}

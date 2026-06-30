@@ -67,6 +67,8 @@ urlpatterns = [
     # 13. 영화명 검색 API (자동완성)
     path('score/movies-search/', score_movies_search,
          name='score-movies-search'),
+    path('score/settlement-search/', score_settlement_search,
+         name='score-settlement-search'),
 
     # 14. 주요작 영화 목록 API
     path('score/competitor/movies/', score_competitor_movies,

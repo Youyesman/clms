@@ -174,6 +174,22 @@ export function AxiosPatch(url: string | number, data: any, id: number | null = 
     });
 }
 
+export function AxiosPut(url: string | number, data: any, id: number | null = null, param: string | null = null) {
+    let token = localStorage.getItem("token");
+    let fullUrl = `${BASE_URL}/${url}/`;
+    if (id) {
+        fullUrl += `${id}/`;
+    }
+    if (param) {
+        fullUrl += `?${param}`;
+    }
+    return axiosInstance.put(fullUrl, data, {
+        headers: {
+            Authorization: `token ${token}`,
+        },
+    });
+}
+
 export function AxiosPost(url: string | number, data: any, configOrParam: string | Record<string, any> | null = null) {
     let token = localStorage.getItem("token");
     let fullUrl = `${BASE_URL}/${url}/`;

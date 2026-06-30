@@ -37,8 +37,9 @@ interface ICrawlResult {
     accounts: IAccount[];
 }
 
-const todayStr = () => {
+const todayStr = (offsetDays = 0) => {
     const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
     const p = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
@@ -54,8 +55,8 @@ export const MegaboxScorePage = () => {
     const toast = useToast();
     const { openModal } = useGlobalModal();
 
-    const [start, setStart] = useState(todayStr());
-    const [end, setEnd] = useState(todayStr());
+    const [start, setStart] = useState(todayStr(-1));
+    const [end, setEnd] = useState(todayStr(-1));
     const [include, setInclude] = useState("");
     const [exclude, setExclude] = useState("");
     const [loading, setLoading] = useState(false);

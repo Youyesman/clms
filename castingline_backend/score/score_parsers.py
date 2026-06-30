@@ -65,6 +65,8 @@ class BulkMatcher:
             names = set()
             if c.excel_theater_name:
                 names.add(c.excel_theater_name.replace(" ", "").lower())
+            if c.excel_theater_name2:
+                names.add(c.excel_theater_name2.replace(" ", "").lower())
             if c.client_name:
                 names.add(c.client_name.replace(" ", "").lower())
             # 영진위극장명: 영진위 업로드(relaxed) 전용 명시적 매핑 키

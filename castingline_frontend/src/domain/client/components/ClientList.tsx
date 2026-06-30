@@ -98,6 +98,7 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
         { key: "theater_code", label: "극장코드" },
         { key: "theater_name", label: "극장명" },
         { key: "excel_theater_name", label: "엑셀극장명" },
+        { key: "excel_theater_name2", label: "엑셀극장명2" },
         { key: "region_code", label: "지역" },
         { key: "theater_kind", label: "멀티" },
         { key: "business_operator", label: "종사업자" },

@@ -494,6 +494,9 @@ def score_by_region(movie_id, request):
         movie_id__in=movie_ids, entry_date__in=[date_from_str, prev_date_str]
     )
     qs = apply_common_filters(qs, request)
+    # 지역별 집계는 정규 지역(REGIONS)만 대상으로 한다.
+    # (region_code 에 '2D'/'2D ATMOS'/'999' 등 비정상 값이 섞여 유령 행이 생기는 것 방지)
+    qs = qs.filter(client__region_code__in=REGIONS)
 
     # 데이터 가공: 스크린 식별키(극장+상영관) 및 매출 계산용 필드 생성
     qs = qs.annotate(
@@ -537,6 +540,7 @@ def score_by_region(movie_id, request):
     total_qs = Score.objects.filter(
         movie_id__in=movie_ids, entry_date__lte=date_to_str)
     total_qs = apply_common_filters(total_qs, request)
+    total_qs = total_qs.filter(client__region_code__in=REGIONS)
     total_stats = (
         total_qs.values(section=F("client__region_code"))
         .annotate(
@@ -1852,7 +1856,7 @@ def score_timetable(request):
 
     # 지역/구분 매핑 테이블 구성 (Client 모델 기반)
     clients = list(Client.objects.values(
-        'theater_kind', 'excel_theater_name', 'theater_name',
+        'theater_kind', 'excel_theater_name', 'excel_theater_name2', 'theater_name',
         'region_code', 'classification'
     ))
 
@@ -1872,7 +1876,7 @@ def score_timetable(request):
         if not b: continue
         region = c['region_code']
         cls = c['classification'] or '-'
-        for field in ('excel_theater_name', 'theater_name'):
+        for field in ('excel_theater_name', 'excel_theater_name2', 'theater_name'):
             name = c.get(field)
             if name:
                 key = (b, name.replace(' ', ''))
@@ -2206,15 +2210,16 @@ def score_settlement_detail(request):
         return v if v is not None else False
 
     # 부율 맵 (날짜 범위 겹치는 Rate 레코드)
+    # 부율은 포맷(하위영화)별로 등록될 수 있으므로 대표영화 + 하위영화 모두 조회
     rates_qs = list(Rate.objects.filter(
-        movie_id=movie_id,
+        movie_id__in=movie_ids,
         client_id__in=client_ids_set,
         start_date__lte=date_to_obj,
         end_date__gte=date_from_obj,
     ))
     rate_map_d = defaultdict(list)
     for r in rates_qs:
-        rate_map_d[r.client_id].append(r)
+        rate_map_d[(r.client_id, r.movie_id)].append(r)
 
     theater_rate_map = {
         (tr.rate_id, tr.theater.auditorium_name): tr.share_rate
@@ -2226,14 +2231,15 @@ def score_settlement_detail(request):
         for dr in DefaultRate.objects.all()
     }
 
-    def get_rate_value(c_id, entry_date, aud_name, client_info):
-        for r in rate_map_d.get(c_id, []):
+    def get_rate_value(c_id, mid, entry_date, aud_name, client_info):
+        # 해당 포맷(하위영화) 자체 부율만 사용 (대표영화·하드코딩 폴백 없음)
+        for r in rate_map_d.get((c_id, mid), []):
             if r.start_date <= entry_date <= r.end_date:
                 tr_val = theater_rate_map.get((r.id, aud_name))
                 return tr_val if tr_val is not None else r.share_rate
+        # 포맷 부율이 없으면 설정된 기본부율(DefaultRate)만, 그것도 없으면 None → 계산값 비움
         return default_rate_map.get(
-            (client_info.get("region_code"), client_info.get("theater_kind")),
-            Decimal("50.0")
+            (client_info.get("region_code"), client_info.get("theater_kind"))
         )
 
     # 클라이언트 정보
@@ -2278,7 +2284,7 @@ def score_settlement_detail(request):
         aud = row["auditorium"] or ""
         client_info = clients.get(cid, {})
 
-        share_rate = get_rate_value(cid, entry_date, aud, client_info)
+        share_rate = get_rate_value(cid, mid, entry_date, aud, client_info)
         is_fund_exempt = get_fund_exempt(cid, entry_date)
 
         # 포맷 선택 시 movie_id를 그룹키에 포함 → 포맷별 분리
@@ -2329,13 +2335,22 @@ def score_settlement_detail(request):
     rows = []
     for data in aggregated.values():
         visitor = data["visitor"]
-        rate_d = Decimal(str(data["share_rate"]))
+        share_rate = data["share_rate"]
         excl_fund = data["_excl_fund"]
         excl_vat = (excl_fund / Decimal("1.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        supply_val = (excl_vat * (rate_d / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        vat_val = (supply_val * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        total_payment = int(supply_val + vat_val)
-        unit_price = round(int(supply_val) / visitor) if visitor > 0 else 0
+
+        if share_rate is None:
+            # 해당 포맷의 부율이 없음 → 부율 의존 계산값은 비움(None)
+            rate_out = supply_out = vat_out = total_out = unit_out = None
+        else:
+            rate_d = Decimal(str(share_rate))
+            supply_val = (excl_vat * (rate_d / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            vat_val = (supply_val * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            rate_out = float(share_rate)
+            supply_out = int(supply_val)
+            vat_out = int(vat_val)
+            total_out = int(supply_val + vat_val)
+            unit_out = round(int(supply_val) / visitor) if visitor > 0 else 0
 
         rows.append({
             "theater": data["theater"],
@@ -2350,11 +2365,11 @@ def score_settlement_detail(request):
             "ticket_revenue": data["_raw_amt"],
             "fund_excluded": int(excl_fund),
             "vat_excluded": int(excl_vat),
-            "rate": float(data["share_rate"]),
-            "supply_value": int(supply_val),
-            "vat": int(vat_val),
-            "total_payment": total_payment,
-            "unit_price": unit_price,
+            "rate": rate_out,
+            "supply_value": supply_out,
+            "vat": vat_out,
+            "total_payment": total_out,
+            "unit_price": unit_out,
         })
 
     # 정렬: 멀티순 → 직영/위탁 → 지역 → 극장명
@@ -2396,6 +2411,97 @@ def score_movies_search(request):
         "release_date": str(m.release_date) if m.release_date else "",
         "year": m.release_date.year if m.release_date else None,
     } for m in qs[:20]])
+
+
+@api_view(["GET"])
+def score_settlement_search(request):
+    """
+    정산 상세 검색 자동완성 API (영화명 + 극장명 통합)
+    GET /Api/score/settlement-search/?q=keyword
+    반환: { "movies": [{id, title_ko, release_date, year}], "theaters": ["극장명", ...] }
+    """
+    from client.models import Client, DistributorTheaterMap
+    q = request.query_params.get("q", "").strip()
+    if not q:
+        return Response({"movies": [], "theaters": []})
+
+    user = request.user
+    is_distributor = (
+        user.is_authenticated and not user.is_superuser
+        and hasattr(user, 'client_id') and user.client_id
+    )
+
+    # ── 영화명 ──
+    movie_qs = Movie.objects.filter(title_ko__icontains=q, is_primary_movie=True).order_by("-release_date")
+    if is_distributor:
+        movie_qs = movie_qs.filter(distributor_id=user.client_id)
+    movies = [{
+        "id": m.id,
+        "title_ko": m.title_ko,
+        "release_date": str(m.release_date) if m.release_date else "",
+        "year": m.release_date.year if m.release_date else None,
+    } for m in movie_qs[:20]]
+
+    # ── 극장명 (표시명: excel_theater_name → theater_name → client_name) ──
+    theaters = []
+    seen = set()
+
+    def add_theater(name):
+        if name and name not in seen:
+            seen.add(name)
+            theaters.append(name)
+
+    # 롯데·메가박스 브랜드 접두사 자동 추가 (정산 테이블 get_system_name 과 동일)
+    def display_name(c):
+        name = c.get("excel_theater_name") or c.get("theater_name") or c.get("client_name") or ""
+        kind = c.get("theater_kind") or ""
+        for prefix in ["롯데", "메가박스"]:
+            if prefix in kind and name:
+                stripped = name.strip()
+                base = stripped[len("(폐관)"):].strip() if stripped.startswith("(폐관)") else stripped
+                if not base.startswith(prefix):
+                    name = prefix + name
+                break
+        return name
+
+    # 배급사 사용자: 배급사별 극장명 우선
+    if is_distributor:
+        for n in (
+            DistributorTheaterMap.objects
+            .filter(distributor_id=user.client_id, distributor_theater_name__icontains=q)
+            .values_list("distributor_theater_name", flat=True)
+            .distinct()[:20]
+        ):
+            add_theater(n)
+
+    # q 가 접두사 포함 형태(예: "메가박스구의")로 들어와도 매칭되도록 접두사 제거 키워드도 함께 검색
+    q_stripped = q
+    for prefix in ["메가박스", "롯데시네마", "롯데", "CGV"]:
+        if q.startswith(prefix):
+            q_stripped = q[len(prefix):].strip()
+            break
+
+    theater_filter = (
+        Q(theater_name__icontains=q)
+        | Q(excel_theater_name__icontains=q)
+        | Q(client_name__icontains=q)
+    )
+    if q_stripped and q_stripped != q:
+        theater_filter |= (
+            Q(theater_name__icontains=q_stripped)
+            | Q(excel_theater_name__icontains=q_stripped)
+            | Q(client_name__icontains=q_stripped)
+        )
+
+    client_qs = Client.objects.filter(theater_filter).values(
+        "theater_name", "excel_theater_name", "client_name", "theater_kind"
+    )
+    for c in client_qs[:200]:
+        add_theater(display_name(c))
+        if len(theaters) >= 20:
+            break
+
+    return Response({"movies": movies, "theaters": theaters[:20]})
 
 
 # ============================
@@ -2615,7 +2721,7 @@ def _build_competitor_region_map():
     from client.models import Client
 
     clients = list(Client.objects.values(
-        'theater_kind', 'excel_theater_name', 'theater_name', 'region_code'
+        'theater_kind', 'excel_theater_name', 'excel_theater_name2', 'theater_name', 'region_code'
     ))
 
     def norm_brand(kind):
@@ -2632,7 +2738,7 @@ def _build_competitor_region_map():
         if not b: continue
         region = c['region_code']
         if not region: continue
-        for field in ('excel_theater_name', 'theater_name'):
+        for field in ('excel_theater_name', 'excel_theater_name2', 'theater_name'):
             name = c.get(field)
             if name:
                 region_map[(b, name.replace(' ', ''))] = region

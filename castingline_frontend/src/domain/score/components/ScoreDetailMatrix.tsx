@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import styled from "styled-components";
+import { useRecoilValue } from "recoil";
+import { ActiveTabIdState } from "../../../atom/TabState";
 import { AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
@@ -202,6 +204,9 @@ type DirtyMatrix = Record<number, Record<number, number>>;
 export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSelectedScore }: Props) {
     const { openModal } = useGlobalModal();
     const toast = useToast();
+    // 스코어관리 탭(/manage/manage_score)이 활성(화면에 보이는) 탭인지 판단하기 위한 기준.
+    // TabContentArea가 바로 이 값으로 각 탭의 display 여부를 결정하므로 가장 신뢰할 수 있다.
+    const activeTabId = useRecoilValue(ActiveTabIdState);
 
     const [selectedCell, setSelectedCell] = useState<{ fare: number; show: number } | null>(null);
     const [editingCell, setEditingCell] = useState<{ fare: number; show: number } | null>(null);
@@ -211,6 +216,9 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     const [theaterList, setTheaterList] = useState<TheaterItem[]>([]);
     const [dirtyMatrix, setDirtyMatrix] = useState<DirtyMatrix>({});
     const tableContainerRef = useRef<HTMLDivElement>(null);
+    // 셀 편집 중 F5/Ctrl+S로 저장 요청 시, 입력값이 dirtyMatrix에 반영(비동기 setState)된
+    // 다음 저장하기 위한 플래그. (편집값을 먼저 커밋 → dirtyMatrix 변경 → effect에서 저장)
+    const pendingSaveRef = useRef(false);
 
     const getID = (val: ClientInfo | MovieInfo | null | undefined) => val?.id ?? null;
     const showCounts = useMemo(() => Array.from({ length: 13 }, (_, i) => i), []);
@@ -434,13 +442,40 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         }
     }, [isDirty, selectedScore, saving, dirtyMatrix, filteredScores, setScores, toast]);
 
+    // 셀 편집 중 F5/Ctrl+S 저장 요청 처리:
+    // applyLocalEdit로 편집값을 dirtyMatrix에 커밋한 뒤(비동기) 이 effect에서 최신값으로 저장.
+    useEffect(() => {
+        if (pendingSaveRef.current) {
+            pendingSaveRef.current = false;
+            handleBulkSave();
+        }
+    }, [dirtyMatrix, handleBulkSave]);
+
     // 전역 키보드 이벤트
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ctrl+S / F5 → 일괄 저장
+            // 비활성 탭에서는 무시: keep-alive로 컴포넌트가 마운트된 채 유지되므로
+            // (TabContentArea가 display:none 처리) 다른 탭에서도 이 리스너가 살아있다.
+            // 활성 탭 id가 스코어관리 경로일 때만 동작 → 그 탭이 화면에 보일 때만 Ctrl+S / F5 저장.
+            if (activeTabId !== "/manage/manage_score") return;
+
+            // Ctrl+S / F5 → 일괄 저장 (셀 인라인 편집 중에도 동작해야 하므로 먼저 처리)
             if ((e.ctrlKey && e.key === "s") || e.key === "F5") {
                 e.preventDefault();
                 handleBulkSave();
+                return;
+            }
+
+            // 입력 요소(요금체계 모달의 금액 입력칸 등)에 포커스가 있으면
+            // 매트릭스 셀 편집(숫자/방향키 등)이 가로채지 않도록 무시한다.
+            const target = e.target as HTMLElement | null;
+            if (
+                target &&
+                (target.tagName === "INPUT" ||
+                    target.tagName === "TEXTAREA" ||
+                    target.tagName === "SELECT" ||
+                    target.isContentEditable)
+            ) {
                 return;
             }
 
@@ -463,7 +498,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [selectedCell, editingCell, moveSelection, applyLocalEdit, handleBulkSave, displayMatrix]);
+    }, [activeTabId, selectedCell, editingCell, moveSelection, applyLocalEdit, handleBulkSave, displayMatrix]);
 
     const handleEditFares = () => {
         if (!clientId || !selectedScore) return;
@@ -580,6 +615,14 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                                             onKeyDown={(e) => {
                                                                 // window 전역 핸들러로 이벤트 전파 차단 (두 칸 이동 방지)
                                                                 e.nativeEvent.stopImmediatePropagation();
+                                                                // Ctrl+S / F5 → 현재 입력값을 커밋한 뒤 일괄 저장
+                                                                // (전파를 막았으므로 window 핸들러 대신 여기서 직접 처리)
+                                                                if ((e.ctrlKey && e.key === "s") || e.key === "F5") {
+                                                                    e.preventDefault();
+                                                                    applyLocalEdit({ fare, show: n }, editValue);
+                                                                    pendingSaveRef.current = true;
+                                                                    return;
+                                                                }
                                                                 if (e.key === "Enter") {
                                                                     e.preventDefault();
                                                                     applyLocalEdit({ fare, show: n }, editValue);
