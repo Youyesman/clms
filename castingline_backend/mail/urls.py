@@ -27,6 +27,11 @@ urlpatterns = [
         name="settlement-collect-attachment",
     ),
     path("settlement/collected/", views.settlement_list, name="settlement-collected"),
+    path(
+        "settlement/collected/bulk-delete/",
+        views.settlement_bulk_delete,
+        name="settlement-collected-bulk-delete",
+    ),
     path("settlement/summary/", views.settlement_summary, name="settlement-summary"),
     path(
         "settlement/download-zip/",

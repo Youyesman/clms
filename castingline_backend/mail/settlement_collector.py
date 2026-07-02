@@ -188,7 +188,7 @@ _NAME_NOISE_RE = re.compile(
         r"디지털", r"atmos", r"dolby", r"screen\s*x", r"스크린\s*엑스", r"imax",
         r"\d+\s*dx", r"\d+\s*d",            # 4DX/2D/3D
         r"주식회사", r"캐스팅라인", r"최종본?", r"수정본?", r"사본", r"copy", r"final",
-        r"\d{1,2}\s*월", r"\d{1,2}\s*일", r"\d+",   # 날짜/숫자
+        r"\d{2,4}\s*년", r"\d{1,2}\s*월", r"\d{1,2}\s*일", r"\d+",   # 날짜/숫자
     ]),
     re.I,
 )
@@ -203,11 +203,14 @@ def _filename_has_name(filename):
 
     남으면 '파일명에 (대상이 아니더라도) 영화명/고유명이 있다'고 보고 제목/본문 폴백을
     적용하지 않는다. 예) '은혼 6월.pdf' → '은혼' 이 남음 → 본문의 '눈동자'로 오수집 방지.
+
+    기준은 1글자 이상: '란 12.3' 같은 짧은 제목은 숫자 제거 후 '란' 1글자만 남는데,
+    2글자 기준에서는 폴백이 열려 제목/본문의 다른 영화(예: '피나')로 오매칭됐다.
     """
     s = (filename or "").rsplit(".", 1)[0]
     s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", s)  # 괄호 안(관/포맷/회사) 제거
     s = _NAME_NOISE_RE.sub(" ", s)
-    return len(_norm(s)) >= 2
+    return len(_norm(s)) >= 1
 
 
 def _parse_date(iso):

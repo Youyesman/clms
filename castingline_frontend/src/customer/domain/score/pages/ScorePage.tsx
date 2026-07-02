@@ -207,7 +207,10 @@ export function ScorePage() {
                 ...(formatIds ? { format_movie_ids: formatIds } : {}),
             },
         })
-            .then((res) => setData(res.data || []))
+            .then((res) =>
+                // 같은 라벨(section)이 여러 행 올 수 있으므로 행 고유키를 부여 (React key 충돌 → 유령 행 방지)
+                setData((res.data || []).map((r: any, i: number) => ({ ...r, _rowKey: `${r.section}-${i}` })))
+            )
             .catch((err) => toast.error(handleBackendErrors(err)));
     }, [activeFilters, compareMode, selectedFormats, formatOptions]);
 
@@ -433,7 +436,7 @@ export function ScorePage() {
                         sortKey={sortConfig.key} // 현재 정렬 기준 키
                         sortOrder={sortConfig.order} // 현재 정렬 순서
                         onSortChange={handleTableSort} // 헤더 클릭 시 함수
-                        getRowKey={(row) => row.section}
+                        getRowKey={(row) => row._rowKey ?? row.section}
                         formatCell={(key, val, row) => {
                             if (typeof val === "number") return val.toLocaleString();
                             return val || "-";

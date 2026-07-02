@@ -380,6 +380,25 @@ def settlement_download_zip(request):
     return resp
 
 
+@api_view(["POST"])
+@_guard
+def settlement_bulk_delete(request):
+    """수집 첨부 다건 일괄 삭제. body: {"ids": [1, 2, ...]}"""
+    ids = request.data.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return Response({"error": "삭제할 항목(ids)이 없습니다."}, status=400)
+
+    deleted = 0
+    for obj in CollectedSettlement.objects.filter(pk__in=ids):
+        try:
+            obj.file.delete(save=False)
+        except Exception:
+            pass
+        obj.delete()
+        deleted += 1
+    return Response({"deleted": deleted})
+
+
 @api_view(["GET", "DELETE"])
 @_guard
 def settlement_detail(request, pk):

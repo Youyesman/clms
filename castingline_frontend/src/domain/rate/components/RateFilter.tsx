@@ -24,17 +24,17 @@ export function RateFilter({ formData, setFormData, handleSearch }) {
 
     return (
         <CommonFilterBar onSearch={handleSearch}>
-            {/* 1. 유형 선택 */}
+            {/* 1. 유형 선택 — 부율은 극장에만 등록하므로 극장/배급사/제작사 대신 직영/위탁 구분으로 필터 */}
             <CustomSelect
                 label="유형"
                 options={[
                     { label: "전체", value: "전체" },
-                    { label: "극장", value: "극장" },
-                    { label: "배급사", value: "배급사" },
-                    { label: "제작사", value: "제작사" },
+                    { label: "직영", value: "직영" },
+                    { label: "위탁", value: "위탁" },
+                    { label: "기타", value: "기타" },
                 ]}
-                value={formData.clientType}
-                onChange={(val) => updateField("clientType", val)}
+                value={formData.classification}
+                onChange={(val) => updateField("classification", val)}
                 labelWidth={LABEL_WIDTH}
             />
 

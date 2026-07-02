@@ -129,6 +129,12 @@ export const fetchMonthSummary = () =>
 export const deleteCollected = (id: number) =>
     AxiosDelete("settlement/collected", id);
 
+/** 수집 첨부 다건 일괄 삭제. */
+export const bulkDeleteCollected = (ids: number[]) =>
+    AxiosPost("settlement/collected/bulk-delete", { ids }).then(
+        (r) => r.data as { deleted: number }
+    );
+
 /** 영화(+월) 단위로 수집 파일을 zip 으로 일괄 다운로드. */
 export const downloadMovieZip = async (movie: number, month?: string) => {
     const qs = new URLSearchParams({ movie: String(movie) });

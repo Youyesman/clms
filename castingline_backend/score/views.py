@@ -723,10 +723,12 @@ def score_by_version(movie_id, request):
     related_ids = []
     for m in related_movies:
         related_ids.append(m.id)
-        # ✅ 기존의 "2D DOLBY" 형식 명칭 조립
+        # 버전 명칭 조립: dx4_viewing_dimension(Dolby/4-DX 등)까지 포함해야
+        # 'ATMOS Dolby'와 'ATMOS', '4-DX'와 '2D'가 같은 라벨로 뭉개지지 않는다.
+        # (movie-formats API와 동일한 조립 순서)
         v_name = " ".join(
-            filter(None, [m.viewing_dimension,
-                   m.audio_mode, m.screening_type])
+            filter(None, [m.viewing_dimension, m.screening_type,
+                   m.dx4_viewing_dimension, m.audio_mode])
         ).strip()
         movie_map[m.id] = v_name or m.title_ko
 
@@ -779,8 +781,9 @@ def score_by_version(movie_id, request):
     )
     total_dict = {item["movie_id"]: item for item in total_stats}
 
-    # 7. 결과 조합
-    results = []
+    # 7. 결과 조합 — 같은 버전 라벨은 한 행으로 합산한다.
+    #    (하위영화 레코드가 라벨까지 동일하게 여러 개 존재해도 중복 행이 생기지 않도록)
+    merged = {}
     for m_id, label in movie_map.items():
         # point_map에서 문자열 키로 조회하므로 이제 데이터가 정확히 잡힙니다.
         m_points = point_map.get(m_id, {})
@@ -792,23 +795,34 @@ def score_by_version(movie_id, request):
         tot = total_dict.get(m_id, {"total_visitors": 0, "total_fare": 0})
 
         if tot["total_visitors"] > 0 or t_data["visitors"] > 0:
-            results.append(
+            row = merged.setdefault(
+                label,
                 {
                     "section": label,
-                    "base_day_visitors": t_data["visitors"] or 0,
-                    "prev_day_visitors": p_data["visitors"] or 0,
-                    "theater_count": t_data["theaters"] or 0,
-                    "screen_count": t_data["screens"] or 0,
-                    "base_day_fare": t_data["base_fare"] or 0,
-                    "total_visitors": tot["total_visitors"] or 0,
-                    "total_fare": tot["total_fare"] or 0,
-                    "prev_theater_count": p_data["theaters"] or 0,
-                    "theater_change": (t_data["theaters"] or 0)
-                    - (p_data["theaters"] or 0),
-                }
+                    "base_day_visitors": 0,
+                    "prev_day_visitors": 0,
+                    "theater_count": 0,
+                    "screen_count": 0,
+                    "base_day_fare": 0,
+                    "total_visitors": 0,
+                    "total_fare": 0,
+                    "prev_theater_count": 0,
+                    "theater_change": 0,
+                },
+            )
+            row["base_day_visitors"] += t_data["visitors"] or 0
+            row["prev_day_visitors"] += p_data["visitors"] or 0
+            row["theater_count"] += t_data["theaters"] or 0
+            row["screen_count"] += t_data["screens"] or 0
+            row["base_day_fare"] += t_data["base_fare"] or 0
+            row["total_visitors"] += tot["total_visitors"] or 0
+            row["total_fare"] += tot["total_fare"] or 0
+            row["prev_theater_count"] += p_data["theaters"] or 0
+            row["theater_change"] += (t_data["theaters"] or 0) - (
+                p_data["theaters"] or 0
             )
 
-    results.sort(key=lambda x: x["total_fare"], reverse=True)
+    results = sorted(merged.values(), key=lambda x: x["total_fare"], reverse=True)
     return Response(results)
 
 

@@ -37,6 +37,7 @@ import {
     fetchCollected,
     fetchMonthSummary,
     deleteCollected,
+    bulkDeleteCollected,
     downloadCollected,
     downloadMovieZip,
     IMovieSearchItem,
@@ -793,6 +794,13 @@ const BrowseTab = ({
     const [items, setItems] = useState<ICollectedSettlement[]>([]);
     const [loading, setLoading] = useState(false);
     const [zipLoading, setZipLoading] = useState<number | null>(null);
+    // 다중 선택(일괄 삭제용)
+    const [selected, setSelected] = useState<Set<number>>(new Set());
+    // 원본메일 미리보기 모달
+    const [mailModal, setMailModal] = useState<{
+        folder: string;
+        uid: number;
+    } | null>(null);
 
     const loadMonths = useCallback(async () => {
         try {
@@ -808,12 +816,50 @@ const BrowseTab = ({
         setLoading(true);
         try {
             setItems(await fetchCollected({ month: activeMonth || undefined }));
+            setSelected(new Set());
         } catch {
             toast.error("수집 목록을 불러오지 못했습니다.");
         } finally {
             setLoading(false);
         }
     }, [activeMonth, toast]);
+
+    const toggleSelect = (id: number) =>
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+
+    const toggleSelectGroup = (ids: number[], on: boolean) =>
+        setSelected((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+            return next;
+        });
+
+    const onBulkDelete = () => {
+        const ids = Array.from(selected);
+        if (ids.length === 0) return;
+        showAlert(
+            "일괄 삭제",
+            `선택한 ${ids.length}건의 첨부를 삭제하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    const { deleted } = await bulkDeleteCollected(ids);
+                    toast.success(`${deleted}건을 삭제했습니다.`);
+                    setSelected(new Set());
+                    loadItems();
+                    loadMonths();
+                } catch {
+                    toast.error("일괄 삭제에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
 
     useEffect(() => {
         loadMonths();
@@ -886,6 +932,19 @@ const BrowseTab = ({
                             : "수집된 첨부가 없습니다."}
                     </div>
                 )}
+                {!loading && selected.size > 0 && (
+                    <BulkBar>
+                        <span>
+                            <b>{selected.size}</b>건 선택됨
+                        </span>
+                        <BulkDelBtn onClick={onBulkDelete}>
+                            <Trash weight="bold" /> 일괄 삭제
+                        </BulkDelBtn>
+                        <BulkClearBtn onClick={() => setSelected(new Set())}>
+                            선택 해제
+                        </BulkClearBtn>
+                    </BulkBar>
+                )}
                 {!loading &&
                     grouped.map(([movie, list]) => (
                         <MovieGroup key={movie}>
@@ -937,6 +996,21 @@ const BrowseTab = ({
                             <Table>
                                 <thead>
                                     <tr>
+                                        <th style={{ width: 34 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={list.every((it) =>
+                                                    selected.has(it.id)
+                                                )}
+                                                onChange={(e) =>
+                                                    toggleSelectGroup(
+                                                        list.map((it) => it.id),
+                                                        e.target.checked
+                                                    )
+                                                }
+                                                title="그룹 전체 선택"
+                                            />
+                                        </th>
                                         <th>첨부파일</th>
                                         <th style={{ width: 110 }}>메일 날짜</th>
                                         <th style={{ width: 80 }}>매칭</th>
@@ -948,6 +1022,15 @@ const BrowseTab = ({
                                 <tbody>
                                     {list.map((it) => (
                                         <tr key={it.id}>
+                                            <td className="center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selected.has(it.id)}
+                                                    onChange={() =>
+                                                        toggleSelect(it.id)
+                                                    }
+                                                />
+                                            </td>
                                             <td className="name">{it.filename}</td>
                                             <td>{fmtDate(it.mail_date)}</td>
                                             <td>
@@ -965,12 +1048,12 @@ const BrowseTab = ({
                                                 <IconActions>
                                                     <SourceBtn
                                                         onClick={() =>
-                                                            openMail(
-                                                                it.mail_folder,
-                                                                it.mail_uid
-                                                            )
+                                                            setMailModal({
+                                                                folder: it.mail_folder,
+                                                                uid: it.mail_uid,
+                                                            })
                                                         }
-                                                        title="원본 메일 열기"
+                                                        title="원본 메일 보기"
                                                     >
                                                         <ArrowSquareOut />
                                                     </SourceBtn>
@@ -1006,7 +1089,142 @@ const BrowseTab = ({
                         </MovieGroup>
                     ))}
             </BrowseMain>
+
+            {mailModal && (
+                <MailPreviewModal
+                    folder={mailModal.folder}
+                    uid={mailModal.uid}
+                    onClose={() => setMailModal(null)}
+                    onOpenMailbox={() => {
+                        openMail(mailModal.folder, mailModal.uid);
+                        setMailModal(null);
+                    }}
+                />
+            )}
         </BrowseWrap>
+    );
+};
+
+/* ──────────────────────────────────────────────────────────
+ * 원본메일 미리보기 모달
+ * ────────────────────────────────────────────────────────── */
+// 한 번 불러온 메일은 세션 내 재사용 (재오픈 시 재요청 방지)
+const mailPreviewCache = new Map<string, IMailDetail>();
+
+const MailPreviewModal = ({
+    folder,
+    uid,
+    onClose,
+    onOpenMailbox,
+}: {
+    folder: string;
+    uid: number;
+    onClose: () => void;
+    onOpenMailbox: () => void;
+}) => {
+    const cacheKey = `${folder}|${uid}`;
+    const [detail, setDetail] = useState<IMailDetail | null>(
+        mailPreviewCache.get(cacheKey) || null
+    );
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        const key = `${folder}|${uid}`;
+        const cached = mailPreviewCache.get(key);
+        if (cached) {
+            setDetail(cached);
+            return;
+        }
+        setDetail(null);
+        setError("");
+        let alive = true;
+        fetchMessageDetail(folder, uid)
+            .then((d) => {
+                if (!alive) return;
+                mailPreviewCache.set(key, d);
+                setDetail(d);
+            })
+            .catch(() => {
+                if (alive) setError("메일을 불러오지 못했습니다.");
+            });
+        return () => {
+            alive = false;
+        };
+    }, [folder, uid]);
+
+    const srcDoc = useMemo(() => {
+        if (!detail) return "";
+        const wrap = (inner: string) =>
+            `<!doctype html><html><head><meta charset="utf-8">` +
+            `<base target="_blank">` +
+            `<style>body{margin:8px;font-family:'Apple SD Gothic Neo','SUIT',sans-serif;font-size:13px;color:#1e293b;word-break:break-word;} a{color:#2563eb;}</style>` +
+            `</head><body>${inner}</body></html>`;
+        if (detail.html) return wrap(detail.html);
+        if (detail.text)
+            return wrap(
+                `<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;margin:0;">${detail.text
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")}</pre>`
+            );
+        return wrap(`<p style="color:#94a3b8;">본문이 없습니다.</p>`);
+    }, [detail]);
+
+    return (
+        <ModalOverlay onClick={onClose}>
+            <MailModalCard onClick={(e) => e.stopPropagation()}>
+                <div className="mhead">
+                    <div className="minfo">
+                        <div className="subject" title={detail?.subject}>
+                            {detail?.subject || "메일 미리보기"}
+                        </div>
+                        {detail && (
+                            <div className="meta">
+                                {detail.from} · {fmtDateTime(detail.date)}
+                            </div>
+                        )}
+                    </div>
+                    <div className="mactions">
+                        <button className="tomail" onClick={onOpenMailbox}>
+                            <ArrowSquareOut weight="bold" /> 메일함에서 열기
+                        </button>
+                        <button className="close" onClick={onClose} title="닫기">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                {detail && detail.attachments.length > 0 && (
+                    <div className="atts">
+                        {detail.attachments.map((att) => (
+                            <button
+                                key={att.index}
+                                onClick={() =>
+                                    downloadAttachment(folder, uid, att)
+                                }
+                                title={`${att.filename} 다운로드`}
+                            >
+                                <Paperclip size={12} weight="bold" />
+                                {att.filename}
+                                <em>{fmtSize(att.size)}</em>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {!detail && !error && (
+                    <div className="state">메일 불러오는 중…</div>
+                )}
+                {error && <div className="state">{error}</div>}
+                {detail && (
+                    <PreviewFrame
+                        title="메일 미리보기"
+                        sandbox="allow-popups allow-popups-to-escape-sandbox"
+                        srcDoc={srcDoc}
+                    />
+                )}
+            </MailModalCard>
+        </ModalOverlay>
     );
 };
 
@@ -2174,6 +2392,176 @@ const MovieGroup = styled.div`
             margin-left: 6px;
         }
     }
+`;
+const BulkBar = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #9a3412;
+    b {
+        font-weight: 800;
+    }
+`;
+const BulkDelBtn = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid #dc2626;
+    background: #fef2f2;
+    color: #dc2626;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover {
+        background: #fee2e2;
+    }
+`;
+const BulkClearBtn = styled.button`
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #64748b;
+    border-radius: 7px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    &:hover {
+        background: #f8fafc;
+    }
+`;
+const MailModalCard = styled.div`
+    width: 860px;
+    max-width: 94vw;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+    .mhead {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f8fafc;
+    }
+    .minfo {
+        min-width: 0;
+    }
+    .subject {
+        font-size: 15px;
+        font-weight: 700;
+        color: #0f172a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .meta {
+        font-size: 12.5px;
+        color: #64748b;
+        margin-top: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .mactions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+    .mactions .tomail {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid #2563eb;
+        background: #eff6ff;
+        color: #2563eb;
+        border-radius: 7px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+        &:hover {
+            background: #dbeafe;
+        }
+    }
+    .mactions .close {
+        width: 30px;
+        height: 30px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #64748b;
+        border-radius: 7px;
+        font-size: 13px;
+        cursor: pointer;
+        &:hover {
+            background: #f1f5f9;
+        }
+    }
+    .atts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 16px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .atts button {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #334155;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 12px;
+        font-family: inherit;
+        cursor: pointer;
+        max-width: 320px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        &:hover {
+            border-color: #2563eb;
+            color: #2563eb;
+        }
+        em {
+            font-style: normal;
+            color: #94a3b8;
+            font-size: 11px;
+        }
+    }
+    .state {
+        color: #94a3b8;
+        font-size: 13px;
+        padding: 40px 0;
+        text-align: center;
+    }
+`;
+const PreviewFrame = styled.iframe`
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: #fff;
 `;
 const ZipBtn = styled.button`
     display: inline-flex;
