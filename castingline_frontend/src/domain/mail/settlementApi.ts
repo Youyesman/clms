@@ -135,10 +135,7 @@ export const bulkDeleteCollected = (ids: number[]) =>
         (r) => r.data as { deleted: number }
     );
 
-/** 영화(+월) 단위로 수집 파일을 zip 으로 일괄 다운로드. */
-export const downloadMovieZip = async (movie: number, month?: string) => {
-    const qs = new URLSearchParams({ movie: String(movie) });
-    if (month) qs.set("month", month);
+const downloadZip = async (qs: URLSearchParams) => {
     const res = await AxiosGet(`settlement/download-zip/?${qs.toString()}`, {
         responseType: "blob",
     });
@@ -162,6 +159,17 @@ export const downloadMovieZip = async (movie: number, month?: string) => {
     a.remove();
     window.URL.revokeObjectURL(url);
 };
+
+/** 영화(+월) 단위로 수집 파일을 zip 으로 일괄 다운로드. */
+export const downloadMovieZip = (movie: number, month?: string) => {
+    const qs = new URLSearchParams({ movie: String(movie) });
+    if (month) qs.set("month", month);
+    return downloadZip(qs);
+};
+
+/** 체크 선택한 수집 파일들을 zip 으로 일괄 다운로드. */
+export const downloadSelectedZip = (ids: number[]) =>
+    downloadZip(new URLSearchParams({ ids: ids.join(",") }));
 
 /** 수집 첨부를 blob 으로 받아 브라우저 다운로드 트리거. */
 export const downloadCollected = async (item: ICollectedSettlement) => {

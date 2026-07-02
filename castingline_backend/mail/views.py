@@ -329,22 +329,36 @@ def settlement_summary(request):
 @api_view(["GET"])
 @_guard
 def settlement_download_zip(request):
-    """수집된 파일을 영화(+월) 단위로 묶어 zip 으로 일괄 다운로드.
+    """수집된 파일을 영화(+월) 또는 선택 항목 단위로 묶어 zip 으로 일괄 다운로드.
 
-    query: movie(영화 id, 선택) / month(YYYY-MM, 선택). 둘 다 없으면 전체.
+    query: movie(영화 id, 선택) / month(YYYY-MM, 선택) / ids(수집 id 콤마목록, 선택).
+    ids 가 있으면 해당 항목만, 없으면 movie/month 필터(둘 다 없으면 전체).
     """
     qs = CollectedSettlement.objects.all()
     movie = request.query_params.get("movie")
     month = request.query_params.get("month")
-    if movie:
-        qs = qs.filter(movie_id=movie)
-    if month:
-        qs = qs.filter(month=month)
+    ids_param = request.query_params.get("ids")
+    if ids_param:
+        try:
+            ids = [int(x) for x in ids_param.split(",") if x.strip()]
+        except ValueError:
+            return Response({"error": "ids 형식이 올바르지 않습니다."}, status=400)
+        qs = qs.filter(pk__in=ids)
+    else:
+        if movie:
+            qs = qs.filter(movie_id=movie)
+        if month:
+            qs = qs.filter(month=month)
     qs = qs.order_by("month", "id")
     if not qs.exists():
         return Response({"error": "다운로드할 파일이 없습니다."}, status=404)
 
-    title = qs.first().movie_title or "정산서"
+    # zip 파일명 앞부분: 전부 같은 영화면 영화명, 아니면 '정산서'
+    titles = set(qs.values_list("movie_title", flat=True))
+    title = titles.pop() if len(titles) == 1 else "정산서"
+    title = title or "정산서"
+    if ids_param:
+        title = f"{title}_선택{qs.count()}건"
 
     buf = io.BytesIO()
     used = set()

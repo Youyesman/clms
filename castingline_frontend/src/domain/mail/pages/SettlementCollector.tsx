@@ -40,6 +40,7 @@ import {
     bulkDeleteCollected,
     downloadCollected,
     downloadMovieZip,
+    downloadSelectedZip,
     IMovieSearchItem,
     ISettlementTarget,
     ICollectedSettlement,
@@ -839,6 +840,20 @@ const BrowseTab = ({
             return next;
         });
 
+    const [bulkDownloading, setBulkDownloading] = useState(false);
+    const onBulkDownload = async () => {
+        const ids = Array.from(selected);
+        if (ids.length === 0) return;
+        setBulkDownloading(true);
+        try {
+            await downloadSelectedZip(ids);
+        } catch {
+            toast.error("선택 다운로드에 실패했습니다.");
+        } finally {
+            setBulkDownloading(false);
+        }
+    };
+
     const onBulkDelete = () => {
         const ids = Array.from(selected);
         if (ids.length === 0) return;
@@ -937,6 +952,13 @@ const BrowseTab = ({
                         <span>
                             <b>{selected.size}</b>건 선택됨
                         </span>
+                        <BulkDownBtn
+                            disabled={bulkDownloading}
+                            onClick={onBulkDownload}
+                        >
+                            <DownloadSimple weight="bold" />{" "}
+                            {bulkDownloading ? "준비 중…" : "선택 다운로드(zip)"}
+                        </BulkDownBtn>
                         <BulkDelBtn onClick={onBulkDelete}>
                             <Trash weight="bold" /> 일괄 삭제
                         </BulkDelBtn>
@@ -2406,6 +2428,29 @@ const BulkBar = styled.div`
     color: #9a3412;
     b {
         font-weight: 800;
+    }
+`;
+const BulkDownBtn = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid #2563eb;
+    background: #eff6ff;
+    color: #2563eb;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover {
+        background: #dbeafe;
+    }
+    &:disabled {
+        opacity: 0.7;
+        cursor: default;
     }
 `;
 const BulkDelBtn = styled.button`
