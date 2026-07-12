@@ -319,8 +319,14 @@ export function ScoreExcelUploader({
             async () => {
                 setLoading(true);
                 try {
-                    await AxiosPost("score/confirm_save", { data: previewData });
-                    toast.success("데이터가 성공적으로 저장되었습니다.");
+                    const res = await AxiosPost("score/confirm_save", { data: previewData });
+                    toast.success(res.data?.message || "데이터가 성공적으로 저장되었습니다.");
+                    const skippedMovies: string[] = res.data?.rates_skipped_no_country || [];
+                    if (skippedMovies.length > 0) {
+                        toast.error(
+                            `국가 미지정으로 부율이 생성되지 않은 영화: ${skippedMovies.join(", ")} — 영화관리에서 국가 입력 후 다시 확정 저장하면 생성됩니다.`
+                        );
+                    }
                     onUploadSuccess();
                     closeModal();
                 } catch (err) {

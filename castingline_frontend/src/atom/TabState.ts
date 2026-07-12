@@ -38,6 +38,7 @@ export const PATH_TO_TAB_LABEL: Record<string, string> = {
     "/manage/crawler": "크롤러 관리",
     "/manage/crawler/schedules": "시간표 수집 현황",
     "/manage/crawler/megabox_score": "메가박스 스코어",
+    "/manage/crawler/cineq_score": "씨네큐 스코어",
     "/manage/mailbox": "메일함",
     "/manage/settlement_mail": "정산서 수집",
     "/manage/manage_client": "거래처 관리",

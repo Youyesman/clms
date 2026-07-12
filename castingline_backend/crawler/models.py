@@ -1145,3 +1145,24 @@ class MegaboxDistributorAccount(models.Model):
 
     def __str__(self):
         return f"{'✅' if self.is_active else '⏸'} {self.name} ({self.user})"
+
+
+class CineQDistributorAccount(models.Model):
+    """
+    씨네큐 스코어(score.cineq.co.kr) 배급사 로그인 계정.
+    하드코딩 대신 DB로 관리 — 스코어 크롤 시 활성 계정으로 로그인한다.
+    """
+    name = models.CharField(max_length=100, verbose_name="배급사명")
+    user = models.CharField(max_length=100, verbose_name="아이디")
+    password = models.CharField(max_length=100, verbose_name="비밀번호")
+    is_active = models.BooleanField(default=True, verbose_name="활성화")
+    sort_order = models.IntegerField(default=0, verbose_name="정렬순서")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'id']
+        verbose_name = "씨네큐 배급사 계정"
+
+    def __str__(self):
+        return f"{'✅' if self.is_active else '⏸'} {self.name} ({self.user})"

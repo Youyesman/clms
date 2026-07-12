@@ -850,8 +850,21 @@ def preview_score_upload(request):
 @api_view(["POST"])
 def confirm_score_save(request):
     data_list = request.data.get("data", [])
-    count = save_confirmed_scores(data_list)
-    return Response({"message": f"{count}건의 데이터가 저장되었습니다."}, status=200)
+    result = save_confirmed_scores(data_list)
+
+    message = f"{result['saved']}건의 데이터가 저장되었습니다."
+    if result["rates_created"]:
+        message += f" 부율 {result['rates_created']}건이 자동 생성되었습니다."
+
+    return Response(
+        {
+            "message": message,
+            "saved": result["saved"],
+            "rates_created": result["rates_created"],
+            "rates_skipped_no_country": result["rates_skipped_no_country"],
+        },
+        status=200,
+    )
 
 
 @api_view(["POST"])

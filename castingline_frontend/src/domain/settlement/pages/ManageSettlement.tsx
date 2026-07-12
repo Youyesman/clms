@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import styled, { keyframes } from "styled-components";
-import { MagnifyingGlass, DownloadSimple, CircleNotch } from "@phosphor-icons/react";
-import { AxiosGet } from "../../../axios/Axios";
+import { MagnifyingGlass, DownloadSimple, CircleNotch, Scales } from "@phosphor-icons/react";
+import { AxiosGet, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
+import { useAppAlert } from "../../../atom/alertUtils";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
@@ -12,6 +13,8 @@ import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
 import dayjs from "dayjs";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { SettlementCompareModal } from "./SettlementCompareModal";
 
 const rotate = keyframes`
   from { transform: rotate(0deg); }
@@ -177,6 +180,8 @@ const ClearBtn = styled.button`
 
 export function ManageSettlement() {
     const toast = useToast();
+    const { openModal } = useGlobalModal();
+    const { showAlert } = useAppAlert();
     const [settlements, setSettlements] = useState<any[]>([]);
     const [movieOptions, setMovieOptions] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -271,6 +276,27 @@ export function ManageSettlement() {
             setIsLoading(false);
         }
     }, [searchParams, selectedTheater, toast]);
+
+    // 수동조정 해제 (원래 계산값으로 복구) — 해제 후 재조회
+    const handleRemoveAdjustment = (row: any) => {
+        const adjId = row?.["조정ID"];
+        if (!adjId) return;
+        showAlert(
+            "수동조정 해제",
+            `'${row["극장명"]}'의 수동조정을 해제하고 원래 계산값으로 복구하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete("settlement-adjustments", adjId);
+                    toast.success("수동조정을 해제했습니다.");
+                    fetchSettlements();
+                } catch (e: any) {
+                    toast.error(e?.response?.data?.error || "해제에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
 
     const handleDownloadEsero = async () => {
         if (!searchParams.movieId) {
@@ -407,6 +433,18 @@ export function ManageSettlement() {
                 onSearch={fetchSettlements}
                 actions={
                     <>
+                        <EseroButton
+                            onClick={() =>
+                                openModal(
+                                    <SettlementCompareModal yyyyMm={searchParams.yyyyMm} />,
+                                    { title: "직영 부금정산서 대사(엑셀 비교)", width: "1500px" }
+                                )
+                            }
+                            title="직영 부금정산서 엑셀과 화면 데이터 비교 (파일 내 전체 영화 자동 대사)"
+                        >
+                            <Scales weight="bold" size={16} />
+                            부금 대사
+                        </EseroButton>
                         <EseroButton onClick={handleDownloadEsero} disabled={isEseroDownloading}>
                             {isEseroDownloading ? (
                                 <CircleNotch size={16} weight="bold" className="loading-icon" />
@@ -518,9 +556,60 @@ export function ManageSettlement() {
                                 ? `subtotal-${item["극장명"]}-${idx}`
                                 : `row-${item["거래처코드"]}-${item["날짜(From)"]}-${idx}`
                         }
-                        formatCell={(k: string, v: any) =>
-                            typeof v === "number" && k !== "부율" ? v.toLocaleString() : (v ?? "-")
-                        }
+                        formatCell={(k: string, v: any, row: any) => {
+                            // 수동조정 행: 조정액을 보라색으로 함께 표시
+                            const delta = row?.["조정액"]?.[k];
+                            if (typeof v === "number" && k !== "부율") {
+                                if (delta) {
+                                    return (
+                                        <span>
+                                            {v.toLocaleString()}{" "}
+                                            <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                                ({delta > 0 ? "+" : ""}
+                                                {delta.toLocaleString()})
+                                            </span>
+                                        </span>
+                                    );
+                                }
+                                return v.toLocaleString();
+                            }
+                            if (
+                                k === "상영타입" &&
+                                (row?.is_adjusted || row?.is_adjustment) &&
+                                typeof v === "string"
+                            ) {
+                                return (
+                                    <span>
+                                        {v.replace(" (수동조정)", "").replace(/^수동조정$/, "")}{" "}
+                                        <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                            (수동조정)
+                                        </span>
+                                        {row?.["조정ID"] && (
+                                            <button
+                                                title="수동조정 해제 (원래 계산값으로 복구)"
+                                                style={{
+                                                    marginLeft: 6,
+                                                    padding: "1px 6px",
+                                                    fontSize: 11,
+                                                    border: "1px solid #ddd6fe",
+                                                    borderRadius: 4,
+                                                    background: "#fff",
+                                                    color: "#7c3aed",
+                                                    cursor: "pointer",
+                                                }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRemoveAdjustment(row);
+                                                }}
+                                            >
+                                                해제
+                                            </button>
+                                        )}
+                                    </span>
+                                );
+                            }
+                            return v ?? "-";
+                        }}
                         summaryData={summaryData}
                         getRowHighlight={(row: any) => row.is_subtotal} // 합계 행 색상 구분
                         page={1}

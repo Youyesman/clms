@@ -16,4 +16,10 @@ urlpatterns = [
          SettlementExcelExportView.as_view(), name='settlement-excel'),
     path('settlement-esero-export/',
          SettlementEseroExportView.as_view(), name='settlement-esero'),
+    path('settlement-compare/',
+         SettlementCompareView.as_view(), name='settlement-compare'),
+    path('settlement-adjustments/',
+         SettlementAdjustmentView.as_view(), name='settlement-adjustments'),
+    path('settlement-adjustments/<int:pk>/',
+         SettlementAdjustmentDetailView.as_view(), name='settlement-adjustment-detail'),
 ]

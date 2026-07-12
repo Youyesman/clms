@@ -343,7 +343,7 @@ def parse_screening_attributes(text):
 
 
 # 영진위(일반극장) 업로드 시 제외할 멀티플렉스 체인
-KOFIC_EXCLUDE_KINDS = ["CGV", "메가박스", "롯데"]
+KOFIC_EXCLUDE_KINDS = ["CGV", "메가박스", "롯데", "씨네큐"]
 
 
 def _is_kofic_file(file):
@@ -403,7 +403,7 @@ def handle_score_file_upload(file, movie_id=None):
 
 
 def _is_excluded_kofic_theater(theater_name):
-    """영진위 극장명이 CGV/메가박스/롯데 체인인지 판별 (제외 대상)."""
+    """영진위 극장명이 CGV/메가박스/롯데/씨네큐 체인인지 판별 (제외 대상)."""
     norm = str(theater_name).replace(" ", "")
     low = norm.lower()
     return (
@@ -414,6 +414,12 @@ def _is_excluded_kofic_theater(theater_name):
         or low.startswith("cinedechef")
         or "씨네드쉐프" in norm
         or "씨네드셰프" in norm
+        # 씨네큐(CineQ) — 별도 수집기로 커버. 영진위 표기: '씨네Q 보은',
+        # '칠곡호이영화관(씨네Q)' 처럼 중간에 등장하기도 해 contains 로 판별.
+        # 단, 씨네큐브(Cinecube 광화문)는 무관한 예술극장이므로 제외하지 않는다.
+        or "씨네q" in low
+        or "cineq" in low
+        or ("씨네큐" in norm and "씨네큐브" not in norm)
     )
 
 
@@ -421,7 +427,7 @@ def preview_kofic_format(file, movie_id):
     """
     영진위 '회원용통계(영화사별)상세' 양식 파서.
     - 파일에 영화명 컬럼이 없으므로 사용자가 선택한 movie_id로 전체 행을 매칭한다.
-    - CGV/메가박스/롯데 체인 행은 제외하고 나머지 일반극장 데이터만 추출한다.
+    - CGV/메가박스/롯데/씨네큐 체인 행은 제외하고 나머지 일반극장 데이터만 추출한다.
     - 여러 시트(날짜별 분할)를 모두 합산 처리한다.
 
     레이아웃(0-indexed):
@@ -452,7 +458,7 @@ def preview_kofic_format(file, movie_id):
                     continue
 
                 theater_name = str(row.iloc[2]).strip()
-                # CGV/메가박스/롯데 체인은 제외
+                # CGV/메가박스/롯데/씨네큐 체인은 제외
                 if _is_excluded_kofic_theater(theater_name):
                     continue
 
@@ -1027,12 +1033,16 @@ def save_confirmed_orders(data_list):
 
 def save_confirmed_scores(data_list):
     """
-    엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함
+    엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함.
+    저장된 (영화×극장) 조합에 부율(Rate)이 없으면 국가별 기준 부율을 자동 생성함.
+    반환: {"saved": 저장 건수, "rates_created": 부율 생성 건수, "rates_skipped_no_country": [영화명]}
     """
+    from .auto_rate import auto_create_rates
+
     # 1. 유효 데이터 필터링 (영화와 극장이 모두 매칭된 데이터만)
     valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
     if not valid_data:
-        return 0
+        return {"saved": 0, "rates_created": 0, "rates_skipped_no_country": []}
 
     # 2. 오더(OrderList/Order) 변경분 준비
     ols_to_create, orders_to_create, orders_to_update = _build_order_changes(valid_data)
@@ -1051,7 +1061,7 @@ def save_confirmed_scores(data_list):
         for i in valid_data
     ]
 
-    # 4. DB 반영 (트랜잭션 보장: 오더 + 스코어 원자적 처리)
+    # 4. DB 반영 (트랜잭션 보장: 오더 + 스코어 + 자동 부율 원자적 처리)
     with transaction.atomic():
         _apply_order_changes(ols_to_create, orders_to_create, orders_to_update)
 
@@ -1072,4 +1082,11 @@ def save_confirmed_scores(data_list):
                 batch_size=500,
             )
 
-    return len(scores_to_save)
+        # 부율 미등록 (영화×극장) 조합에 국가별 기준 부율 자동 생성
+        rate_result = auto_create_rates(valid_data, parse_date)
+
+    return {
+        "saved": len(scores_to_save),
+        "rates_created": rate_result["created"],
+        "rates_skipped_no_country": rate_result["skipped_no_country"],
+    }

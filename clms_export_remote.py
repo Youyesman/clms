@@ -25,9 +25,8 @@ conn = pyodbc.connect(
 
 # (출력 CSV 파일명, SQL 쿼리)
 EXPORTS = [
-    # Cust_M: Cust_M2에 없는 클라이언트만 (중복 방지)
-    ("Cust_M.csv",
-     "SELECT * FROM [Cust_M] WHERE ctm_code NOT IN (SELECT ctm_code FROM [Cust_M2])"),
+    # Cust_M: 반드시 전체 export (import_clients가 전체 Cust_M을 읽음 — 필터 걸면 누락)
+    ("Cust_M.csv",       "SELECT * FROM [Cust_M]"),
     ("Cust_M2.csv",      "SELECT * FROM [Cust_M2]"),
     ("Title_M.csv",      "SELECT * FROM [Title_M]"),
     ("Theater_M.csv",    "SELECT * FROM [Theater_M]"),

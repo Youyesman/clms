@@ -4,7 +4,7 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { DiscIcon, FloppyDisk, FloppyDiskIcon } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
-import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, REGION_CODES, SETTLEMENT_DEPARTMENTS, THEATER_KINDS } from "../../../constant/Constants";
+import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, RATE_EXCEPTION_TYPES, REGION_CODES, SETTLEMENT_DEPARTMENTS, THEATER_KINDS } from "../../../constant/Constants";
 import { useToast } from "../../../components/common/CustomToast";
 import { AxiosPatch } from "../../../axios/Axios";
 import { useAppAlert } from "../../../atom/alertUtils";
@@ -242,6 +242,13 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                                 value={formData.is_car_theater ? "Y" : "N"}
                                 onChange={(v) => updateField("is_car_theater", v === "Y")}
                                 options={["Y", "N"]}
+                                size="sm"
+                            />
+                            <CustomSelect
+                                label="부율 예외극장"
+                                value={formData.rate_exception_type || ""}
+                                onChange={(v) => updateField("rate_exception_type", v)}
+                                options={RATE_EXCEPTION_TYPES}
                                 size="sm"
                             />
                         </FormGrid>

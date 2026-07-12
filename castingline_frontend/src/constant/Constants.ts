@@ -35,4 +35,11 @@ export const MANAGEMENT_TYPES = ["직영", "위탁", "기타"]
 /** 멀티종류 (브랜드) */
 export const THEATER_KINDS = ["롯데", "CGV", "메가박스", "씨네큐", "일반극장"]
 
+/** 부율 예외극장 구분 (스코어 확정 시 자동 부율 55% 적용 범위) */
+export const RATE_EXCEPTION_TYPES = [
+    { label: "해당없음", value: "" },
+    { label: "모두 (한국영화+외화 55%)", value: "모두" },
+    { label: "외화만 55%", value: "외화" },
+]
+
 export const DISTRIBUTER_THEATER_NAME = ["배급사별 극장명", "극장명 공통 사용", "관리 제외(삭제)"];

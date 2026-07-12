@@ -78,6 +78,9 @@ class Client(TimeStampedModel):
         null=True, blank=True
     )  # 영업 상태: True=영업중, False=폐관
     is_car_theater = models.BooleanField(null=True, blank=True)  # 자동차극장여부
+    rate_exception_type = models.CharField(
+        max_length=10, null=True, blank=True
+    )  # 부율 예외극장 구분: '모두'=한국+외화 55%, '외화'=외화만 55%, 빈값=해당없음
 
     distributor_theater_name = models.CharField(
         max_length=10, null=True, blank=True, default="N"
