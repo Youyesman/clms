@@ -26,9 +26,12 @@ interface IAdjustment {
 }
 interface ICompareRow {
     체인: string;
+    구분: string; // 직영/위탁/기타 ("" = 미매칭 PDF 행)
     극장명: string;
+    포맷: string; // 포맷 버킷("2D"/"4DX"/"ATMOS"…), 포맷 미분리 체인(롯데/메가박스)은 ""
     파일극장명: string | null;
     client_code: string | null;
+    확인: boolean; // 극장 확인 처리 여부 (월×영화×극장 단위)
     status: "both" | "file_only" | "system_only";
     equal: boolean;
     missing_rate: boolean;
@@ -59,8 +62,11 @@ interface IUnmatchedMovie {
 }
 interface IFileInfo {
     filename: string;
-    chain: string;
+    chain: string; // 엑셀: 체인명, PDF: "AI·<추출체인>"
     row_count: number;
+    source: "excel" | "ai";
+    confidence?: "high" | "low"; // AI 추출 신뢰도 (PDF만)
+    notes?: string; // AI 판독 특이사항 (PDF만)
 }
 interface ICompareResult {
     chains: string[];
@@ -136,20 +142,22 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
     const [dragOver, setDragOver] = useState(false);
     const [result, setResult] = useState<ICompareResult | null>(null);
     const [fileName, setFileName] = useState("");
+    const [hasPdf, setHasPdf] = useState(false);
     const [filter, setFilter] = useState<FilterKey>("all");
 
     const runCompare = async (files: File[]) => {
-        const excels = files.filter((f) => /\.(xlsx|xls)$/i.test(f.name));
-        if (!excels.length) {
-            toast.error("엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다.");
+        const valid = files.filter((f) => /\.(xlsx|xls|pdf)$/i.test(f.name));
+        if (!valid.length) {
+            toast.error("엑셀(.xlsx, .xls) 또는 PDF(.pdf) 파일만 업로드할 수 있습니다.");
             return;
         }
         setLoading(true);
         setResult(null);
-        setFileName(excels.map((f) => f.name).join(", "));
+        setHasPdf(valid.some((f) => /\.pdf$/i.test(f.name)));
+        setFileName(valid.map((f) => f.name).join(", "));
         try {
             const fd = new FormData();
-            excels.forEach((f) => fd.append("files", f));
+            valid.forEach((f) => fd.append("files", f));
             fd.append("yyyyMm", yyyyMm);
             const res = await AxiosPost("settlement-compare", fd);
             const data = res.data as ICompareResult;
@@ -179,13 +187,23 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         if (files.length) runCompare(files);
     };
 
-    /** 특정 행을 갱신하고 섹션/전체 합계·요약을 재계산 */
-    const updateRow = (movieId: number, theater: string, updater: (r: ICompareRow) => ICompareRow) => {
+    /** 특정 행(극장×포맷)을 갱신하고 섹션/전체 합계·요약을 재계산 */
+    const updateRow = (movieId: number, target: ICompareRow, updater: (r: ICompareRow) => ICompareRow) => {
         setResult((prev) => {
             if (!prev) return prev;
             const movies = prev.movies.map((sec) =>
                 sec.movie_id === movieId
-                    ? { ...sec, rows: sec.rows.map((r) => (r.극장명 === theater ? updater(r) : r)) }
+                    ? {
+                          ...sec,
+                          rows: sec.rows.map((r) =>
+                              r.체인 === target.체인 &&
+                              r.구분 === target.구분 &&
+                              r.극장명 === target.극장명 &&
+                              r.포맷 === target.포맷
+                                  ? updater(r)
+                                  : r
+                          ),
+                      }
                     : sec
             );
             const { newMovies, grand_totals, grand_summary } = recomputeSections(movies);
@@ -205,6 +223,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 yyyyMm: result.yyyyMm,
                 movie_id: sec.movie_id,
                 client_code: r.client_code,
+                screen_format: r.포맷 || "",
                 supply_delta: ms["공급가액"].diff,
                 vat_delta: ms["부가세"].diff,
                 payout_delta: ms["영화사 지급금"].diff,
@@ -225,8 +244,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     "영화사 지급금": ms["영화사 지급금"].system ?? 0,
                 },
             };
-            updateRow(sec.movie_id, r.극장명, (row) => ({
+            updateRow(sec.movie_id, r, (row) => ({
                 ...row,
+                확인: true, // 조정 저장 = 확인 처리 (백엔드 자동)
                 equal: row.metrics["인원"].diff === 0,
                 adjustment: adj,
                 metrics: {
@@ -251,12 +271,12 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         if (!adj) return;
         showAlert(
             "수동조정 해제",
-            `'${r.극장명}'의 수동조정을 해제하시겠습니까?`,
+            `'${r.극장명}${r.포맷 ? ` (${r.포맷})` : ""}'의 수동조정을 해제하시겠습니까?`,
             "warning",
             async () => {
                 try {
                     await AxiosDelete("settlement-adjustments", adj.id);
-                    updateRow(sec.movie_id, r.극장명, (row) => {
+                    updateRow(sec.movie_id, r, (row) => {
                         const deltas: Record<string, number> = {
                             공급가액: adj.supply_delta,
                             부가세: adj.vat_delta,
@@ -281,6 +301,206 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     toast.success("조정을 해제했습니다.");
                 } catch {
                     toast.error("조정 해제에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
+
+    /** 극장 확인 토글 — 같은 극장(거래처)의 모든 포맷 행에 함께 반영 */
+    const toggleConfirm = async (sec: IMovieSection, r: ICompareRow) => {
+        if (!r.client_code || !result) return;
+        const next = !r.확인;
+        try {
+            await AxiosPost("settlement-confirms", {
+                yyyyMm: result.yyyyMm,
+                movie_id: sec.movie_id,
+                client_codes: [r.client_code],
+                confirmed: next,
+                source: "대사",
+            });
+            setResult((prev) => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    movies: prev.movies.map((s) =>
+                        s.movie_id === sec.movie_id
+                            ? {
+                                  ...s,
+                                  rows: s.rows.map((row) =>
+                                      row.client_code === r.client_code
+                                          ? { ...row, 확인: next }
+                                          : row
+                                  ),
+                              }
+                            : s
+                    ),
+                };
+            });
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error || "확인 처리에 실패했습니다.");
+        }
+    };
+
+    /** 전체 영화의 미확인 극장(시스템 매칭 행) 일괄 확인 */
+    const bulkConfirm = () => {
+        if (!result) return;
+        const perMovie = new Map<number, Set<string>>();
+        result.movies.forEach((sec) =>
+            sec.rows.forEach((r) => {
+                if (r.client_code && !r.확인) {
+                    if (!perMovie.has(sec.movie_id)) perMovie.set(sec.movie_id, new Set());
+                    perMovie.get(sec.movie_id)!.add(r.client_code);
+                }
+            })
+        );
+        const total = Array.from(perMovie.values()).reduce((a, s) => a + s.size, 0);
+        if (!total) {
+            toast.info("확인 처리할 미확인 극장이 없습니다.");
+            return;
+        }
+        showAlert(
+            "일괄 확인 처리",
+            `대사 결과의 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosPost("settlement-confirms", {
+                        yyyyMm: result.yyyyMm,
+                        confirmed: true,
+                        source: "대사",
+                        items: Array.from(perMovie.entries()).map(([movie_id, codes]) => ({
+                            movie_id,
+                            client_codes: Array.from(codes),
+                        })),
+                    });
+                    setResult((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            movies: prev.movies.map((s) => ({
+                                ...s,
+                                rows: s.rows.map((row) =>
+                                    row.client_code ? { ...row, 확인: true } : row
+                                ),
+                            })),
+                        };
+                    });
+                    toast.success(`${total}곳을 확인 처리했습니다.`);
+                } catch (e: any) {
+                    toast.error(e?.response?.data?.error || "일괄 확인에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
+
+    /** 조정 가능 조건: 인원은 일치하고 금액만 차이 + 거래처코드 존재 + 미조정 */
+    const canAdjust = (r: ICompareRow) =>
+        r.status === "both" &&
+        !r.equal &&
+        r.metrics["인원"].diff === 0 &&
+        !!r.client_code &&
+        !r.adjustment;
+
+    /** 일괄 조정 대상: 모든 금액 차이가 7원 미만(반올림 잔차 수준)인 행만.
+     *  7원 이상 차이는 원인 확인이 필요하므로 행별 버튼으로만 조정 가능. */
+    const canBulkAdjust = (r: ICompareRow) =>
+        canAdjust(r) &&
+        AMOUNT_METRICS.every((m) => Math.abs(r.metrics[m].diff) < 7);
+
+    /** 전체 영화의 조정 대상 행(금액 차이 7원 미만)을 한 번에 파일 값으로 조정 */
+    const bulkAdjust = () => {
+        if (!result) return;
+        const targets = result.movies.flatMap((sec) =>
+            sec.rows.filter(canBulkAdjust).map((r) => ({ sec, r }))
+        );
+        if (!targets.length) {
+            toast.info("일괄 조정할 대상이 없습니다. (금액 차이 7원 미만 행만 일괄 조정 가능)");
+            return;
+        }
+        showAlert(
+            "파일값으로 일괄 조정",
+            `인원은 일치하고 금액 차이가 7원 미만인 ${targets.length}개 행(극장×포맷)을 전부 파일(정산서) 값으로 조정하시겠습니까? (7원 이상 차이는 행별로만 조정 가능)`,
+            "warning",
+            async () => {
+                try {
+                    const items = targets.map(({ sec, r }) => ({
+                        movie_id: sec.movie_id,
+                        client_code: r.client_code,
+                        screen_format: r.포맷 || "",
+                        supply_delta: r.metrics["공급가액"].diff,
+                        vat_delta: r.metrics["부가세"].diff,
+                        payout_delta: r.metrics["영화사 지급금"].diff,
+                        supply_original: r.metrics["공급가액"].system,
+                        vat_original: r.metrics["부가세"].system,
+                        payout_original: r.metrics["영화사 지급금"].system,
+                        note: `부금 대사 일괄 조정 (${sec.movie_title})`,
+                    }));
+                    const res = await AxiosPost("settlement-adjustments", {
+                        yyyyMm: result.yyyyMm,
+                        items,
+                    });
+                    const saved: any[] = res.data.results || [];
+                    const errors: any[] = res.data.errors || [];
+                    const idMap = new Map<string, any>();
+                    saved.forEach((s) =>
+                        idMap.set(`${s.movie_id}|${s.client_code}|${s.screen_format || ""}`, s)
+                    );
+
+                    setResult((prev) => {
+                        if (!prev) return prev;
+                        const movies = prev.movies.map((sec) => ({
+                            ...sec,
+                            rows: sec.rows.map((r) => {
+                                const s = idMap.get(
+                                    `${sec.movie_id}|${r.client_code}|${r.포맷 || ""}`
+                                );
+                                if (!s || !canBulkAdjust(r)) return r;
+                                r = { ...r, 확인: true }; // 조정 저장 = 확인 처리 (백엔드 자동)
+                                const adj: IAdjustment = {
+                                    id: s.id,
+                                    supply_delta: s.supply_delta,
+                                    vat_delta: s.vat_delta,
+                                    payout_delta: s.payout_delta,
+                                    note: s.note,
+                                    original: {
+                                        공급가액: r.metrics["공급가액"].system ?? 0,
+                                        부가세: r.metrics["부가세"].system ?? 0,
+                                        "영화사 지급금": r.metrics["영화사 지급금"].system ?? 0,
+                                    },
+                                };
+                                return {
+                                    ...r,
+                                    equal: true,
+                                    adjustment: adj,
+                                    metrics: {
+                                        ...r.metrics,
+                                        ...Object.fromEntries(
+                                            AMOUNT_METRICS.map((m) => [
+                                                m,
+                                                {
+                                                    system: r.metrics[m].file,
+                                                    file: r.metrics[m].file,
+                                                    diff: 0,
+                                                },
+                                            ])
+                                        ),
+                                    },
+                                };
+                            }),
+                        }));
+                        const { newMovies, grand_totals, grand_summary } =
+                            recomputeSections(movies);
+                        return { ...prev, movies: newMovies, grand_totals, grand_summary };
+                    });
+                    if (errors.length) {
+                        toast.warning(`${saved.length}개 조정 완료, ${errors.length}개 실패`);
+                    } else {
+                        toast.success(`${saved.length}개 극장을 파일 값으로 일괄 조정했습니다.`);
+                    }
+                } catch (e: any) {
+                    toast.error(e?.response?.data?.error || "일괄 조정에 실패했습니다.");
                 }
             },
             true
@@ -312,9 +532,11 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
     return (
         <Wrapper>
             <Intro>
-                직영 부금정산서(CGV/롯데/메가박스)를 올리면 <b>체인·정산월·영화를
-                모두 자동 인식</b>해 극장별 인원/공급가액/부가세/영화사지급금을 한
-                번에 대사합니다. (페이지에서 보고 있는 연월과 무관하게 파일의
+                <b>직영 엑셀</b>(CGV/롯데/메가박스)과 <b>위탁·일반극장 PDF</b>를
+                올리면 체인·정산월·영화를 모두 자동 인식해 극장별
+                인원/공급가액/부가세/영화사지급금을 한 번에 대사합니다. PDF는
+                양식이 제각각이라 <b>AI가 분석</b>하며(파일당 수십 초, 재업로드는
+                즉시), 극장·영화명이 달라도 자동 매칭합니다. (연월은 파일의
                 상영일 기준)
             </Intro>
 
@@ -331,7 +553,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 <input
                     ref={inputRef}
                     type="file"
-                    accept=".xlsx,.xls"
+                    accept=".xlsx,.xls,.pdf"
                     multiple
                     style={{ display: "none" }}
                     onChange={(e) => {
@@ -343,15 +565,20 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 {loading ? (
                     <>
                         <CircleNotch size={28} className="spin" />
-                        <p>비교 중… ({fileName})</p>
+                        <p>
+                            {hasPdf
+                                ? "AI가 PDF 정산서를 분석·대사 중입니다… (파일당 수십 초 소요)"
+                                : "비교 중…"}{" "}
+                            ({fileName})
+                        </p>
                     </>
                 ) : (
                     <>
                         <FileXls size={30} />
                         <p>
-                            직영 부금정산서 엑셀을 <b>드래그앤드롭</b> 하거나 클릭해서
-                            선택하세요 (CGV·롯데·메가박스 <b>여러 파일 동시 업로드 가능</b>
-                            — 전부 합산 비교)
+                            부금정산서를 <b>드래그앤드롭</b> 하거나 클릭해서 선택하세요
+                            — 직영 엑셀(CGV·롯데·메가박스) + 위탁·일반극장 PDF,{" "}
+                            <b>여러 파일 동시 업로드 가능</b> (전부 합산 비교)
                         </p>
                         {fileName && <span className="fname">{fileName}</span>}
                     </>
@@ -407,6 +634,30 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         </span>
                     </SummaryBar>
 
+                    {result.files.some((f) => f.source === "ai") && (
+                        <FileList>
+                            {result.files
+                                .filter((f) => f.source === "ai")
+                                .map((f) => (
+                                    <li key={f.filename} className={f.confidence === "low" ? "low" : ""}>
+                                        {f.confidence === "low" ? (
+                                            <Warning size={14} weight="fill" color="#d97706" />
+                                        ) : (
+                                            <CheckCircle size={14} weight="fill" color="#16a34a" />
+                                        )}
+                                        <span className="ai">AI</span>
+                                        <b>{f.filename}</b>
+                                        <span>({f.chain.replace("AI·", "")} · {f.row_count}건)</span>
+                                        {f.confidence === "low" && (
+                                            <em className="notes" title={f.notes}>
+                                                판독 주의: {f.notes || "숫자/이름 판독 불확실 — 원본 대조 필요"}
+                                            </em>
+                                        )}
+                                    </li>
+                                ))}
+                        </FileList>
+                    )}
+
                     <FilterBar>
                         {(
                             [
@@ -425,6 +676,35 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                 {label}
                             </FilterBtn>
                         ))}
+                        {(() => {
+                            const n = result.movies.reduce(
+                                (acc, s) => acc + s.rows.filter(canBulkAdjust).length,
+                                0
+                            );
+                            return n > 0 ? (
+                                <BulkBtn
+                                    onClick={bulkAdjust}
+                                    title="인원은 일치하고 금액 차이가 7원 미만인 극장 전체를 파일 값으로 조정 (7원 이상 차이는 행별로만)"
+                                >
+                                    파일값으로 일괄 조정 ({n})
+                                </BulkBtn>
+                            ) : null;
+                        })()}
+                        {(() => {
+                            const n = result.movies.reduce(
+                                (acc, s) =>
+                                    acc + s.rows.filter((r) => r.client_code && !r.확인).length,
+                                0
+                            );
+                            return n > 0 ? (
+                                <ConfirmAllBtn
+                                    onClick={bulkConfirm}
+                                    title="대사 결과의 미확인 극장을 전부 확인 처리 (정산 관리 테이블의 확인 상태와 공유)"
+                                >
+                                    일괄 확인 ({n})
+                                </ConfirmAllBtn>
+                            ) : null;
+                        })()}
                     </FilterBar>
 
                     {result.movies.map((sec) => {
@@ -457,6 +737,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                     <th rowSpan={2} className="left">
                                                         극장명
                                                     </th>
+                                                    <th rowSpan={2} style={{ width: 64 }}>
+                                                        포맷
+                                                    </th>
                                                     {METRICS.map((m) => (
                                                         <th key={m} colSpan={3}>
                                                             {m === "영화사 지급금"
@@ -464,6 +747,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                 : m}
                                                         </th>
                                                     ))}
+                                                    <th rowSpan={2} style={{ width: 70 }}>
+                                                        확인
+                                                    </th>
                                                     <th rowSpan={2} style={{ width: 110 }}>
                                                         조정
                                                     </th>
@@ -482,6 +768,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                 <tr className="total">
                                                     <td />
                                                     <td className="left">합계</td>
+                                                    <td />
                                                     {METRICS.map((m) => {
                                                         const t = sec.totals[m];
                                                         return (
@@ -503,10 +790,11 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                         );
                                                     })}
                                                     <td />
+                                                    <td />
                                                 </tr>
                                                 {rows.map((r) => (
                                                     <tr
-                                                        key={`${r.체인}-${r.극장명}`}
+                                                        key={`${r.체인}-${r.구분}-${r.극장명}-${r.포맷}`}
                                                         className={
                                                             r.status !== "both"
                                                                 ? "warnrow"
@@ -520,6 +808,11 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                         </td>
                                                         <td className="left">
                                                             {r.극장명}
+                                                            {r.구분 && r.구분 !== "직영" && (
+                                                                <span className="tag cls">
+                                                                    {r.구분}
+                                                                </span>
+                                                            )}
                                                             {r.파일극장명 &&
                                                                 r.파일극장명 !== r.극장명 && (
                                                                     <span className="alias">
@@ -536,6 +829,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                     부율 미설정 포함
                                                                 </span>
                                                             )}
+                                                        </td>
+                                                        <td className="center">
+                                                            {r.포맷 || "-"}
                                                         </td>
                                                         {METRICS.map((m) => {
                                                             const v = r.metrics[m];
@@ -561,6 +857,23 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                 </React.Fragment>
                                                             );
                                                         })}
+                                                        <td className="center">
+                                                            {r.client_code ? (
+                                                                <ConfirmMini
+                                                                    $on={r.확인}
+                                                                    onClick={() =>
+                                                                        toggleConfirm(sec, r)
+                                                                    }
+                                                                    title={
+                                                                        r.확인
+                                                                            ? "확인됨 — 클릭 시 해제"
+                                                                            : "클릭하여 확인 처리"
+                                                                    }
+                                                                >
+                                                                    {r.확인 ? "✓ 확인" : "미확인"}
+                                                                </ConfirmMini>
+                                                            ) : null}
+                                                        </td>
                                                         <td className="center">
                                                             {r.adjustment ? (
                                                                 <AdjWrap
@@ -734,6 +1047,52 @@ const FilterBar = styled.div`
     gap: 6px;
     flex-shrink: 0;
 `;
+const ConfirmMini = styled.button<{ $on: boolean }>`
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    border: 1px solid ${({ $on }) => ($on ? "#16a34a" : "#cbd5e1")};
+    background: ${({ $on }) => ($on ? "#f0fdf4" : "#fff")};
+    color: ${({ $on }) => ($on ? "#16a34a" : "#94a3b8")};
+    &:hover {
+        border-color: ${({ $on }) => ($on ? "#dc2626" : "#16a34a")};
+        color: ${({ $on }) => ($on ? "#dc2626" : "#16a34a")};
+    }
+`;
+const ConfirmAllBtn = styled.button`
+    margin-left: 6px;
+    height: 28px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #16a34a;
+    background: #16a34a;
+    color: #fff;
+    &:hover {
+        background: #15803d;
+    }
+`;
+const BulkBtn = styled.button`
+    margin-left: 10px;
+    height: 28px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #7c3aed;
+    background: #7c3aed;
+    color: #fff;
+    &:hover {
+        background: #6d28d9;
+    }
+`;
 const FilterBtn = styled.button<{ $on: boolean }>`
     height: 28px;
     padding: 0 12px;
@@ -872,6 +1231,45 @@ const Table = styled.table`
     .tag.rate {
         background: #fee2e2;
         color: #991b1b;
+    }
+    .tag.cls {
+        background: #ede9fe;
+        color: #5b21b6;
+    }
+`;
+const FileList = styled.ul`
+    margin: 0;
+    padding: 8px 14px;
+    list-style: none;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 12px;
+    color: #475569;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+    li {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    li.low {
+        color: #92400e;
+    }
+    .ai {
+        padding: 0 6px;
+        border-radius: 4px;
+        background: #ede9fe;
+        color: #5b21b6;
+        font-weight: 700;
+        font-size: 11px;
+    }
+    .notes {
+        font-style: normal;
+        color: #b45309;
     }
 `;
 const AdjBtn = styled.button`

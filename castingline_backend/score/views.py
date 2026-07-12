@@ -463,9 +463,8 @@ def apply_common_filters(qs, request):
         qs = qs.filter(client__theater_kind=multi)
 
     if theater_type and theater_type != "전체":
-        # 2. 에러 발생 지점: client__type -> 실제 Client 모델의 필드명으로 수정
-        # 만약 필드명이 'client_type'이라면 아래와 같이 수정해야 합니다.
-        qs = qs.filter(client__client_type=theater_type)
+        # 극장유형(직영/위탁/기타)은 classification 필드 (client_type은 극장/배급사/제작사 구분)
+        qs = qs.filter(client__classification=theater_type)
 
     return qs
 
@@ -1094,7 +1093,7 @@ def score_daily_status(request):
     if multi and multi != "전체":
         common_filter &= Q(client__theater_kind=multi)
     if theater_type and theater_type != "전체":
-        common_filter &= Q(client__client_type=theater_type)
+        common_filter &= Q(client__classification=theater_type)
 
     # 집계: 날짜 + 극장 + 상영관 + 요금
     qs = list(
@@ -1243,7 +1242,7 @@ def score_criteria(request):
     if multi and multi != "전체":
         common_filter &= Q(client__theater_kind=multi)
     if theater_type and theater_type != "전체":
-        common_filter &= Q(client__client_type=theater_type)
+        common_filter &= Q(client__classification=theater_type)
 
     GROUP_FIELDS = ["client_id", "auditorium", "movie_id", "fare"]
 
@@ -1669,7 +1668,7 @@ def score_ranking(request):
     if multi and multi != "전체":
         common_filter &= Q(client__theater_kind=multi)
     if theater_type and theater_type != "전체":
-        common_filter &= Q(client__client_type=theater_type)
+        common_filter &= Q(client__classification=theater_type)
 
     # 집계: (client_id, fare, entry_date) → sum(visitor)
     qs = list(
@@ -2188,7 +2187,7 @@ def score_settlement_detail(request):
     if multi_p and multi_p != "전체":
         common_filter &= Q(client__theater_kind=multi_p)
     if theater_type and theater_type != "전체":
-        common_filter &= Q(client__client_type=theater_type)
+        common_filter &= Q(client__classification=theater_type)
 
     # DB 집계: (movie_id, client_id, fare, entry_date, auditorium) → sum(visitor)
     qs = list(
@@ -2584,7 +2583,7 @@ def score_supply_price(request):
     if multi_p and multi_p != "전체":
         common_filter &= Q(client__theater_kind=multi_p)
     if theater_type and theater_type != "전체":
-        common_filter &= Q(client__client_type=theater_type)
+        common_filter &= Q(client__classification=theater_type)
     if client_id_param:
         common_filter &= Q(client_id=client_id_param)
 

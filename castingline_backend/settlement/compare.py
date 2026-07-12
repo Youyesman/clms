@@ -54,11 +54,42 @@ def norm_theater(s):
     s = str(s or "").replace(" ", "")
     s = re.sub(r"^\((폐관|임시중단|휴관)\)", "", s)
     s = s.replace("(발전기금면제관)", "")
-    for prefix in ("CGV", "cgv", "메가박스", "롯데시네마", "롯데", "씨네큐"):
+    for prefix in ("CGV", "cgv", "메가박스", "롯데시네마", "롯데", "씨네큐", "CINEQ", "cineq"):
         if s.startswith(prefix):
             s = s[len(prefix):]
             break
     return s.lower()
+
+
+# ── 상영 포맷 버킷 ──
+# 부금 대사를 (극장, 포맷) 단위로 쪼개기 위한 정규화. 파일 영화명("백룸(4DX SOUNDX 2D)",
+# "백룸(DOLBY ATMOS mix 2D)")과 시스템 상영타입("디지털 2D 4-DX", "디지털 2D ATMOS Dolby")
+# 양쪽에서 핵심 특수관 토큰만 뽑아 같은 버킷으로 맞춘다. (SOUNDX/Dolby/mix 등 수식어 무시)
+# 포맷을 식별할 수 있는 체인만 포맷 분리 — CGV는 영화명 괄호 표기, 메가박스는
+# 상영종류 컬럼(screen_kind). 롯데 정산서는 포맷 정보가 아예 없어 극장 단위 유지.
+FORMAT_SPLIT_CHAINS = {"CGV", "메가박스"}
+
+_FORMAT_TOKEN_PATTERNS = [
+    ("4DX", re.compile(r"4\s*-?\s*DX", re.I)),
+    ("IMAX", re.compile(r"IMAX", re.I)),
+    ("SCREENX", re.compile(r"SCREEN\s*X", re.I)),
+    ("SPHEREX", re.compile(r"SPHERE\s*X", re.I)),
+    ("ATMOS", re.compile(r"ATMOS", re.I)),
+    ("3D", re.compile(r"3\s*D", re.I)),
+]
+
+# 체인별로 버킷에서 무시할 토큰. 메가박스는 시스템 스코어가 ATMOS 상영분을 부분적으로만
+# 분류해(같은 극장에서 일부는 2D 하위영화로 적재) 분리 시 가짜 인원차 불일치가 생기므로
+# 기본관에 합산한다 — 부율/금액이 동일해 대사 정확도 손실 없음 (사용자 확정 2026-07-12).
+_CHAIN_IGNORED_TOKENS = {"메가박스": {"ATMOS"}}
+
+
+def format_bucket(text, chain=None):
+    """상영타입/파일 영화명 → 포맷 버킷 문자열. 특수관 토큰이 없으면 '2D'(기본관)."""
+    ignored = _CHAIN_IGNORED_TOKENS.get(chain, ())
+    tokens = [name for name, pat in _FORMAT_TOKEN_PATTERNS
+              if name not in ignored and pat.search(str(text or ""))]
+    return " ".join(tokens) if tokens else "2D"
 
 
 # 파일 극장명 → 시스템 극장명 병합 규칙 (norm_theater 정규화 키 기준).
@@ -153,9 +184,13 @@ def _parse_cgv(sheets):
 
 
 def _parse_megabox(df, hi):
-    """메가박스: 공급가=부금-공급가, 부가세=부금-부가세, 지급금=합산."""
+    """메가박스: 공급가=부금-공급가, 부가세=부금-부가세, 지급금=합산.
+
+    상영종류 컬럼('2D(자막)'/'2D ATMOS(자막)' 등)을 screen_kind로 보존 — 포맷 분리 대사용.
+    """
     header = [_txt(v) for v in df.iloc[hi].tolist()]
     c_theater = _col_idx(header, "지점명")
+    c_kind = _col_idx(header, "상영종류")
     c_movie = _col_idx(header, "영화명")
     c_date = _col_idx(header, "상영시작일")
     c_date_end = _col_idx(header, "상영종료일")
@@ -176,6 +211,7 @@ def _parse_megabox(df, hi):
         rows.append({
             "theater": theater,
             "movie": _txt(row.iloc[c_movie]),
+            "screen_kind": _txt(row.iloc[c_kind]),
             "date": _txt(row.iloc[c_date]),
             "date_end": _txt(row.iloc[c_date_end]),
             "fare": _num(row.iloc[c_fare]),

@@ -1,7 +1,16 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import styled, { keyframes } from "styled-components";
-import { MagnifyingGlass, DownloadSimple, CircleNotch, Scales } from "@phosphor-icons/react";
-import { AxiosGet, AxiosDelete } from "../../../axios/Axios";
+import {
+    MagnifyingGlass,
+    DownloadSimple,
+    CircleNotch,
+    Scales,
+    CheckCircle,
+    Circle,
+    PencilSimple,
+    Checks,
+} from "@phosphor-icons/react";
+import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
@@ -178,9 +187,214 @@ const ClearBtn = styled.button`
     }
 `;
 
+const ConfirmToggle = styled.button<{ $on: boolean }>`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid ${({ $on }) => ($on ? "#16a34a" : "#cbd5e1")};
+    background: ${({ $on }) => ($on ? "#f0fdf4" : "#fff")};
+    color: ${({ $on }) => ($on ? "#16a34a" : "#94a3b8")};
+    white-space: nowrap;
+    &:hover {
+        border-color: ${({ $on }) => ($on ? "#dc2626" : "#16a34a")};
+        color: ${({ $on }) => ($on ? "#dc2626" : "#16a34a")};
+    }
+`;
+
+const EditIconBtn = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 22px;
+    padding: 0 7px;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    background: #fff;
+    color: #4338ca;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover {
+        background: #eef2ff;
+    }
+`;
+
+const EditModalBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: "SUIT", sans-serif;
+    font-size: 13px;
+    color: #334155;
+    .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        label {
+            width: 90px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        input {
+            flex: 1;
+            height: 32px;
+            padding: 0 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 13px;
+            text-align: right;
+            outline: none;
+            &:focus {
+                border-color: #3b82f6;
+            }
+            &:disabled {
+                background: #f1f5f9;
+                color: #475569;
+            }
+        }
+        .orig {
+            width: 110px;
+            text-align: right;
+            color: #94a3b8;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+    }
+    .hint {
+        font-size: 12px;
+        color: #64748b;
+    }
+    .btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        button {
+            height: 32px;
+            padding: 0 16px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .save {
+            border: none;
+            background: #2563eb;
+            color: #fff;
+        }
+        .cancel {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #475569;
+        }
+    }
+`;
+
+/** 정산 금액 직접 수정 — 저장 시 수동조정(차액)으로 기록되고 해당 극장은 자동 확인 처리 */
+function AmountEditModal({
+    yyyyMm,
+    movieId,
+    row,
+    onSaved,
+    onClose,
+}: {
+    yyyyMm: string;
+    movieId: string;
+    row: any;
+    onSaved: () => void;
+    onClose: () => void;
+}) {
+    const toast = useToast();
+    const [supply, setSupply] = useState(String(row["공급가액"] ?? ""));
+    const [vat, setVat] = useState(String(row["부가세"] ?? ""));
+    const [saving, setSaving] = useState(false);
+
+    const num = (s: string) => {
+        const n = Number(String(s).replace(/,/g, "").trim());
+        return Number.isFinite(n) ? Math.round(n) : NaN;
+    };
+
+    // 영화사 지급금 = 공급가액 + 부가세 (자동 계산)
+    const payoutCalc = num(supply) + num(vat);
+
+    const save = async () => {
+        const ns = num(supply), nv = num(vat);
+        if ([ns, nv].some(Number.isNaN)) {
+            toast.error("금액을 숫자로 입력해주세요.");
+            return;
+        }
+        const np = ns + nv;
+        setSaving(true);
+        try {
+            await AxiosPost("settlement-adjustments", {
+                yyyyMm,
+                movie_id: Number(movieId),
+                client_code: row["거래처코드"],
+                screen_format: row["포맷버킷"] || "",
+                supply_delta: ns - (row["공급가액"] || 0),
+                vat_delta: nv - (row["부가세"] || 0),
+                payout_delta: np - (row["영화사 지급금"] || 0),
+                supply_original: row["공급가액"] ?? null,
+                vat_original: row["부가세"] ?? null,
+                payout_original: row["영화사 지급금"] ?? null,
+                note: "정산 관리 직접 수정",
+            });
+            toast.success("저장했습니다 — '(수동조정)' 행으로 반영되고 확인 처리됩니다.");
+            onClose();
+            onSaved();
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error || "저장에 실패했습니다.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <EditModalBody>
+            <div className="hint">
+                {row["극장명"]}
+                {row["상영타입"] ? ` · ${row["상영타입"]}` : ""} — 수정 금액은 계산값과의
+                차액이 <b>수동조정</b>으로 저장되며, 해당 극장은 <b>확인 처리</b>됩니다.
+            </div>
+            <div className="row">
+                <label>공급가액</label>
+                <input value={supply} onChange={(e) => setSupply(e.target.value)} />
+                <span className="orig">계산값 {(row["공급가액"] ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="row">
+                <label>부가세</label>
+                <input value={vat} onChange={(e) => setVat(e.target.value)} />
+                <span className="orig">계산값 {(row["부가세"] ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="row">
+                <label>영화사 지급금</label>
+                <input
+                    value={Number.isNaN(payoutCalc) ? "" : payoutCalc.toLocaleString()}
+                    disabled
+                    title="공급가액 + 부가세 자동 계산"
+                />
+                <span className="orig">계산값 {(row["영화사 지급금"] ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="btns">
+                <button className="cancel" onClick={onClose} disabled={saving}>
+                    취소
+                </button>
+                <button className="save" onClick={save} disabled={saving}>
+                    {saving ? "저장 중…" : "저장"}
+                </button>
+            </div>
+        </EditModalBody>
+    );
+}
+
 export function ManageSettlement() {
     const toast = useToast();
-    const { openModal } = useGlobalModal();
+    const { openModal, closeModal } = useGlobalModal();
     const { showAlert } = useAppAlert();
     const [settlements, setSettlements] = useState<any[]>([]);
     const [movieOptions, setMovieOptions] = useState<any[]>([]);
@@ -198,6 +412,8 @@ export function ManageSettlement() {
         movieId: "",
         target: "전체극장",
     });
+    // 확인여부 필터 (클라이언트측) — 미확인 극장만 추려 월초 확인 작업용
+    const [confirmFilter, setConfirmFilter] = useState("전체");
 
     useEffect(() => {
         if (theaterInput.length < 1) {
@@ -335,12 +551,146 @@ export function ManageSettlement() {
         }
     };
 
+    /** 극장(거래처) 단위 확인 토글 — 같은 극장의 모든 행에 함께 반영 */
+    const toggleConfirm = async (row: any) => {
+        const code = row["거래처코드"];
+        if (!code || !searchParams.movieId) return;
+        const next = !row["확인"];
+        try {
+            await AxiosPost("settlement-confirms", {
+                yyyyMm: searchParams.yyyyMm,
+                movie_id: Number(searchParams.movieId),
+                client_codes: [code],
+                confirmed: next,
+            });
+            setSettlements((prev) =>
+                prev.map((r) =>
+                    !r.is_subtotal && r["거래처코드"] === code ? { ...r, 확인: next } : r
+                )
+            );
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error || "확인 처리에 실패했습니다.");
+        }
+    };
+
+    /** 조회된 목록의 미확인 극장 전체 확인 */
+    const confirmAll = () => {
+        const codes = Array.from(
+            new Set(
+                settlements
+                    .filter((r) => !r.is_subtotal && r["거래처코드"] && !r["확인"])
+                    .map((r) => r["거래처코드"])
+            )
+        );
+        if (!codes.length) {
+            toast.info("확인 처리할 미확인 극장이 없습니다.");
+            return;
+        }
+        showAlert(
+            "전체 확인 처리",
+            `조회된 미확인 극장 ${codes.length}곳을 모두 확인 처리하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosPost("settlement-confirms", {
+                        yyyyMm: searchParams.yyyyMm,
+                        movie_id: Number(searchParams.movieId),
+                        client_codes: codes,
+                        confirmed: true,
+                    });
+                    setSettlements((prev) =>
+                        prev.map((r) => (r.is_subtotal ? r : { ...r, 확인: true }))
+                    );
+                    toast.success(`${codes.length}곳을 확인 처리했습니다.`);
+                } catch (e: any) {
+                    toast.error(e?.response?.data?.error || "일괄 확인에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
+
+    const openAmountEdit = (row: any) => {
+        openModal(
+            <AmountEditModal
+                yyyyMm={searchParams.yyyyMm}
+                movieId={searchParams.movieId}
+                row={row}
+                onClose={closeModal}
+                onSaved={fetchSettlements}
+            />,
+            { title: `금액 직접 수정 — ${row["극장명"]}`, width: "560px" }
+        );
+    };
+
     const headers = [
         { key: "지역", label: "지역", stickyLeft: "0px", width: "60px" },
         { key: "멀티구분", label: "멀티구분", stickyLeft: "60px", width: "80px" },
         { key: "classification", label: "구분", stickyLeft: "140px", width: "60px" },
         { key: "거래처코드(바이포엠만 해당)", label: "거래처코드(바이포엠만 해당)", stickyLeft: "200px", width: "120px" },
         { key: "극장명", label: "극장명", stickyLeft: "320px", width: "120px" },
+        {
+            key: "확인",
+            label: "확인",
+            stickyLeft: "440px",
+            width: "76px",
+            renderCell: (_v: any, row: any) => {
+                // 수동조정 행(is_adjusted/is_adjustment)도 확인 대상 — 조정했다는 것 자체가 확인
+                if (row.is_subtotal || !row["거래처코드"]) return "";
+                if (row["지역"] === "전체 총계") return "";
+                return (
+                    <ConfirmToggle
+                        $on={!!row["확인"]}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            toggleConfirm(row);
+                        }}
+                        title={
+                            row["확인"]
+                                ? `확인됨${row["확인자"] ? ` (${row["확인자"]})` : ""} — 클릭 시 해제`
+                                : "클릭하여 확인 처리"
+                        }
+                    >
+                        {row["확인"] ? (
+                            <>
+                                <CheckCircle size={13} weight="fill" /> 확인
+                            </>
+                        ) : (
+                            <>
+                                <Circle size={13} /> 미확인
+                            </>
+                        )}
+                    </ConfirmToggle>
+                );
+            },
+        },
+        {
+            key: "금액수정",
+            label: "수정",
+            width: "60px",
+            renderCell: (_v: any, row: any) => {
+                if (
+                    row.is_subtotal ||
+                    row.is_adjustment ||
+                    row.is_adjusted ||
+                    !row["거래처코드"] ||
+                    typeof row["공급가액"] !== "number"
+                )
+                    return "";
+                if (row["지역"] === "전체 총계") return "";
+                return (
+                    <EditIconBtn
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            openAmountEdit(row);
+                        }}
+                        title="공급가액/부가세/지급금 직접 수정 (수동조정으로 저장)"
+                    >
+                        <PencilSimple size={12} /> 수정
+                    </EditIconBtn>
+                );
+            },
+        },
         { key: "사업자 등록번호", label: "사업자 등록번호" },
         { key: "종사업장번호", label: "종사업장번호" },
         { key: "공급받는자 상호", label: "공급받는자 상호" },
@@ -364,9 +714,17 @@ export function ManageSettlement() {
         { key: "영화사 지급금", label: "영화사 지급금" },
     ];
 
+    // 확인여부 필터 적용된 표시 목록 — 필터 중엔 소계 행이 맞지 않으므로 숨김
+    const displayedSettlements = useMemo(() => {
+        if (confirmFilter === "전체") return settlements;
+        return settlements.filter(
+            (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
+        );
+    }, [settlements, confirmFilter]);
+
     const summaryData = useMemo(() => {
         // 합계 계산 시 소계 행(is_subtotal)은 제외
-        const rawData = settlements.filter((s) => !s.is_subtotal);
+        const rawData = displayedSettlements.filter((s) => !s.is_subtotal);
         if (!rawData.length) return null;
         const sums = rawData.reduce(
             (acc: any, cur: any) => {
@@ -390,7 +748,7 @@ export function ManageSettlement() {
             },
         );
         return { ...sums, 지역: "전체 총계" };
-    }, [settlements]);
+    }, [displayedSettlements]);
     const handleDownloadExcel = async () => {
         if (!searchParams.movieId) {
             toast.error("조회할 영화를 먼저 선택해주세요.");
@@ -399,12 +757,16 @@ export function ManageSettlement() {
 
         setIsDownloading(true);
         try {
+            // 화면에 걸린 필터(확인여부/극장) 그대로 내려받기
+            const params: Record<string, string> = {
+                yyyyMm: searchParams.yyyyMm,
+                movie_id: searchParams.movieId,
+                target: searchParams.target,
+            };
+            if (confirmFilter !== "전체") params.confirm = confirmFilter;
+            if (selectedTheater) params.client_id = String(selectedTheater.id);
             const res = await AxiosGet("settlement-excel-export/", {
-                params: {
-                    yyyyMm: searchParams.yyyyMm,
-                    movie_id: searchParams.movieId,
-                    target: searchParams.target,
-                },
+                params,
                 responseType: "blob",
             });
 
@@ -413,7 +775,8 @@ export function ManageSettlement() {
             link.href = url;
 
             const movieTitle = movieOptions.find((m) => m.id === searchParams.movieId)?.title || "정산내역";
-            link.setAttribute("download", `부금정산_${movieTitle}_${searchParams.yyyyMm}.xlsx`);
+            const suffix = confirmFilter !== "전체" ? `_${confirmFilter}` : "";
+            link.setAttribute("download", `부금정산_${movieTitle}_${searchParams.yyyyMm}${suffix}.xlsx`);
 
             document.body.appendChild(link);
             link.click();
@@ -434,13 +797,22 @@ export function ManageSettlement() {
                 actions={
                     <>
                         <EseroButton
+                            onClick={confirmAll}
+                            disabled={!settlements.length}
+                            title="조회된 목록의 미확인 극장을 전부 확인 처리"
+                            style={{ backgroundColor: "#16a34a" }}
+                        >
+                            <Checks weight="bold" size={16} />
+                            전체 확인
+                        </EseroButton>
+                        <EseroButton
                             onClick={() =>
                                 openModal(
                                     <SettlementCompareModal yyyyMm={searchParams.yyyyMm} />,
-                                    { title: "직영 부금정산서 대사(엑셀 비교)", width: "1500px" }
+                                    { title: "부금정산서 대사 (직영 엑셀 · 위탁/일반 PDF)", width: "1500px" }
                                 )
                             }
-                            title="직영 부금정산서 엑셀과 화면 데이터 비교 (파일 내 전체 영화 자동 대사)"
+                            title="부금정산서 파일과 화면 데이터 비교 (직영 엑셀 + 위탁/일반극장 PDF, 파일 내 전체 영화 자동 대사)"
                         >
                             <Scales weight="bold" size={16} />
                             부금 대사
@@ -491,6 +863,15 @@ export function ManageSettlement() {
                         options={["전체극장", "일반극장", "기금면제극장"]}
                         value={searchParams.target}
                         onChange={(v) => setSearchParams((p: any) => ({ ...p, target: v }))}
+                        labelWidth="60px"
+                    />
+                </div>
+                <div style={{ width: "200px" }}>
+                    <CustomSelect
+                        label="확인여부"
+                        options={["전체", "확인", "미확인"]}
+                        value={confirmFilter}
+                        onChange={setConfirmFilter}
                         labelWidth="60px"
                     />
                 </div>
@@ -549,7 +930,7 @@ export function ManageSettlement() {
                 <div style={{ height: "calc(100vh - 198px)", overflow: "hidden" }}>
                     <GenericTable
                         headers={headers}
-                        data={settlements}
+                        data={displayedSettlements}
                         // Key를 더 고유하게 만들어 리액트 엔진의 혼동 방지
                         getRowKey={(item: any, idx: number) =>
                             item.is_subtotal
@@ -614,7 +995,7 @@ export function ManageSettlement() {
                         getRowHighlight={(row: any) => row.is_subtotal} // 합계 행 색상 구분
                         page={1}
                         pageSize={1000}
-                        totalCount={settlements.length}
+                        totalCount={displayedSettlements.length}
                         onPageChange={() => {}}
                     />
                 </div>

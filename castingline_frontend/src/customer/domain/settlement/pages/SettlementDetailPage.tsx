@@ -565,7 +565,7 @@ export function SettlementDetailPage() {
         }
 
         const COLS = [
-            "지역명", "멀티", "분류", "영화관명", "날짜(From)", "날짜(To)",
+            "지역명", "멀티", "분류", "포맷", "영화관명", "날짜(From)", "날짜(To)",
             "인원", "금액(입장료)", "기금제외금액", "부가세제외금액", "부율",
             "공급가액", "부가세", "당사입금액", "객단가",
         ];
@@ -598,7 +598,7 @@ export function SettlementDetailPage() {
         const unitOf = (a: Agg) => (a.visitor > 0 ? Math.round(a.supply_value / a.visitor) : 0);
         // 집계 행 셀 (부율칸 공백, 라벨은 날짜(To) 위치)
         const aggCells = (regionCell: string, label: string, a: Agg) => [
-            regionCell, "", "", "", "", label,
+            regionCell, "", "", "", "", "", label,
             fmtN(a.visitor), fmtN(a.ticket_revenue), fmtN(a.fund_excluded), fmtN(a.vat_excluded),
             "", fmtN(a.supply_value), fmtN(a.vat), fmtN(a.total_payment), fmtN(unitOf(a)),
         ];
@@ -613,7 +613,7 @@ export function SettlementDetailPage() {
                 const name = getTheaterName(row);
                 bodyRows.push(tr([
                     row.region, row.multi, row.classification,
-                    row.format ? `${name}(${row.format})` : name,
+                    row.format, name,
                     row.min_date, row.max_date,
                     fmtN(row.visitor), fmtN(row.ticket_revenue), fmtN(row.fund_excluded),
                     fmtN(row.vat_excluded), row.rate == null ? "" : row.rate.toFixed(2),

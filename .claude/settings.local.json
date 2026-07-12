@@ -46,7 +46,19 @@
       "PowerShell(Test-NetConnection *)",
       "PowerShell(foreach \\($p in 22,2222,2022,22022,2200,3389\\) { $r = Test-NetConnection -ComputerName 211.57.203.40 -Port $p -WarningAction SilentlyContinue; \"Port {0,-6} : {1}\" -f $p, $r.TcpTestSucceeded })",
       "PowerShell(foreach \\($p in 445,139,1433,5985,5986\\) { $r = Test-NetConnection -ComputerName 211.57.203.40 -Port $p -WarningAction SilentlyContinue; \"Port {0,-6} : {1}\" -f $p, $r.TcpTestSucceeded })",
-      "PowerShell($env:SQLCMDPASSWORD='kk338790!@'; sqlcmd -S 211.57.203.40,1433 -U logsen -d master -l 8 -Q \"SELECT @@VERSION; SELECT name FROM sys.databases;\" -h -1 2>&1 | Select-Object -First 30)"
+      "PowerShell($env:SQLCMDPASSWORD='kk338790!@'; sqlcmd -S 211.57.203.40,1433 -U logsen -d master -l 8 -Q \"SELECT @@VERSION; SELECT name FROM sys.databases;\" -h -1 2>&1 | Select-Object -First 30)",
+      "Bash(git push origin main:*)",
+      "PowerShell(head *)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\f1c52f54-a85a-46e0-847e-2681c8cc9892\\\\scratchpad\\\\run_imports.ps1\")",
+      "PowerShell(python \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\f1c52f54-a85a-46e0-847e-2681c8cc9892\\\\scratchpad\\\\create_admin.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\f1c52f54-a85a-46e0-847e-2681c8cc9892\\\\scratchpad\\\\copy_users.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\f1c52f54-a85a-46e0-847e-2681c8cc9892\\\\scratchpad\\\\find_dist_ids.py\")",
+      "PowerShell(Get-Content C:\\\\clms\\\\castingline_backend\\\\manage.py -TotalCount 20; python -c \"import django; print\\(django.get_version\\(\\)\\)\")",
+      "PowerShell(npm start *)",
+      "PowerShell(Start-Sleep -Seconds 20; '--- backend ---'; Get-Content \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\cb413790-b365-434b-89f2-4bfae19bc72b\\\\tasks\\\\bt8rcgdsl.output\" -Tail 10; '--- frontend ---'; Get-Content \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\cb413790-b365-434b-89f2-4bfae19bc72b\\\\tasks\\\\bpthjwpc3.output\" -Tail 15)",
+      "PowerShell(python \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\38dcf4f4-f281-4331-959d-62a54e7735a6\\\\scratchpad\\\\test_imap.py\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Start-Sleep -Seconds 12; try { \\(Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing -TimeoutSec 5\\).StatusCode } catch { $_.Exception.Response.StatusCode.value__ })"
     ],
     "additionalDirectories": [
       "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",
