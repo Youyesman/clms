@@ -551,11 +551,20 @@ class LottePipelineService:
     @staticmethod
     def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
         """
-        병렬 처리로 롯데시네마 스케줄 수집
+        롯데시네마 스케줄 수집.
+        Returns: (collected_logs, total_theater_count, failures)
+
+        [2026-07-18] 브라우저(Playwright) → 순수 HTTP API 전환.
+        LCWS 공개 JSON API로 극장 목록/스케줄을 직접·병렬 수집한다(수 배 빠름).
+        롤백하려면 아래 위임 2줄을 주석 처리하면 기존 Playwright 로직이 실행된다.
         """
+        from crawler.lotte_schedule_api import collect_schedule_logs as _api_collect
+        return _api_collect(dates=dates, stop_signal=stop_signal, crawler_run=crawler_run)
+
+        # ===== 이하 기존 Playwright(RPA) 방식 — 롤백용 보존 (도달하지 않음) =====
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
-            
+
         # [Step 0] Global Pre-scan (Sync)
         # 병렬 수집 시작 전, 마스터 리스트 개수를 먼저 파악합니다.
         print(f"[Main] 📡 Running Lotte Global Pre-scan...")

@@ -331,6 +331,18 @@ def scan_megabox_master_list_rpa():
 class MegaboxPipelineService:
     @staticmethod
     def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
+        """메가박스 스케줄 수집.
+        Returns: (collected_logs, total_theater_count, failures)
+
+        [2026-07-18] 브라우저(Playwright) → 순수 HTTP API 전환.
+        극장목록(selectPlayTimeMasterList)/스케줄(schedulePage) API로 직접 수집한다.
+        메가박스는 봇 트래픽에 민감해 worker/요청간격을 보수적으로 둔다(약 20초).
+        롤백하려면 아래 위임 2줄을 주석 처리하면 기존 Playwright 로직이 실행된다.
+        """
+        from crawler.megabox_schedule_api import collect_schedule_logs as _api_collect
+        return _api_collect(dates=dates, stop_signal=stop_signal, crawler_run=crawler_run)
+
+        # ===== 이하 기존 Playwright(RPA) 방식 — 롤백용 보존 (도달하지 않음) =====
         os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]

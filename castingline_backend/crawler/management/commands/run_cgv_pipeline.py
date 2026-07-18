@@ -463,12 +463,20 @@ class CGVPipelineService:
     @classmethod
     def collect_schedule_logs(cls, dates=None, stop_signal=None, crawler_run=None):
         """
-        [1단계] RPA를 통해 전국 극장 순회 및 로그 저장 (Parallel)
-        Returns: (collected_logs, total_detected_cnt)
+        [1단계] 전국 극장 순회 및 로그 저장.
+        Returns: (collected_logs, total_theater_count, failures)
+
+        [2026-07-18] 브라우저(Playwright) → 순수 HTTP API 전환.
+        극장 목록/스케줄을 CGV 신규 REST API로 직접·병렬 수집한다(수 배 빠름).
+        롤백하려면 아래 위임 2줄을 주석 처리하면 기존 Playwright 로직이 실행된다.
         """
+        from crawler.cgv_schedule_api import collect_schedule_logs as _api_collect
+        return _api_collect(dates=dates, stop_signal=stop_signal, crawler_run=crawler_run)
+
+        # ===== 이하 기존 Playwright(RPA) 방식 — 롤백용 보존 (도달하지 않음) =====
         # Thread Safe
         os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
-        
+
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
