@@ -25,7 +25,7 @@ const TabBarContainer = styled.div<{ $sidebarWidth: number }>`
     }
 `;
 
-const TabItem = styled.div<{ $isActive: boolean }>`
+const TabItem = styled.div<{ $isActive: boolean; $isDragging?: boolean }>`
     display: flex;
     align-items: center;
     gap: 6px;
@@ -45,6 +45,7 @@ const TabItem = styled.div<{ $isActive: boolean }>`
     text-overflow: ellipsis;
     transition: all 0.15s ease;
     user-select: none;
+    opacity: ${({ $isDragging }) => ($isDragging ? 0.4 : 1)};
 
     &:hover {
         background-color: ${({ $isActive }) => ($isActive ? "#ffffff" : "#e2e8f0")};
@@ -154,6 +155,30 @@ export function TabBar({ $sidebarWidth }: TabBarProps) {
         y: number;
         tab: Tab;
     } | null>(null);
+    // 드래그로 탭 순서 변경 중인 탭 id
+    const [dragTabId, setDragTabId] = useState<string | null>(null);
+
+    const handleDragStart = (e: React.DragEvent, tab: Tab) => {
+        setDragTabId(tab.id);
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", tab.id); // Firefox 드래그 시작 요건
+    };
+
+    // 다른 탭 위를 지날 때 실시간으로 순서 교체 (VSCode 탭 방식)
+    const handleDragOver = (e: React.DragEvent, overTab: Tab) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!dragTabId || dragTabId === overTab.id) return;
+        const from = openTabs.findIndex((t) => t.id === dragTabId);
+        const to = openTabs.findIndex((t) => t.id === overTab.id);
+        if (from < 0 || to < 0 || from === to) return;
+        const newTabs = [...openTabs];
+        const [moved] = newTabs.splice(from, 1);
+        newTabs.splice(to, 0, moved);
+        setOpenTabs(newTabs);
+    };
+
+    const handleDragEnd = () => setDragTabId(null);
 
     const handleTabClick = (tab: Tab) => {
         setActiveTabId(tab.id);
@@ -289,6 +314,12 @@ export function TabBar({ $sidebarWidth }: TabBarProps) {
                     <TabItem
                         key={tab.id}
                         $isActive={activeTabId === tab.id}
+                        $isDragging={dragTabId === tab.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, tab)}
+                        onDragOver={(e) => handleDragOver(e, tab)}
+                        onDrop={(e) => e.preventDefault()}
+                        onDragEnd={handleDragEnd}
                         onClick={() => handleTabClick(tab)}
                         onContextMenu={(e) => handleContextMenu(e, tab)}
                         title={tab.label}

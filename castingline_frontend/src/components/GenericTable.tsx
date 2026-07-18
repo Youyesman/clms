@@ -34,7 +34,10 @@ const TableWrapper = styled.div`
 
 const StyledTable = styled.table`
   width: 100%;
-  border-collapse: collapse;
+  /* collapse는 sticky 셀에서 테두리가 따라오지 않아 가로 스크롤 시
+     고정열 구분선이 사라지며 틈이 생김 → separate + spacing 0 사용 */
+  border-collapse: separate;
+  border-spacing: 0;
   font-family:
     "SUIT",
     -apple-system,
@@ -76,6 +79,11 @@ const StyledTH = styled.th<{ $stickyLeft?: string; $width?: string }>`
       z-index: 20;
       background-color: #f1f5f9;
       border-right: 2px solid #94a3b8;
+      /* 고정열 폭을 선언값으로 강제 — 실제 폭이 커지면 다음 고정열 오프셋과
+         어긋나 사이로 스크롤 내용이 비치는 문제 방지 */
+      ${props.$width ? `max-width: ${props.$width}; overflow: hidden; text-overflow: ellipsis;` : ""}
+      box-shadow: 1px 0 0 0 #f1f5f9; /* 서브픽셀 이음새 덮기 */
+      box-sizing: border-box;
     `}
 
   &:hover {
@@ -112,11 +120,17 @@ const TFoot = styled.tfoot`
 
 const TR = styled.tr<{ $isHighlight?: boolean }>`
   height: 30px;
-  border-bottom: 1px solid #e2e8f0;
   transition: background-color 0.2s;
   background-color: ${(props) => (props.$isHighlight ? "#fffbeb" : "#ffffff")};
-  border-left: ${(props) =>
-    props.$isHighlight ? "4px solid #f59e0b" : "4px solid transparent"};
+
+  /* border-collapse: separate에서는 tr 테두리가 안 그려지므로 td에 적용 */
+  & > td {
+    border-bottom: 1px solid #e2e8f0;
+  }
+  & > td:first-child {
+    border-left: ${(props) =>
+      props.$isHighlight ? "4px solid #f59e0b" : "4px solid transparent"};
+  }
 
   &:nth-child(even) {
     background-color: ${(props) =>
@@ -130,8 +144,6 @@ const TR = styled.tr<{ $isHighlight?: boolean }>`
 
   &.selected {
     background-color: #1e293b !important;
-    border-left: ${(props) =>
-      props.$isHighlight ? "4px solid #f59e0b" : "4px solid transparent"};
     &,
     td {
       color: #ffffff !important;
@@ -141,7 +153,7 @@ const TR = styled.tr<{ $isHighlight?: boolean }>`
   }
 `;
 
-const TD = styled.td<{ $stickyLeft?: string; $cellStyle?: any }>`
+const TD = styled.td<{ $stickyLeft?: string; $cellStyle?: any; $width?: string }>`
   border-right: 1px solid #e2e8f0;
   padding: 6px 12px;
   white-space: nowrap;
@@ -159,6 +171,12 @@ const TD = styled.td<{ $stickyLeft?: string; $cellStyle?: any }>`
       z-index: 5;
       background-color: #ffffff; /* Sticky columns need background */
       border-right: 2px solid #94a3b8; /* Separator */
+      /* 고정열 폭 강제 (헤더 오프셋과 일치) + 서브픽셀 이음새 덮기 */
+      ${props.$width
+        ? `width: ${props.$width}; min-width: ${props.$width}; max-width: ${props.$width};`
+        : ""}
+      box-shadow: 1px 0 0 0 #ffffff;
+      box-sizing: border-box;
     `}
 
   ${(props) => props.$cellStyle && css(props.$cellStyle)}
@@ -413,6 +431,7 @@ export function GenericTable({
                       <TD
                         key={header.key}
                         $stickyLeft={header.stickyLeft}
+                        $width={header.width}
                         $cellStyle={header.cellStyle}
                         className={header.editable ? "editable" : "read-only"}
                         onDoubleClick={(e) => {

@@ -149,8 +149,11 @@ class SettlementListView(APIView):
         for r in rates:
             rate_map.setdefault((r.client_id, r.movie_id), []).append(r)
 
-        theater_rate_map = {(tr.rate_id, tr.theater.auditorium_name): tr.share_rate for tr in TheaterRate.objects.filter(
-            rate__in=rates).select_related("theater")}
+        # 스코어의 auditorium은 관 코드('001')로 저장되므로 관 이름/코드 둘 다 키로 등록
+        theater_rate_map = {}
+        for tr in TheaterRate.objects.filter(rate__in=rates).select_related("theater"):
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium_name)] = tr.share_rate
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
         default_rate_map = {(dr.region_code, dr.theater_kind): dr.share_rate for dr in DefaultRate.objects.all()}
 
         # 데이터 집계
@@ -232,13 +235,24 @@ class SettlementListView(APIView):
                     tgt["공급가액"] += adj.supply_delta
                     tgt["부가세"] += adj.vat_delta
                     tgt["영화사 지급금"] += adj.payout_delta
+                    if adj.date_to_override:  # 대사에서 확정한 마지막 상영일 반영
+                        tgt["날짜(To)"] = adj.date_to_override.strftime("%Y-%m-%d")
                     if show_adjustment_info:  # 조정 사실/금액은 관리자에게만 표시
-                        tgt["상영타입"] = f"{tgt['상영타입']} (수동조정)".strip()
-                        tgt["is_adjusted"] = True
-                        # 프론트에서 조정액 표시(다른 색) + 테이블에서 바로 해제용 ID
-                        tgt["조정액"] = {"공급가액": adj.supply_delta, "부가세": adj.vat_delta,
-                                      "영화사 지급금": adj.payout_delta}
-                        tgt["조정ID"] = adj.id
+                        # 표시 위치 분리: 금액 조정은 수정 컬럼(태그+해제), 날짜 확정은
+                        # 날짜(To) 셀(보라+해제). 상영타입은 건드리지 않는다.
+                        amount_adjusted = bool(adj.supply_delta or adj.vat_delta
+                                               or adj.payout_delta)
+                        if adj.date_to_override:
+                            tgt["날짜조정"] = {
+                                "원본": adj.date_to_original or "",
+                                "조정ID": adj.id,
+                            }
+                        if amount_adjusted:
+                            tgt["is_adjusted"] = True
+                            # 프론트에서 조정액 표시(다른 색) + 테이블에서 바로 해제용 ID
+                            tgt["조정액"] = {"공급가액": adj.supply_delta, "부가세": adj.vat_delta,
+                                          "영화사 지급금": adj.payout_delta}
+                            tgt["조정ID"] = adj.id
                 else:
                     # 해당 극장 계산 행이 없으면(스코어 삭제 등) 조정만 별도 행으로 표시
                     calculated_list.append({
@@ -262,7 +276,9 @@ class SettlementListView(APIView):
                         "금액(입장료)": 0, "기금제외금액": 0, "부가세제외금액": 0,
                         "공급가액": adj.supply_delta, "부가세": adj.vat_delta,
                         "영화사 지급금": adj.payout_delta,
-                        "날짜(From)": "", "날짜(To)": "",
+                        "날짜(From)": "",
+                        "날짜(To)": (adj.date_to_override.strftime("%Y-%m-%d")
+                                   if adj.date_to_override else ""),
                         "is_adjustment": True,
                         "조정ID": adj.id if show_adjustment_info else None,
                     })
@@ -768,7 +784,7 @@ class SettlementCompareView(SettlementListView):
         import re as _re
 
         from settlement.compare import (FILE_THEATER_MERGE, FORMAT_SPLIT_CHAINS,
-                                        format_bucket)
+                                        format_bucket, norm_date)
 
         def _fmt_split(chain, cls):
             return chain in FORMAT_SPLIT_CHAINS and cls == "직영"
@@ -790,9 +806,11 @@ class SettlementCompareView(SettlementListView):
                 "name": row["극장명"].replace("(발전기금면제관)", ""),
                 "chain": row_chain, "cls": cls, "format": fmt, "client_code": row.get("거래처코드"),
                 "인원": 0, "공급가액": 0, "부가세": 0,
-                "영화사 지급금": 0, "missing_rate": False,
+                "영화사 지급금": 0, "missing_rate": False, "date_to": "",
             })
             agg["인원"] += row.get("인원") or 0
+            # 날짜(To) 대사용 — 시스템측 마지막 상영일 (포맷 행이 여러 개면 최댓값)
+            agg["date_to"] = max(agg["date_to"], row.get("날짜(To)") or "")
             for m in ("공급가액", "부가세", "영화사 지급금"):
                 if row.get(m) is None:
                     agg["missing_rate"] = True  # 부율 미설정 포맷 존재
@@ -836,8 +854,11 @@ class SettlementCompareView(SettlementListView):
             agg = file_by_theater.setdefault(key, {
                 "name": row["theater"], "chain": ch, "cls": cls, "format": fmt,
                 "source": row.get("source") or "excel",
-                "인원": 0, "공급가액": 0, "부가세": 0, "영화사 지급금": 0,
+                "인원": 0, "공급가액": 0, "부가세": 0, "영화사 지급금": 0, "date_to": "",
             })
+            # 날짜(To): 정산서의 상영 종료일 (롯데는 행별 상영일자의 최댓값)
+            agg["date_to"] = max(agg["date_to"],
+                                 norm_date(row.get("date_end") or row.get("date")))
             agg["인원"] += row["visitors"]
             agg["공급가액"] += row["supply"]
             agg["부가세"] += row["vat"]
@@ -899,11 +920,14 @@ class SettlementCompareView(SettlementListView):
                     "payout_delta": adj.payout_delta,
                     "note": adj.note,
                     "original": {"공급가액": agg["공급가액"], "부가세": agg["부가세"],
-                                 "영화사 지급금": agg["영화사 지급금"]},
+                                 "영화사 지급금": agg["영화사 지급금"],
+                                 "날짜(To)": agg.get("date_to") or ""},
                 }
             agg["공급가액"] += adj.supply_delta
             agg["부가세"] += adj.vat_delta
             agg["영화사 지급금"] += adj.payout_delta
+            if adj.date_to_override:
+                agg["date_to"] = adj.date_to_override.strftime("%Y-%m-%d")
 
         # 극장별 확인 상태 (거래처코드 기준)
         from settlement.models import SettlementConfirm
@@ -932,6 +956,12 @@ class SettlementCompareView(SettlementListView):
                 metrics[m] = {"system": s_val, "file": f_val, "diff": diff}
                 totals[m]["system"] += s_val or 0
                 totals[m]["file"] += f_val or 0
+            # 날짜(To) 대사 — 양쪽 모두 날짜가 있고 다르면 불일치 (한쪽 누락은 판정 제외)
+            s_date = (sys_agg.get("date_to") or "") if sys_agg else ""
+            f_date = (file_agg.get("date_to") or "") if file_agg else ""
+            date_equal = not (status == "both" and s_date and f_date and s_date != f_date)
+            if not date_equal:
+                equal = False
             rows.append({
                 "체인": (sys_agg or file_agg)["chain"],
                 "구분": (sys_agg or file_agg).get("cls") or "",
@@ -945,6 +975,8 @@ class SettlementCompareView(SettlementListView):
                 "missing_rate": bool(sys_agg and sys_agg["missing_rate"]),
                 "adjustment": sys_agg.get("adjustment") if sys_agg else None,
                 "metrics": metrics,
+                "date_to": {"system": s_date or None, "file": f_date or None,
+                            "equal": date_equal},
             })
 
         # 불일치 → 파일에만 → 시스템에만 → 일치 순, 같은 상태끼리는 체인·극장명·포맷 순 정렬
@@ -1013,8 +1045,11 @@ class SettlementCompareView(SettlementListView):
         rate_map = {}
         for r in rates:
             rate_map.setdefault((r.client_id, r.movie_id), []).append(r)
-        theater_rate_map = {(tr.rate_id, tr.theater.auditorium_name): tr.share_rate
-                            for tr in TheaterRate.objects.filter(rate__in=rates).select_related("theater")}
+        # 스코어의 auditorium은 관 코드('001')로 저장되므로 관 이름/코드 둘 다 키로 등록
+        theater_rate_map = {}
+        for tr in TheaterRate.objects.filter(rate__in=rates).select_related("theater"):
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium_name)] = tr.share_rate
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
         default_rate_map = {(dr.region_code, dr.theater_kind): dr.share_rate
                             for dr in DefaultRate.objects.all()}
 
@@ -1147,6 +1182,9 @@ def _serialize_adjustment(a):
         "supply_original": a.supply_original,
         "vat_original": a.vat_original,
         "payout_original": a.payout_original,
+        "date_to_override": (a.date_to_override.strftime("%Y-%m-%d")
+                             if a.date_to_override else None),
+        "date_to_original": a.date_to_original or None,
         "note": a.note,
         "updated_at": a.updated_at,
     }
@@ -1203,18 +1241,35 @@ class SettlementAdjustmentView(APIView):
             except (TypeError, ValueError):
                 return None
 
-        obj, _created = SettlementAdjustment.objects.update_or_create(
-            yyyymm=yyyy_mm, movie_id=movie_id, client=client,
-            screen_format=(str(data.get("screen_format") or "")).strip(),
-            defaults={
+        def _d(v):
+            from datetime import date as _date
+            try:
+                return _date.fromisoformat(str(v or "").strip()[:10])
+            except ValueError:
+                return None
+
+        # 부분 업서트: 보낸 키만 갱신 — 날짜만 보내는 일괄 수정이 기존 금액 조정을
+        # 지우지 않고, 금액만 보내는 수정이 기존 날짜 확정을 지우지 않도록 한다.
+        defaults = {}
+        if any(k in data for k in ("supply_delta", "vat_delta", "payout_delta")):
+            defaults.update({
                 "supply_delta": _i(data.get("supply_delta")) or 0,
                 "vat_delta": _i(data.get("vat_delta")) or 0,
                 "payout_delta": _i(data.get("payout_delta")) or 0,
                 "supply_original": _i(data.get("supply_original")),
                 "vat_original": _i(data.get("vat_original")),
                 "payout_original": _i(data.get("payout_original")),
-                "note": (data.get("note") or "")[:200],
-            },
+            })
+        if "date_to" in data:
+            defaults["date_to_override"] = _d(data.get("date_to"))
+            defaults["date_to_original"] = str(data.get("date_to_original") or "")[:10]
+        if "note" in data:
+            defaults["note"] = (data.get("note") or "")[:200]
+
+        obj, _created = SettlementAdjustment.objects.update_or_create(
+            yyyymm=yyyy_mm, movie_id=movie_id, client=client,
+            screen_format=(str(data.get("screen_format") or "")).strip(),
+            defaults=defaults,
         )
         # 조정을 저장했다는 것 = 그 극장 내역을 확인했다는 것 (사용자 확정)
         SettlementConfirm.objects.get_or_create(
@@ -1250,17 +1305,37 @@ class SettlementAdjustmentView(APIView):
 
 
 class SettlementAdjustmentDetailView(APIView):
-    """DELETE /Api/settlement-adjustments/<pk>/ - 조정 해제 (관리자 전용)"""
+    """조정 해제 (관리자 전용).
+    DELETE /Api/settlement-adjustments/<pk>/         - 전체 해제 (레코드 삭제)
+    DELETE /Api/settlement-adjustments/<pk>/date/    - 날짜 확정만 해제 (금액 조정 유지)
+    DELETE /Api/settlement-adjustments/<pk>/amount/  - 금액 조정만 해제 (날짜 확정 유지)
+    부분 해제 후 남는 내용이 없으면 레코드를 삭제한다.
+    """
 
-    def delete(self, request, pk):
+    def delete(self, request, pk, scope=None):
         denied = _require_admin(request)
         if denied:
             return denied
         from settlement.models import SettlementAdjustment
         try:
-            SettlementAdjustment.objects.get(pk=pk).delete()
+            obj = SettlementAdjustment.objects.get(pk=pk)
         except SettlementAdjustment.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if scope == "date":
+            obj.date_to_override = None
+            obj.date_to_original = ""
+        elif scope == "amount":
+            obj.supply_delta = obj.vat_delta = obj.payout_delta = 0
+            obj.supply_original = obj.vat_original = obj.payout_original = None
+        elif scope:
+            return Response({"error": f"알 수 없는 scope: {scope}"}, status=400)
+
+        if scope and (obj.date_to_override or obj.supply_delta
+                      or obj.vat_delta or obj.payout_delta):
+            obj.save()
+        else:
+            obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1353,6 +1428,17 @@ class SettlementExcelExportView(SettlementListView):
             items = [it for it in items
                      if not it.get("is_subtotal")
                      and (it.get("거래처코드") in confirmed) == want]
+
+        # 멀티(체인) 필터 — 화면과 동일. 해당 멀티의 소계 행만 유지
+        multi_filter = request.query_params.get("multi", "")
+        if multi_filter and multi_filter != "전체":
+            def _keep(it):
+                if it.get("is_subtotal"):
+                    name = str(it.get("극장명") or "")
+                    return name.startswith("[") and multi_filter.startswith(
+                        name[1:].split(" ")[0].split("]")[0])
+                return it.get("멀티구분") == multi_filter
+            items = [it for it in items if _keep(it)]
 
         if not items:
             return HttpResponse("조회된 데이터가 없습니다.", status=404)

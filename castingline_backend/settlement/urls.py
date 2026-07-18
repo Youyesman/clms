@@ -22,6 +22,8 @@ urlpatterns = [
          SettlementAdjustmentView.as_view(), name='settlement-adjustments'),
     path('settlement-adjustments/<int:pk>/',
          SettlementAdjustmentDetailView.as_view(), name='settlement-adjustment-detail'),
+    path('settlement-adjustments/<int:pk>/<str:scope>/',
+         SettlementAdjustmentDetailView.as_view(), name='settlement-adjustment-partial'),
     path('settlement-confirms/',
          SettlementConfirmView.as_view(), name='settlement-confirms'),
 ]

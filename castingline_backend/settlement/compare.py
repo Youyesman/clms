@@ -43,6 +43,15 @@ def norm_title(s):
     return re.sub(r"[^0-9a-zA-Z가-힣]", "", str(s or "")).lower()
 
 
+def norm_date(v):
+    """'2026-06-30' / '2026.6.30' / '20260630' / datetime → 'YYYY-MM-DD' (실패 시 '')."""
+    s = _txt(v)
+    m = re.search(r"(20\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})", s)
+    if not m:
+        return ""
+    return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+
 def norm_theater(s):
     """극장명 매칭용 정규화: 상태 접두사·브랜드 접두사·공백 제거 + 소문자.
 

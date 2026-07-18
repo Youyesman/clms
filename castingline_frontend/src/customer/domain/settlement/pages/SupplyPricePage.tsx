@@ -60,7 +60,9 @@ const PageWrapper = styled.div`
     display: flex;
     flex-direction: column;
     background-color: #f8fafc;
-    min-height: calc(100vh - 60px);
+    /* 헤더 틀고정: 페이지를 뷰포트 높이로 고정해 테이블 내부 스크롤로 전환 */
+    height: calc(100vh - 60px);
+    overflow: hidden;
     padding: 20px;
     gap: 14px;
 `;
@@ -188,6 +190,7 @@ const TableContainer = styled.div`
     border-radius: 8px;
     overflow: auto;
     flex: 1;
+    min-height: 0;
 `;
 
 const StyledTable = styled.table`

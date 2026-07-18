@@ -303,13 +303,26 @@ export function ScoreExcelUploader({
         }
     };
 
-    // 외부(메일함 등)에서 전달된 파일이 있으면 마운트 시 자동 미리보기
+    // 외부(메일함/KOBIS 수집 등)에서 전달된 파일이 있으면 마운트 시 자동 미리보기.
+    // 영진위 파일은 영화 선택이 필수라 파일만 올려두고, 영화를 고르면 자동 분석한다.
     useEffect(() => {
-        if (initialFile) {
-            handleFileProcess(initialFile);
+        if (!initialFile) return;
+        if (initialFile.name.includes("영진위") && !movieForm.movie?.id) {
+            setUploadedFile(initialFile);
+            toast.info("영진위 파일이 준비되었습니다 — 영화를 선택하면 바로 분석합니다.");
+            return;
         }
+        handleFileProcess(initialFile);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // 영화를 선택하면 보관된 파일로 자동 (재)분석 — 영진위 업로드 흐름
+    useEffect(() => {
+        if (movieForm.movie?.id && uploadedFile && previewData.length === 0) {
+            handleFileProcess(uploadedFile);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [movieForm.movie?.id]);
 
     const handleConfirmSave = () => {
         showAlert(
@@ -479,8 +492,17 @@ export function ScoreExcelUploader({
                     }}>
                     <CloudArrowUp size={48} weight="duotone" color="#2563eb" />
                     <div style={{ fontWeight: 700 }}>
-                        {loading ? "분석 중..." : "엑셀 파일을 드래그하거나 클릭하여 업로드하세요."}
+                        {loading
+                            ? "분석 중..."
+                            : uploadedFile
+                            ? `파일 준비됨 — 위에서 영화를 선택하면 바로 분석합니다`
+                            : "엑셀 파일을 드래그하거나 클릭하여 업로드하세요."}
                     </div>
+                    {!loading && uploadedFile && (
+                        <div style={{ fontSize: "12px", color: "#64748b" }}>
+                            {uploadedFile.name}
+                        </div>
+                    )}
                 </DropZone>
               </>
             ) : (

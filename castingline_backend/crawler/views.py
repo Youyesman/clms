@@ -1386,3 +1386,155 @@ class CineQAccountDetailView(APIView):
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── KOBIS 회원용통계(영화사별)상세 수집 ──
+from crawler.kobis_score import crawl_all_accounts as crawl_kobis_all_accounts
+
+
+class KobisScoreAllView(APIView):
+    """모든 KOBIS 배급사 계정에 로그인해 회원용통계(영화사별)상세를 수집.
+
+    POST body(JSON):
+      start    : 상영 시작일 (필수, YYYY-MM-DD)
+      end      : 상영 종료일 (기본: start. 최대 1개월 — KOBIS 제한)
+      includes : 영화명 포함 키워드 (콤마구분/배열). 비우면 계정의 전체 영화
+      excludes : 제외 키워드
+
+    응답: 계정별 영화별 엑셀(base64). 파일명이 '영진위_...'라 스코어 업로더가
+    영진위(일반극장) 파서로 읽는다 — 업로드 시 영화 선택 필요.
+    """
+
+    def _to_list(self, v):
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return [x.strip() for x in str(v or "").split(",") if x.strip()]
+
+    def post(self, request):
+        data = request.data
+        start = str(data.get("start", "")).strip()
+        end = str(data.get("end", "")).strip() or start
+        includes = self._to_list(data.get("includes"))
+        excludes = self._to_list(data.get("excludes"))
+
+        if not start:
+            return Response({"error": "start(상영일)은 필수입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            summary = crawl_kobis_all_accounts(start, end, includes, excludes)
+        except Exception as e:
+            return Response({"error": f"KOBIS 수집 실패: {e}"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        accounts = []
+        total_movies = 0
+        for s in summary:
+            movies = []
+            for mv in s["movies"]:
+                total_movies += 1
+                movies.append({
+                    "movieCd": mv["movieCd"],
+                    "movieNm": mv["movieNm"],
+                    "theaters": mv["theaters"],
+                    "visitors": mv["visitors"],
+                    "error": mv.get("error") or "",
+                    "filename": mv.get("filename"),
+                    "file_b64": (_base64.b64encode(mv["xlsx"]).decode("ascii")
+                                 if mv.get("xlsx") else None),
+                })
+            accounts.append({
+                "name": s["name"],
+                "ok": s["ok"],
+                "error": s["error"],
+                "movies": movies,
+            })
+
+        return Response({
+            "start": start, "end": end,
+            "total_movies": total_movies,
+            "accounts": accounts,
+        })
+
+
+# ── KOBIS 배급사 계정 관리 ──
+def _serialize_kobis_account(a):
+    return {
+        "id": a.id,
+        "name": a.name,
+        "user": a.user,
+        "password": a.password,
+        "aprv_no": a.aprv_no,
+        "is_active": a.is_active,
+        "sort_order": a.sort_order,
+    }
+
+
+class KobisAccountView(APIView):
+    """KOBIS 배급사 계정 목록/추가.
+    GET    /Api/crawler/kobis_accounts/  - 전체 목록
+    POST   /Api/crawler/kobis_accounts/  - 추가
+    """
+
+    def get(self, request):
+        from crawler.models import KobisDistributorAccount
+        accounts = KobisDistributorAccount.objects.all()
+        return Response([_serialize_kobis_account(a) for a in accounts])
+
+    def post(self, request):
+        from crawler.models import KobisDistributorAccount
+        name = (request.data.get("name") or "").strip()
+        user = (request.data.get("user") or "").strip()
+        password = (request.data.get("password") or "").strip()
+        if not (name and user and password):
+            return Response({"error": "배급사명/아이디/비밀번호는 필수입니다."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        last = KobisDistributorAccount.objects.order_by('-sort_order').first()
+        next_order = (last.sort_order + 1) if last else 0
+        obj = KobisDistributorAccount.objects.create(
+            name=name, user=user, password=password,
+            aprv_no=(request.data.get("aprv_no") or "").strip(),
+            is_active=bool(request.data.get("is_active", True)),
+            sort_order=next_order,
+        )
+        return Response(_serialize_kobis_account(obj), status=status.HTTP_201_CREATED)
+
+
+class KobisAccountDetailView(APIView):
+    """KOBIS 배급사 계정 수정/삭제.
+    PATCH  /Api/crawler/kobis_accounts/<pk>/  - 수정
+    DELETE /Api/crawler/kobis_accounts/<pk>/  - 삭제
+    """
+
+    def patch(self, request, pk):
+        from crawler.models import KobisDistributorAccount
+        try:
+            obj = KobisDistributorAccount.objects.get(pk=pk)
+        except KobisDistributorAccount.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ("name", "user", "password"):
+            if field in request.data:
+                val = (request.data.get(field) or "").strip()
+                if val:
+                    setattr(obj, field, val)
+        if "aprv_no" in request.data:  # 인증번호는 빈 값 허용
+            obj.aprv_no = (request.data.get("aprv_no") or "").strip()
+        if "is_active" in request.data:
+            obj.is_active = bool(request.data.get("is_active"))
+        if "sort_order" in request.data:
+            try:
+                obj.sort_order = int(request.data.get("sort_order"))
+            except (ValueError, TypeError):
+                pass
+        obj.save()
+        return Response(_serialize_kobis_account(obj))
+
+    def delete(self, request, pk):
+        from crawler.models import KobisDistributorAccount
+        try:
+            obj = KobisDistributorAccount.objects.get(pk=pk)
+        except KobisDistributorAccount.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -9,6 +9,7 @@ import {
     Circle,
     PencilSimple,
     Checks,
+    CalendarCheck,
 } from "@phosphor-icons/react";
 import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
@@ -75,25 +76,30 @@ const Spinner = styled(CircleNotch)`
 `;
 // ... (omitting ListHeader unchanged)
 
-const EseroButton = styled.button`
-    display: flex;
+/* 필터바 액션 버튼 — 통일된 소프트 톤 (연한 배경 + 컬러 텍스트) */
+const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 0 12px;
+    padding: 0 14px;
     height: 32px;
-    background-color: #0369a1;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    font-size: 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
     font-weight: 700;
+    font-family: inherit;
     cursor: pointer;
-    transition: background 0.2s;
-    &:hover {
-        background-color: #0c4a6e;
-    }
+    white-space: nowrap;
+    transition: all 0.15s;
+    ${({ $tone }) =>
+        $tone === "green"
+            ? "background:#f0fdf4; border:1px solid #86efac; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#4ade80;}"
+            : $tone === "sky"
+            ? "background:#f0f9ff; border:1px solid #7dd3fc; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
+            : "background:#eff6ff; border:1px solid #93c5fd; color:#1d4ed8; &:hover:not(:disabled){background:#dbeafe; border-color:#60a5fa;}"}
     &:disabled {
-        background-color: #94a3b8;
+        background: #f8fafc;
+        border-color: #e2e8f0;
+        color: #94a3b8;
         cursor: not-allowed;
     }
     .loading-icon {
@@ -392,6 +398,168 @@ function AmountEditModal({
     );
 }
 
+/** 날짜(To) 수정 — rows가 1개면 해당 행만, 여러 개면 표시된(필터 적용) 행 전체 일괄.
+ *  날짜 확정이 걸린 행이 있으면 일괄 해제 버튼도 제공한다. */
+function BulkDateModal({
+    yyyyMm,
+    movieId,
+    rows,
+    onSaved,
+    onClose,
+}: {
+    yyyyMm: string;
+    movieId: string;
+    rows: any[];
+    onSaved: () => void;
+    onClose: () => void;
+}) {
+    const toast = useToast();
+    const { showAlert } = useAppAlert();
+    const single = rows.length === 1;
+    const [dateTo, setDateTo] = useState(single ? rows[0]["날짜(To)"] || "" : "");
+    const [saving, setSaving] = useState(false);
+
+    // 대상: 소계/총계 제외, 거래처코드 있는 행 — (거래처, 포맷) 단위로 중복 제거
+    const targets = useMemo(() => {
+        const map = new Map<string, any>();
+        rows.forEach((r: any) => {
+            if (r.is_subtotal || !r["거래처코드"] || r["지역"] === "전체 총계") return;
+            const key = `${r["거래처코드"]}|${r["포맷버킷"] || ""}`;
+            if (!map.has(key)) map.set(key, r);
+        });
+        return Array.from(map.values());
+    }, [rows]);
+
+    // 날짜 확정이 걸려있는 조정 ID 목록 (해제용)
+    const clearIds = useMemo(() => {
+        const ids = new Set<number>();
+        targets.forEach((r: any) => {
+            const id = r?.["날짜조정"]?.["조정ID"];
+            if (id) ids.add(id);
+        });
+        return Array.from(ids);
+    }, [targets]);
+
+    const save = async () => {
+        if (!dateTo) {
+            toast.error("적용할 날짜를 선택해주세요.");
+            return;
+        }
+        if (!targets.length) {
+            toast.error("적용할 극장 행이 없습니다.");
+            return;
+        }
+        setSaving(true);
+        try {
+            const res = await AxiosPost("settlement-adjustments", {
+                yyyyMm,
+                items: targets.map((r: any) => ({
+                    movie_id: Number(movieId),
+                    client_code: r["거래처코드"],
+                    screen_format: r["포맷버킷"] || "",
+                    date_to: dateTo,
+                    date_to_original: r["날짜조정"]?.["원본"] ?? (r["날짜(To)"] || ""),
+                })),
+            });
+            const ok = (res.data?.results || []).length;
+            const errs = (res.data?.errors || []).length;
+            toast.success(
+                `${ok}개 행의 날짜(To)를 ${dateTo}로 확정했습니다.` +
+                    (errs ? ` (${errs}건 실패)` : "")
+            );
+            onClose();
+            onSaved();
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error || "날짜 수정에 실패했습니다.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const clearAll = () => {
+        if (!clearIds.length) return;
+        showAlert(
+            "날짜(To) 확정 해제",
+            single
+                ? `'${rows[0]["극장명"]}'의 날짜(To) 확정을 해제하고 원래 날짜로 복구하시겠습니까? (금액 조정은 유지)`
+                : `날짜(To) 확정이 걸린 ${clearIds.length}개 행을 모두 해제하고 원래 날짜로 복구하시겠습니까? (금액 조정은 유지)`,
+            "warning",
+            async () => {
+                setSaving(true);
+                try {
+                    await Promise.all(
+                        clearIds.map((id) =>
+                            AxiosDelete(`settlement-adjustments/${id}`, "date")
+                        )
+                    );
+                    toast.success(`${clearIds.length}건의 날짜 확정을 해제했습니다.`);
+                    onClose();
+                    onSaved();
+                } catch {
+                    toast.error("해제 중 오류가 발생했습니다.");
+                } finally {
+                    setSaving(false);
+                }
+            },
+            true
+        );
+    };
+
+    return (
+        <EditModalBody>
+            <div className="hint">
+                {single ? (
+                    <>
+                        <b>{rows[0]["극장명"]}</b>
+                        {rows[0]["상영타입"] ? ` · ${rows[0]["상영타입"]}` : ""} 행의
+                        날짜(To)를 확정합니다. 정산 조회·엑셀·이세로에 반영되고, 해당
+                        극장은 <b>확인 처리</b>됩니다. (금액 조정은 그대로 유지)
+                    </>
+                ) : (
+                    <>
+                        현재 화면에 표시된(필터 적용){" "}
+                        <b>{targets.length}개 행(극장×포맷)</b>의 날짜(To)를 지정한
+                        날짜로 일괄 확정합니다. 정산 조회·엑셀·이세로에 반영되고, 해당
+                        극장은 <b>확인 처리</b>됩니다. (금액 조정은 그대로 유지)
+                    </>
+                )}
+            </div>
+            <div className="row">
+                <label>날짜(To)</label>
+                <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                />
+                <span className="orig">
+                    {single && rows[0]["날짜조정"]?.["원본"]
+                        ? `원래 ${rows[0]["날짜조정"]["원본"]}`
+                        : "예: 마지막 상영일"}
+                </span>
+            </div>
+            <div className="btns">
+                <button className="cancel" onClick={onClose} disabled={saving}>
+                    취소
+                </button>
+                {clearIds.length > 0 && (
+                    <button
+                        className="cancel"
+                        style={{ color: "#7c3aed", borderColor: "#ddd6fe" }}
+                        onClick={clearAll}
+                        disabled={saving}
+                        title="날짜(To) 확정만 원래 날짜로 복구 (금액 조정 유지)"
+                    >
+                        {single ? "확정 해제" : `확정 일괄 해제 (${clearIds.length})`}
+                    </button>
+                )}
+                <button className="save" onClick={save} disabled={saving}>
+                    {saving ? "저장 중…" : single ? "저장" : `${targets.length}개 행에 적용`}
+                </button>
+            </div>
+        </EditModalBody>
+    );
+}
+
 export function ManageSettlement() {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
@@ -414,6 +582,8 @@ export function ManageSettlement() {
     });
     // 확인여부 필터 (클라이언트측) — 미확인 극장만 추려 월초 확인 작업용
     const [confirmFilter, setConfirmFilter] = useState("전체");
+    // 멀티(체인) 필터 (클라이언트측)
+    const [multiFilter, setMultiFilter] = useState("전체");
 
     useEffect(() => {
         if (theaterInput.length < 1) {
@@ -494,17 +664,24 @@ export function ManageSettlement() {
     }, [searchParams, selectedTheater, toast]);
 
     // 수동조정 해제 (원래 계산값으로 복구) — 해제 후 재조회
-    const handleRemoveAdjustment = (row: any) => {
+    /** 수동조정 해제 — scope: "date"=날짜 확정만, "amount"=금액 조정만, 없으면 전체 */
+    const handleRemoveAdjustment = (row: any, scope?: "date" | "amount") => {
         const adjId = row?.["조정ID"];
         if (!adjId) return;
+        const label =
+            scope === "date" ? "날짜(To) 확정" : scope === "amount" ? "금액 수동조정" : "수동조정";
         showAlert(
-            "수동조정 해제",
-            `'${row["극장명"]}'의 수동조정을 해제하고 원래 계산값으로 복구하시겠습니까?`,
+            `${label} 해제`,
+            `'${row["극장명"]}'의 ${label}을 해제하고 원래 계산값으로 복구하시겠습니까?`,
             "warning",
             async () => {
                 try {
-                    await AxiosDelete("settlement-adjustments", adjId);
-                    toast.success("수동조정을 해제했습니다.");
+                    if (scope) {
+                        await AxiosDelete(`settlement-adjustments/${adjId}`, scope);
+                    } else {
+                        await AxiosDelete("settlement-adjustments", adjId);
+                    }
+                    toast.success(`${label}을 해제했습니다.`);
                     fetchSettlements();
                 } catch (e: any) {
                     toast.error(e?.response?.data?.error || "해제에 실패했습니다.");
@@ -610,6 +787,20 @@ export function ManageSettlement() {
         );
     };
 
+    /** 날짜(To) 행별 수정 모달 */
+    const openRowDateEdit = (row: any) => {
+        openModal(
+            <BulkDateModal
+                yyyyMm={searchParams.yyyyMm}
+                movieId={searchParams.movieId}
+                rows={[row]}
+                onSaved={fetchSettlements}
+                onClose={closeModal}
+            />,
+            { title: `날짜(To) 수정 — ${row["극장명"]}`, width: "480px" }
+        );
+    };
+
     const openAmountEdit = (row: any) => {
         openModal(
             <AmountEditModal
@@ -629,10 +820,31 @@ export function ManageSettlement() {
         { key: "classification", label: "구분", stickyLeft: "140px", width: "60px" },
         { key: "거래처코드(바이포엠만 해당)", label: "거래처코드(바이포엠만 해당)", stickyLeft: "200px", width: "120px" },
         { key: "극장명", label: "극장명", stickyLeft: "320px", width: "120px" },
+        { key: "사업자 등록번호", label: "사업자 등록번호" },
+        { key: "종사업장번호", label: "종사업장번호" },
+        { key: "공급받는자 상호", label: "공급받는자 상호" },
+        { key: "공급받는자 성명", label: "공급받는자 성명" },
+        { key: "사업장 소재", label: "사업장 소재지" },
+        { key: "업태", label: "업태" },
+        { key: "업종", label: "업종" },
+        { key: "수신자이메일", label: "공급받는자 이메일1" },
+        { key: "수신자이메일2", label: "공급받는자 이메일2" },
+        { key: "수신자 전화번호", label: "수신자 전화번호" },
+        { key: "날짜(From)", label: "날짜(From)" },
+        { key: "날짜(To)", label: "날짜(To)" },
+        { key: "상영타입", label: "상영타입" },
+        { key: "인원", label: "인원" },
+        { key: "금액(입장료)", label: "금액(입장료)" },
+        { key: "기금제외금액", label: "기금제외금액" },
+        { key: "부가세제외금액", label: "부가세제외금액" },
+        { key: "부율", label: "부율" },
+        { key: "공급가액", label: "공급가액" },
+        { key: "부가세", label: "부가세" },
+        { key: "영화사 지급금", label: "영화사 지급금" },
+        // R002: 확인/수정은 영화사 지급금 우측 맨 끝 (클라이언트 요청)
         {
             key: "확인",
             label: "확인",
-            stickyLeft: "440px",
             width: "76px",
             renderCell: (_v: any, row: any) => {
                 // 수동조정 행(is_adjusted/is_adjustment)도 확인 대상 — 조정했다는 것 자체가 확인
@@ -667,17 +879,47 @@ export function ManageSettlement() {
         {
             key: "금액수정",
             label: "수정",
-            width: "60px",
+            width: "110px",
             renderCell: (_v: any, row: any) => {
                 if (
                     row.is_subtotal ||
                     row.is_adjustment ||
-                    row.is_adjusted ||
                     !row["거래처코드"] ||
                     typeof row["공급가액"] !== "number"
                 )
                     return "";
                 if (row["지역"] === "전체 총계") return "";
+                // 금액이 수동조정된 행: 태그 + 금액 조정만 해제 (날짜 확정은 유지)
+                if (row.is_adjusted) {
+                    return (
+                        <span>
+                            <span style={{ color: "#7c3aed", fontWeight: 700, fontSize: 11 }}>
+                                수동조정
+                            </span>
+                            {row["조정ID"] && (
+                                <button
+                                    title="금액 수동조정만 해제 (날짜 확정은 유지)"
+                                    style={{
+                                        marginLeft: 5,
+                                        padding: "1px 6px",
+                                        fontSize: 11,
+                                        border: "1px solid #ddd6fe",
+                                        borderRadius: 4,
+                                        background: "#fff",
+                                        color: "#7c3aed",
+                                        cursor: "pointer",
+                                    }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveAdjustment(row, "amount");
+                                    }}
+                                >
+                                    해제
+                                </button>
+                            )}
+                        </span>
+                    );
+                }
                 return (
                     <EditIconBtn
                         onClick={(e) => {
@@ -691,36 +933,38 @@ export function ManageSettlement() {
                 );
             },
         },
-        { key: "사업자 등록번호", label: "사업자 등록번호" },
-        { key: "종사업장번호", label: "종사업장번호" },
-        { key: "공급받는자 상호", label: "공급받는자 상호" },
-        { key: "공급받는자 성명", label: "공급받는자 성명" },
-        { key: "사업장 소재", label: "사업장 소재지" },
-        { key: "업태", label: "업태" },
-        { key: "업종", label: "업종" },
-        { key: "수신자이메일", label: "공급받는자 이메일1" },
-        { key: "수신자이메일2", label: "공급받는자 이메일2" },
-        { key: "수신자 전화번호", label: "수신자 전화번호" },
-        { key: "날짜(From)", label: "날짜(From)" },
-        { key: "날짜(To)", label: "날짜(To)" },
-        { key: "상영타입", label: "상영타입" },
-        { key: "인원", label: "인원" },
-        { key: "금액(입장료)", label: "금액(입장료)" },
-        { key: "기금제외금액", label: "기금제외금액" },
-        { key: "부가세제외금액", label: "부가세제외금액" },
-        { key: "부율", label: "부율" },
-        { key: "공급가액", label: "공급가액" },
-        { key: "부가세", label: "부가세" },
-        { key: "영화사 지급금", label: "영화사 지급금" },
     ];
 
-    // 확인여부 필터 적용된 표시 목록 — 필터 중엔 소계 행이 맞지 않으므로 숨김
+    // 데이터에 존재하는 멀티구분 목록 (필터 옵션)
+    const multiOptions = useMemo(() => {
+        const set = new Set<string>();
+        settlements.forEach((r) => {
+            if (!r.is_subtotal && r["멀티구분"]) set.add(r["멀티구분"]);
+        });
+        return ["전체", ...Array.from(set)];
+    }, [settlements]);
+
+    // 멀티/확인여부 필터 적용된 표시 목록
+    // (확인여부 필터 중엔 소계 행이 맞지 않으므로 숨김, 멀티 필터는 해당 멀티 소계만 유지)
     const displayedSettlements = useMemo(() => {
-        if (confirmFilter === "전체") return settlements;
-        return settlements.filter(
-            (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
-        );
-    }, [settlements, confirmFilter]);
+        let rows = settlements;
+        if (multiFilter !== "전체") {
+            rows = rows.filter((r) => {
+                if (r.is_subtotal) {
+                    // 소계 라벨 "[CGV 직영] 합계"의 브랜드가 선택 멀티의 접두면 유지 ("메가"↔"메가박스")
+                    const m = /^\[([^\s\]]+)/.exec(String(r["극장명"] || ""));
+                    return !!m && multiFilter.startsWith(m[1]);
+                }
+                return r["멀티구분"] === multiFilter;
+            });
+        }
+        if (confirmFilter !== "전체") {
+            rows = rows.filter(
+                (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
+            );
+        }
+        return rows;
+    }, [settlements, confirmFilter, multiFilter]);
 
     const summaryData = useMemo(() => {
         // 합계 계산 시 소계 행(is_subtotal)은 제외
@@ -764,6 +1008,7 @@ export function ManageSettlement() {
                 target: searchParams.target,
             };
             if (confirmFilter !== "전체") params.confirm = confirmFilter;
+            if (multiFilter !== "전체") params.multi = multiFilter;
             if (selectedTheater) params.client_id = String(selectedTheater.id);
             const res = await AxiosGet("settlement-excel-export/", {
                 params,
@@ -775,7 +1020,9 @@ export function ManageSettlement() {
             link.href = url;
 
             const movieTitle = movieOptions.find((m) => m.id === searchParams.movieId)?.title || "정산내역";
-            const suffix = confirmFilter !== "전체" ? `_${confirmFilter}` : "";
+            const suffix =
+                (multiFilter !== "전체" ? `_${multiFilter}` : "") +
+                (confirmFilter !== "전체" ? `_${confirmFilter}` : "");
             link.setAttribute("download", `부금정산_${movieTitle}_${searchParams.yyyyMm}${suffix}.xlsx`);
 
             document.body.appendChild(link);
@@ -793,19 +1040,41 @@ export function ManageSettlement() {
     return (
         <PageContainer>
             <CommonFilterBar
+                wrap
                 onSearch={fetchSettlements}
                 actions={
                     <>
                         <EseroButton
+                            $tone="blue"
+                            onClick={() =>
+                                openModal(
+                                    <BulkDateModal
+                                        yyyyMm={searchParams.yyyyMm}
+                                        movieId={searchParams.movieId}
+                                        rows={displayedSettlements}
+                                        onSaved={fetchSettlements}
+                                        onClose={closeModal}
+                                    />,
+                                    { title: "날짜(To) 일괄 수정", width: "480px" }
+                                )
+                            }
+                            disabled={!settlements.length || !searchParams.movieId}
+                            title="현재 표시된(필터 적용) 극장 행 전체의 날짜(To)를 지정 날짜로 확정"
+                        >
+                            <CalendarCheck weight="bold" size={16} />
+                            날짜 일괄수정
+                        </EseroButton>
+                        <EseroButton
+                            $tone="green"
                             onClick={confirmAll}
                             disabled={!settlements.length}
                             title="조회된 목록의 미확인 극장을 전부 확인 처리"
-                            style={{ backgroundColor: "#16a34a" }}
                         >
                             <Checks weight="bold" size={16} />
                             전체 확인
                         </EseroButton>
                         <EseroButton
+                            $tone="blue"
                             onClick={() =>
                                 openModal(
                                     <SettlementCompareModal yyyyMm={searchParams.yyyyMm} />,
@@ -817,7 +1086,7 @@ export function ManageSettlement() {
                             <Scales weight="bold" size={16} />
                             부금 대사
                         </EseroButton>
-                        <EseroButton onClick={handleDownloadEsero} disabled={isEseroDownloading}>
+                        <EseroButton $tone="sky" onClick={handleDownloadEsero} disabled={isEseroDownloading}>
                             {isEseroDownloading ? (
                                 <CircleNotch size={16} weight="bold" className="loading-icon" />
                             ) : (
@@ -838,7 +1107,11 @@ export function ManageSettlement() {
                         label="부금년월"
                         inputType="month"
                         value={searchParams.yyyyMm}
-                        setValue={(v) => setSearchParams((p: any) => ({ ...p, yyyyMm: v }))}
+                        setValue={(v) => {
+                            setSearchParams((p: any) => ({ ...p, yyyyMm: v }));
+                            setMultiFilter("전체"); // 월 변경 시 멀티 필터 초기화
+                            setSettlements([]); // 이전 월 목록이 남아 헷갈리지 않게 비움
+                        }}
                         labelWidth="60px"
                     />
                 </div>
@@ -847,7 +1120,11 @@ export function ManageSettlement() {
                         label="영화명"
                         options={movieOptions.map((m) => ({ label: m.title, value: String(m.id) }))}
                         value={searchParams.movieId}
-                        onChange={(val) => setSearchParams((p: any) => ({ ...p, movieId: val }))}
+                        onChange={(val) => {
+                            setSearchParams((p: any) => ({ ...p, movieId: val }));
+                            setMultiFilter("전체"); // 영화 변경 시 멀티 필터 초기화
+                            setSettlements([]); // 이전 영화 목록이 남아 헷갈리지 않게 비움 (검색 시 재조회)
+                        }}
                         labelWidth="50px"
                         disabled={movieLoading}
                     />
@@ -873,6 +1150,15 @@ export function ManageSettlement() {
                         value={confirmFilter}
                         onChange={setConfirmFilter}
                         labelWidth="60px"
+                    />
+                </div>
+                <div style={{ width: "170px" }}>
+                    <CustomSelect
+                        label="멀티"
+                        options={multiOptions}
+                        value={multiFilter}
+                        onChange={setMultiFilter}
+                        labelWidth="40px"
                     />
                 </div>
                 <TheaterSearchWrapper ref={theaterWrapperRef}>
@@ -938,6 +1224,80 @@ export function ManageSettlement() {
                                 : `row-${item["거래처코드"]}-${item["날짜(From)"]}-${idx}`
                         }
                         formatCell={(k: string, v: any, row: any) => {
+                            // 날짜(To) 셀: 확정된 행은 보라 표시+해제, 모든 행에서 ✏로 개별 수정
+                            if (
+                                k === "날짜(To)" &&
+                                !row?.is_subtotal &&
+                                !row?.is_adjustment &&
+                                row?.["거래처코드"] &&
+                                row?.["지역"] !== "전체 총계"
+                            ) {
+                                const dc = row["날짜조정"];
+                                return (
+                                    <span
+                                        style={{ whiteSpace: "nowrap" }}
+                                        title={
+                                            dc
+                                                ? `확정된 날짜(To)${
+                                                      dc["원본"] ? ` — 원래 ${dc["원본"]}` : ""
+                                                  }`
+                                                : undefined
+                                        }
+                                    >
+                                        {dc ? (
+                                            <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                                {v}
+                                            </span>
+                                        ) : (
+                                            v ?? "-"
+                                        )}
+                                        <button
+                                            title="날짜(To) 수정 (이 행만)"
+                                            style={{
+                                                marginLeft: 5,
+                                                padding: "1px 4px",
+                                                fontSize: 11,
+                                                border: "1px solid #e2e8f0",
+                                                borderRadius: 4,
+                                                background: "#fff",
+                                                color: "#64748b",
+                                                cursor: "pointer",
+                                                verticalAlign: "middle",
+                                            }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openRowDateEdit(row);
+                                            }}
+                                        >
+                                            <PencilSimple size={11} />
+                                        </button>
+                                        {dc?.["조정ID"] && (
+                                            <button
+                                                title="날짜(To) 확정만 해제 (금액 조정은 유지)"
+                                                style={{
+                                                    marginLeft: 4,
+                                                    padding: "1px 6px",
+                                                    fontSize: 11,
+                                                    border: "1px solid #ddd6fe",
+                                                    borderRadius: 4,
+                                                    background: "#fff",
+                                                    color: "#7c3aed",
+                                                    cursor: "pointer",
+                                                }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRemoveAdjustment(
+                                                        { ...row, 조정ID: dc["조정ID"] },
+                                                        "date"
+                                                    );
+                                                }}
+                                            >
+                                                해제
+                                            </button>
+                                        )}
+                                    </span>
+                                );
+                            }
                             // 수동조정 행: 조정액을 보라색으로 함께 표시
                             const delta = row?.["조정액"]?.[k];
                             if (typeof v === "number" && k !== "부율") {
@@ -954,20 +1314,20 @@ export function ManageSettlement() {
                                 }
                                 return v.toLocaleString();
                             }
+                            // 계산 행이 없어 조정만 별도 행으로 표시된 경우 (스코어 삭제 등)
                             if (
                                 k === "상영타입" &&
-                                (row?.is_adjusted || row?.is_adjustment) &&
+                                row?.is_adjustment &&
                                 typeof v === "string"
                             ) {
                                 return (
                                     <span>
-                                        {v.replace(" (수동조정)", "").replace(/^수동조정$/, "")}{" "}
                                         <span style={{ color: "#7c3aed", fontWeight: 700 }}>
-                                            (수동조정)
+                                            수동조정
                                         </span>
                                         {row?.["조정ID"] && (
                                             <button
-                                                title="수동조정 해제 (원래 계산값으로 복구)"
+                                                title="수동조정 해제"
                                                 style={{
                                                     marginLeft: 6,
                                                     padding: "1px 6px",

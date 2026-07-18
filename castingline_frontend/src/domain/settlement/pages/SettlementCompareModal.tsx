@@ -22,7 +22,12 @@ interface IAdjustment {
     vat_delta: number;
     payout_delta: number;
     note: string;
-    original: Record<string, number>;
+    original: Record<string, number | string>;
+}
+interface IDateTo {
+    system: string | null;
+    file: string | null;
+    equal: boolean;
 }
 interface ICompareRow {
     체인: string;
@@ -37,6 +42,7 @@ interface ICompareRow {
     missing_rate: boolean;
     adjustment: IAdjustment | null;
     metrics: Record<string, IMetric>;
+    date_to: IDateTo; // 날짜(To) 대사 — 시스템 마지막 상영일 vs 정산서 종료일
 }
 interface ISummary {
     theater_count: number;
@@ -218,6 +224,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             return;
         }
         const ms = r.metrics;
+        // 날짜(To) 불일치면 파일(정산서) 마지막 상영일도 함께 확정.
+        // 일치하면 date 키를 보내지 않음 — 이미 저장된 날짜 조정을 지우지 않기 위해.
+        const dateFix = !r.date_to.equal && r.date_to.file ? r.date_to.file : null;
         try {
             const res = await AxiosPost("settlement-adjustments", {
                 yyyyMm: result.yyyyMm,
@@ -230,6 +239,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 supply_original: ms["공급가액"].system,
                 vat_original: ms["부가세"].system,
                 payout_original: ms["영화사 지급금"].system,
+                ...(dateFix
+                    ? { date_to: dateFix, date_to_original: r.date_to.system || "" }
+                    : {}),
                 note: `부금 대사 조정 (${sec.movie_title})`,
             });
             const adj: IAdjustment = {
@@ -242,6 +254,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     공급가액: ms["공급가액"].system ?? 0,
                     부가세: ms["부가세"].system ?? 0,
                     "영화사 지급금": ms["영화사 지급금"].system ?? 0,
+                    "날짜(To)": r.date_to.system ?? "",
                 },
             };
             updateRow(sec.movie_id, r, (row) => ({
@@ -258,10 +271,77 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         ])
                     ),
                 },
+                date_to: dateFix
+                    ? { system: dateFix, file: dateFix, equal: true }
+                    : row.date_to,
             }));
             toast.success("수동조정 저장 — 정산 조회 시 '(수동조정)' 행으로 반영됩니다.");
         } catch (e: any) {
             toast.error(e?.response?.data?.error || "조정 저장에 실패했습니다.");
+        }
+    };
+
+    /** 날짜(To)만 파일 값으로 확정 — 금액/인원 일치 여부와 무관하게 시스템 날짜를 변경.
+     *  기존 수동조정(금액)이 있으면 그 조정액은 그대로 유지하고 날짜만 갱신한다. */
+    const applyDateOnly = async (sec: IMovieSection, r: ICompareRow) => {
+        if (!r.client_code || !result || !r.date_to.file) {
+            toast.error("거래처코드 또는 파일 날짜가 없어 적용할 수 없습니다.");
+            return;
+        }
+        const adj = r.adjustment;
+        const ms = r.metrics;
+        try {
+            const res = await AxiosPost("settlement-adjustments", {
+                yyyyMm: result.yyyyMm,
+                movie_id: sec.movie_id,
+                client_code: r.client_code,
+                screen_format: r.포맷 || "",
+                // 기존 조정액 보존 (없으면 0 = 날짜만 조정)
+                supply_delta: adj?.supply_delta ?? 0,
+                vat_delta: adj?.vat_delta ?? 0,
+                payout_delta: adj?.payout_delta ?? 0,
+                supply_original:
+                    (adj?.original?.["공급가액"] as number) ?? ms["공급가액"].system,
+                vat_original:
+                    (adj?.original?.["부가세"] as number) ?? ms["부가세"].system,
+                payout_original:
+                    (adj?.original?.["영화사 지급금"] as number) ??
+                    ms["영화사 지급금"].system,
+                date_to: r.date_to.file,
+                date_to_original: r.date_to.system || "",
+                note: adj?.note || `부금 대사 날짜 확정 (${sec.movie_title})`,
+            });
+            const newAdj: IAdjustment = {
+                id: res.data.id,
+                supply_delta: res.data.supply_delta,
+                vat_delta: res.data.vat_delta,
+                payout_delta: res.data.payout_delta,
+                note: res.data.note,
+                original: {
+                    공급가액:
+                        (adj?.original?.["공급가액"] as number) ??
+                        (ms["공급가액"].system ?? 0),
+                    부가세:
+                        (adj?.original?.["부가세"] as number) ?? (ms["부가세"].system ?? 0),
+                    "영화사 지급금":
+                        (adj?.original?.["영화사 지급금"] as number) ??
+                        (ms["영화사 지급금"].system ?? 0),
+                    "날짜(To)": r.date_to.system ?? "",
+                },
+            };
+            const fileDate = r.date_to.file;
+            updateRow(sec.movie_id, r, (row) => ({
+                ...row,
+                확인: true, // 조정 저장 = 확인 처리 (백엔드 자동)
+                adjustment: newAdj,
+                date_to: { system: fileDate, file: fileDate, equal: true },
+                equal:
+                    row.status === "both" &&
+                    METRICS.every((m) => row.metrics[m].diff === 0),
+            }));
+            toast.success("날짜(To)를 파일 값으로 확정했습니다 — 정산 조회에 반영됩니다.");
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error || "날짜 적용에 실패했습니다.");
         }
     };
 
@@ -284,18 +364,37 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         };
                         const metrics = { ...row.metrics };
                         AMOUNT_METRICS.forEach((m) => {
-                            const orig = adj.original?.[m] ?? (metrics[m].system ?? 0) - deltas[m];
+                            const orig =
+                                (adj.original?.[m] as number) ??
+                                (metrics[m].system ?? 0) - deltas[m];
                             metrics[m] = {
                                 system: orig,
                                 file: metrics[m].file,
                                 diff: (metrics[m].file ?? 0) - orig,
                             };
                         });
+                        // 날짜(To)도 조정 전 시스템 값으로 복귀
+                        const origDate =
+                            (adj.original?.["날짜(To)"] as string) || row.date_to.system;
+                        const date_to: IDateTo = {
+                            system: origDate || null,
+                            file: row.date_to.file,
+                            equal: !(
+                                row.status === "both" &&
+                                origDate &&
+                                row.date_to.file &&
+                                origDate !== row.date_to.file
+                            ),
+                        };
                         return {
                             ...row,
                             adjustment: null,
                             metrics,
-                            equal: row.status === "both" && METRICS.every((m) => metrics[m].diff === 0),
+                            date_to,
+                            equal:
+                                row.status === "both" &&
+                                METRICS.every((m) => metrics[m].diff === 0) &&
+                                date_to.equal,
                         };
                     });
                     toast.success("조정을 해제했습니다.");
@@ -435,6 +534,12 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         supply_original: r.metrics["공급가액"].system,
                         vat_original: r.metrics["부가세"].system,
                         payout_original: r.metrics["영화사 지급금"].system,
+                        ...(!r.date_to.equal && r.date_to.file
+                            ? {
+                                  date_to: r.date_to.file,
+                                  date_to_original: r.date_to.system || "",
+                              }
+                            : {}),
                         note: `부금 대사 일괄 조정 (${sec.movie_title})`,
                     }));
                     const res = await AxiosPost("settlement-adjustments", {
@@ -468,8 +573,13 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                         공급가액: r.metrics["공급가액"].system ?? 0,
                                         부가세: r.metrics["부가세"].system ?? 0,
                                         "영화사 지급금": r.metrics["영화사 지급금"].system ?? 0,
+                                        "날짜(To)": r.date_to.system ?? "",
                                     },
                                 };
+                                const dateFix =
+                                    !r.date_to.equal && r.date_to.file
+                                        ? r.date_to.file
+                                        : null;
                                 return {
                                     ...r,
                                     equal: true,
@@ -487,6 +597,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                             ])
                                         ),
                                     },
+                                    date_to: dateFix
+                                        ? { system: dateFix, file: dateFix, equal: true }
+                                        : r.date_to,
                                 };
                             }),
                         }));
@@ -747,6 +860,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                 : m}
                                                         </th>
                                                     ))}
+                                                    <th colSpan={2}>날짜(To)</th>
                                                     <th rowSpan={2} style={{ width: 70 }}>
                                                         확인
                                                     </th>
@@ -762,6 +876,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                             <th className="sub">차이</th>
                                                         </React.Fragment>
                                                     ))}
+                                                    <th className="sub">시스템</th>
+                                                    <th className="sub">파일</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -789,6 +905,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                             </React.Fragment>
                                                         );
                                                     })}
+                                                    <td />
+                                                    <td />
                                                     <td />
                                                     <td />
                                                 </tr>
@@ -857,6 +975,37 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                 </React.Fragment>
                                                             );
                                                         })}
+                                                        <td
+                                                            className={
+                                                                r.date_to?.equal === false
+                                                                    ? "bad center date"
+                                                                    : "center date"
+                                                            }
+                                                        >
+                                                            {r.date_to?.system || "-"}
+                                                        </td>
+                                                        <td
+                                                            className={
+                                                                r.date_to?.equal === false
+                                                                    ? "bad center date"
+                                                                    : "center date"
+                                                            }
+                                                        >
+                                                            {r.date_to?.file || "-"}
+                                                            {r.status === "both" &&
+                                                                r.date_to?.equal === false &&
+                                                                !!r.date_to?.file &&
+                                                                !!r.client_code && (
+                                                                    <DateApplyBtn
+                                                                        onClick={() =>
+                                                                            applyDateOnly(sec, r)
+                                                                        }
+                                                                        title="시스템 날짜(To)를 파일(정산서) 날짜로 확정 — 금액 일치 여부와 무관하게 적용, 정산 조회/이세로에 반영"
+                                                                    >
+                                                                        적용
+                                                                    </DateApplyBtn>
+                                                                )}
+                                                        </td>
                                                         <td className="center">
                                                             {r.client_code ? (
                                                                 <ConfirmMini
@@ -878,12 +1027,16 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                             {r.adjustment ? (
                                                                 <AdjWrap
                                                                     title={`원래값 — 공급가액 ${fmt(
-                                                                        r.adjustment.original?.["공급가액"]
+                                                                        r.adjustment.original?.["공급가액"] as number
                                                                     )}, 부가세 ${fmt(
-                                                                        r.adjustment.original?.["부가세"]
+                                                                        r.adjustment.original?.["부가세"] as number
                                                                     )}, 지급금 ${fmt(
-                                                                        r.adjustment.original?.["영화사 지급금"]
-                                                                    )}`}
+                                                                        r.adjustment.original?.["영화사 지급금"] as number
+                                                                    )}${
+                                                                        r.adjustment.original?.["날짜(To)"]
+                                                                            ? `, 날짜(To) ${r.adjustment.original["날짜(To)"]}`
+                                                                            : ""
+                                                                    }`}
                                                                 >
                                                                     <span className="adjtag">
                                                                         수동조정
@@ -897,6 +1050,24 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                                     >
                                                                         해제
                                                                     </button>
+                                                                    {/* 날짜만 확정된 조정(금액 델타 0)이라면 금액 조정 버튼 유지 */}
+                                                                    {!r.adjustment.supply_delta &&
+                                                                        !r.adjustment.vat_delta &&
+                                                                        !r.adjustment.payout_delta &&
+                                                                        r.status === "both" &&
+                                                                        r.metrics["인원"].diff === 0 &&
+                                                                        AMOUNT_METRICS.some(
+                                                                            (m) => r.metrics[m].diff !== 0
+                                                                        ) && (
+                                                                            <AdjBtn
+                                                                                onClick={() =>
+                                                                                    adjustRow(sec, r)
+                                                                                }
+                                                                                title="시스템 금액을 파일(정산서) 값에 맞춰 수동조정 저장"
+                                                                            >
+                                                                                파일값으로 조정
+                                                                            </AdjBtn>
+                                                                        )}
                                                                 </AdjWrap>
                                                             ) : r.status === "both" &&
                                                               !r.equal &&
@@ -1203,6 +1374,11 @@ const Table = styled.table`
     tbody td.dim {
         color: #cbd5e1;
     }
+    tbody td.date {
+        font-size: 11.5px;
+        letter-spacing: -0.2px;
+        white-space: nowrap;
+    }
     tbody tr.badrow td.left {
         color: #b91c1c;
         font-weight: 600;
@@ -1285,6 +1461,23 @@ const AdjBtn = styled.button`
     white-space: nowrap;
     &:hover {
         background: #eff6ff;
+    }
+`;
+const DateApplyBtn = styled.button`
+    margin-left: 6px;
+    height: 20px;
+    padding: 0 7px;
+    border: 1px solid #2563eb;
+    border-radius: 5px;
+    background: #fff;
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    vertical-align: middle;
+    &:hover {
+        background: #2563eb;
+        color: #fff;
     }
 `;
 const AdjWrap = styled.span`

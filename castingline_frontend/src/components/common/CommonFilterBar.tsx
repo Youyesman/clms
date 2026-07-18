@@ -4,18 +4,23 @@ import { MagnifyingGlass } from "@phosphor-icons/react";
 import { CustomIconButton } from "./CustomIconButton";
 
 /** 1. 스타일 정의 **/
-const FilterBarContainer = styled.div`
+const FilterBarContainer = styled.div<{ $wrap?: boolean }>`
     display: flex;
     align-items: center;
     padding: 8px 20px;
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
     border-radius: 4px; /* 조금 더 둥글게 */
-    box-shadow: 
-        0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.1),
         0 2px 4px -1px rgba(0, 0, 0, 0.06); /* 조금 더 입체감 있는 그림자 */
     margin-bottom: 16px;
-    height: 56px; /* 높이 통일 */
+    /* wrap 모드: 필터 줄 + 우측 정렬 액션 줄의 2단 구성 */
+    height: ${({ $wrap }) => ($wrap ? "auto" : "56px")};
+    ${({ $wrap }) =>
+        $wrap
+            ? "flex-direction: column; align-items: stretch; row-gap: 8px; min-height: 56px; padding-top: 10px; padding-bottom: 10px;"
+            : ""}
     width: 100%;
     
     /* 
@@ -29,10 +34,11 @@ const FilterBarContainer = styled.div`
     &::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
 `;
 
-const FilterItemsScroll = styled.div`
+const FilterItemsScroll = styled.div<{ $wrap?: boolean }>`
     display: flex;
     align-items: center;
     flex: 1;
+    ${({ $wrap }) => ($wrap ? "flex-wrap: wrap; row-gap: 10px;" : "")}
 `;
 
 const FilterItemWrapper = styled.div<{ $width?: string }>`
@@ -61,14 +67,16 @@ const FilterItemWrapper = styled.div<{ $width?: string }>`
     }
 `;
 
-const ActionGroup = styled.div`
+const ActionGroup = styled.div<{ $wrap?: boolean }>`
     display: flex;
     align-items: center;
     gap: 8px;
-    padding-left: 16px;
-    border-left: 2px solid #f1f5f9;
-    margin-left: auto;
     flex-shrink: 0;
+    ${({ $wrap }) =>
+        $wrap
+            ? /* 2단 모드: 구분선 없이 아랫줄 우측 정렬 */
+              "justify-content: flex-end; border-top: 1px solid #f1f5f9; padding-top: 8px;"
+            : "padding-left: 16px; border-left: 2px solid #f1f5f9; margin-left: auto;"}
 `;
 
 /* 돋보기 버튼 시인성 강화를 위한 전용 블루 버튼 스타일 */
@@ -108,10 +116,12 @@ interface CommonFilterBarProps {
     children: React.ReactNode;
     onSearch?: () => void;
     actions?: React.ReactNode;
+    /** 필터가 많은 페이지에서 두 줄로 자동 줄바꿈 */
+    wrap?: boolean;
 }
 
 /** 3. 메인 컴포넌트 **/
-export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSearch, actions }) => {
+export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSearch, actions, wrap }) => {
     /* Enter 키 입력 시 검색 실행 */
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && onSearch) {
@@ -120,8 +130,8 @@ export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSe
     };
 
     return (
-        <FilterBarContainer onKeyDown={handleKeyDown}>
-            <FilterItemsScroll>
+        <FilterBarContainer onKeyDown={handleKeyDown} $wrap={wrap}>
+            <FilterItemsScroll $wrap={wrap}>
                 {React.Children.map(children, (child) => {
                     if (!child) return null;
                     return <FilterItemWrapper>{child}</FilterItemWrapper>;
@@ -134,7 +144,7 @@ export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSe
                     </div>
                 )}
             </FilterItemsScroll>
-            {actions && <ActionGroup>{actions}</ActionGroup>}
+            {actions && <ActionGroup $wrap={wrap}>{actions}</ActionGroup>}
         </FilterBarContainer>
     );
 };

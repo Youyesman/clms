@@ -25,6 +25,11 @@ class SettlementAdjustment(models.Model):
     supply_original = models.BigIntegerField(null=True, blank=True, verbose_name="조정 전 공급가액")
     vat_original = models.BigIntegerField(null=True, blank=True, verbose_name="조정 전 부가세")
     payout_original = models.BigIntegerField(null=True, blank=True, verbose_name="조정 전 지급금")
+    # 날짜(To) 조정 — 부금계산서의 마지막 상영일이 시스템(스코어 최종일)과 다를 때
+    # 파일 값으로 확정. 정산 화면의 날짜(To)에 반영된다.
+    date_to_override = models.DateField(null=True, blank=True, verbose_name="날짜(To) 조정값")
+    date_to_original = models.CharField(max_length=10, blank=True, default="",
+                                        verbose_name="조정 전 날짜(To)")
     note = models.CharField(max_length=200, blank=True, default="", verbose_name="비고")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -5,7 +5,8 @@ from .views import (CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadVie
                     CrawlerScheduleListView, CrawlTargetMovieView, CrawlTargetMovieDetailView,
                     CrawlTargetMovieBulkDeleteView, MegaboxScoreCrawlView,
                     MegaboxScoreAllView, MegaboxAccountView, MegaboxAccountDetailView,
-                    CineQScoreAllView, CineQAccountView, CineQAccountDetailView)
+                    CineQScoreAllView, CineQAccountView, CineQAccountDetailView,
+                    KobisScoreAllView, KobisAccountView, KobisAccountDetailView)
 
 urlpatterns = [
     path('run/', CrawlerExecutionView.as_view(), name='crawler_run'),
@@ -27,4 +28,7 @@ urlpatterns = [
     path('cineq_score_all/', CineQScoreAllView.as_view(), name='cineq_score_all'),
     path('cineq_accounts/', CineQAccountView.as_view(), name='cineq_accounts'),
     path('cineq_accounts/<int:pk>/', CineQAccountDetailView.as_view(), name='cineq_account_detail'),
+    path('kobis_score_all/', KobisScoreAllView.as_view(), name='kobis_score_all'),
+    path('kobis_accounts/', KobisAccountView.as_view(), name='kobis_accounts'),
+    path('kobis_accounts/<int:pk>/', KobisAccountDetailView.as_view(), name='kobis_account_detail'),
 ]

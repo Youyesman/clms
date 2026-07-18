@@ -2247,10 +2247,12 @@ def score_settlement_detail(request):
     for r in rates_qs:
         rate_map_d[(r.client_id, r.movie_id)].append(r)
 
-    theater_rate_map = {
-        (tr.rate_id, tr.theater.auditorium_name): tr.share_rate
-        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater")
-    } if rates_qs else {}
+    # 스코어의 auditorium은 관 코드('001')로 저장되므로 관 이름/코드 둘 다 키로 등록
+    theater_rate_map = {}
+    if rates_qs:
+        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater"):
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium_name)] = tr.share_rate
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
 
     default_rate_map = {
         (dr.region_code, dr.theater_kind): dr.share_rate
@@ -2398,14 +2400,16 @@ def score_settlement_detail(request):
             "unit_price": unit_out,
         })
 
-    # 정렬: 멀티순 → 직영/위탁 → 지역 → 극장명
+    # 정렬: 멀티순 → 직영/위탁 → 지역(부금정산 탭과 동일한 고정 순서) → 극장명
     _MULTI_ORD = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3}
+    _REGION_ORD = ["서울", "경강", "충청", "호남", "경북", "경남"]
 
     def _skey(r):
         m = r["multi"] or ""
         mi = next((v for k, v in _MULTI_ORD.items() if k in m), 99)
         ci = 0 if r["classification"] == "직영" else 1
-        return (mi, ci, r["region"], r["theater"], r["format"])
+        ri = _REGION_ORD.index(r["region"]) if r["region"] in _REGION_ORD else 99
+        return (mi, ci, ri, r["theater"], r["format"])
 
     rows.sort(key=_skey)
 
@@ -2642,10 +2646,12 @@ def score_supply_price(request):
     for r in rates_qs:
         rate_map_d[r.client_id].append(r)
 
-    theater_rate_map = {
-        (tr.rate_id, tr.theater.auditorium_name): tr.share_rate
-        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater")
-    } if rates_qs else {}
+    # 스코어의 auditorium은 관 코드('001')로 저장되므로 관 이름/코드 둘 다 키로 등록
+    theater_rate_map = {}
+    if rates_qs:
+        for tr in TheaterRate.objects.filter(rate__in=rates_qs).select_related("theater"):
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium_name)] = tr.share_rate
+            theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
 
     default_rate_map = {
         (dr.region_code, dr.theater_kind): dr.share_rate

@@ -1166,3 +1166,26 @@ class CineQDistributorAccount(models.Model):
 
     def __str__(self):
         return f"{'✅' if self.is_active else '⏸'} {self.name} ({self.user})"
+
+
+class KobisDistributorAccount(models.Model):
+    """
+    KOBIS(영화관입장권통합전산망) 배급사 회원 계정.
+    회원용통계(영화사별)상세 수집 시 활성 계정으로 로그인한다.
+    """
+    name = models.CharField(max_length=100, verbose_name="배급사명")
+    user = models.CharField(max_length=100, verbose_name="아이디")
+    password = models.CharField(max_length=100, verbose_name="비밀번호")
+    aprv_no = models.CharField(max_length=100, blank=True, default="",
+                               verbose_name="인증번호")
+    is_active = models.BooleanField(default=True, verbose_name="활성화")
+    sort_order = models.IntegerField(default=0, verbose_name="정렬순서")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'id']
+        verbose_name = "KOBIS 배급사 계정"
+
+    def __str__(self):
+        return f"{'✅' if self.is_active else '⏸'} {self.name} ({self.user})"

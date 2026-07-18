@@ -466,6 +466,10 @@ def preview_kofic_format(file, movie_id):
                 entry_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
                 fare = int(pd.to_numeric(row.iloc[5], errors="coerce") or 0)
 
+                # 발권금액 0원(무료 발권) 행은 관객수 집계에서 제외
+                if fare == 0:
+                    continue
+
                 # 극장/상영관 매칭 (영화는 사용자가 선택한 것으로 고정)
                 client, theater, err_msg = matcher.check_client_and_theater(
                     theater_name, raw_aud
@@ -575,6 +579,14 @@ def preview_cgv_format(file):
                 client, theater, err_msg = matcher.check_client_and_theater(
                     search_client, cur_aud
                 )
+                # "씨네드쉐프 용산"처럼 CGV 접두 없이 등록된 표기(엑셀 극장명2 등)는
+                # 접두 매칭 실패 시 원본 극장명으로 재시도한다.
+                if client is None and search_client != cur_client:
+                    raw_client, raw_theater, raw_err = (
+                        matcher.check_client_and_theater(cur_client, cur_aud)
+                    )
+                    if raw_client:
+                        client, theater, err_msg = raw_client, raw_theater, raw_err
                 movie, exp_title = matcher.find_movie(cur_movie, "", cur_movie)
 
                 for i, col_name in enumerate(show_cols):

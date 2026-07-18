@@ -18,6 +18,7 @@ import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "./atom/
 import { SIDEBAR_WIDTH } from "./components/navbar/Sidebar";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { initExcelCellSelection } from "./utils/excelCellSelection";
 
 // AppContainer의 prop 타입 정의
 interface AppContainerProps {
@@ -53,6 +54,9 @@ function App() {
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
     const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
     const sidebarWidth = showStaffUI ? SIDEBAR_WIDTH : 0;
+
+    // E001: 모든 테이블에서 엑셀처럼 셀 범위만 드래그 선택 + Ctrl+C 복사 (헤더 행 포함)
+    useEffect(() => initExcelCellSelection(), []);
 
     const isFullscreen = FULLSCREEN_PATHS.includes(location.pathname);
     const isManagePath = location.pathname.startsWith("/manage");

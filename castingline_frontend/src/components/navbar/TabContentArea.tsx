@@ -19,6 +19,7 @@ import { CrawlerPage } from "../../domain/crawler/pages/CrawlerPage";
 import { ScheduleViewerPage } from "../../domain/crawler/pages/ScheduleViewerPage";
 import { MegaboxScorePage } from "../../domain/crawler/pages/MegaboxScorePage";
 import { CineQScorePage } from "../../domain/crawler/pages/CineQScorePage";
+import { KobisScorePage } from "../../domain/crawler/pages/KobisScorePage";
 import { Mailbox } from "../../domain/mail/pages/Mailbox";
 import { SettlementCollector } from "../../domain/mail/pages/SettlementCollector";
 import { ScorePage } from "../../customer/domain/score/pages/ScorePage";
@@ -49,6 +50,7 @@ const PATH_TO_COMPONENT: Record<string, React.ComponentType> = {
     "/manage/crawler/schedules": ScheduleViewerPage,
     "/manage/crawler/megabox_score": MegaboxScorePage,
     "/manage/crawler/cineq_score": CineQScorePage,
+    "/manage/crawler/kobis_score": KobisScorePage,
     "/manage/mailbox": Mailbox,
     "/manage/settlement_mail": SettlementCollector,
     "/manage/manage_client": ManageClient,
