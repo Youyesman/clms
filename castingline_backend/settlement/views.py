@@ -974,6 +974,9 @@ class SettlementCompareView(SettlementListView):
                 "equal": equal,
                 "missing_rate": bool(sys_agg and sys_agg["missing_rate"]),
                 "adjustment": sys_agg.get("adjustment") if sys_agg else None,
+                # 조정(델타) 계산 기준 — 메가박스 회차 재계산 행은 화면 표시값과
+                # 정산 화면(월 계산)이 다르므로 월 기준값을 따로 내려준다. (P003)
+                "adjust_base": sys_agg.get("monthly_base") if sys_agg else None,
                 "metrics": metrics,
                 "date_to": {"system": s_date or None, "file": f_date or None,
                             "equal": date_equal},
@@ -1159,6 +1162,12 @@ class SettlementCompareView(SettlementListView):
                     vat_tot += payout - supply
 
             agg = sys_by_theater[key]
+            # 재계산 전 월 단위 계산값 보존 — 조정(델타) 저장은 정산 화면(월 계산)
+            # 기준이어야 화면 조회 시 부금계산서와 일치한다. (P003)
+            agg.setdefault("monthly_base", {
+                "공급가액": agg["공급가액"], "부가세": agg["부가세"],
+                "영화사 지급금": agg["영화사 지급금"],
+            })
             agg["공급가액"] = int(supply_tot)
             agg["부가세"] = int(vat_tot)
             agg["영화사 지급금"] = int(supply_tot + vat_tot)

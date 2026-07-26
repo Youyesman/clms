@@ -19,9 +19,10 @@ const TableWrapper = styled.div`
   flex: 1;
   min-height: 0;
 
+  /* 가로 스크롤바는 눈에 잘 띄게 두껍게 (세로는 얇게 유지) */
   &::-webkit-scrollbar {
     width: 6px;
-    height: 6px;
+    height: 12px;
   }
   &::-webkit-scrollbar-track {
     background: #f8fafc;

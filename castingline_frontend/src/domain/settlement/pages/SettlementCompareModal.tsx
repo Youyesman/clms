@@ -41,6 +41,9 @@ interface ICompareRow {
     equal: boolean;
     missing_rate: boolean;
     adjustment: IAdjustment | null;
+    /** 조정(델타) 계산 기준 금액 — 메가박스 회차 재계산 행은 표시값과 정산 화면(월
+     *  계산)이 달라, 델타는 이 값 기준으로 저장해야 정산 화면이 계산서와 일치한다. */
+    adjust_base: Record<string, number> | null;
     metrics: Record<string, IMetric>;
     date_to: IDateTo; // 날짜(To) 대사 — 시스템 마지막 상영일 vs 정산서 종료일
 }
@@ -97,6 +100,30 @@ interface Props {
 }
 
 const AMOUNT_METRICS = ["공급가액", "부가세", "영화사 지급금"];
+
+/** 조정 델타의 기준값 — 정산 화면(월 계산) 기준. adjust_base가 없으면 표시값과 동일. */
+const adjustBaseOf = (r: ICompareRow, m: string): number =>
+    r.adjust_base?.[m] ?? r.metrics[m].system ?? 0;
+
+/** 파일(정산서) 값 기준 조정 항목 payload — 행별/일괄 조정 공용 (P003) */
+const buildAdjustItem = (sec: IMovieSection, r: ICompareRow) => {
+    const dateFix = !r.date_to.equal && r.date_to.file ? r.date_to.file : null;
+    return {
+        movie_id: sec.movie_id,
+        client_code: r.client_code,
+        screen_format: r.포맷 || "",
+        supply_delta: (r.metrics["공급가액"].file ?? 0) - adjustBaseOf(r, "공급가액"),
+        vat_delta: (r.metrics["부가세"].file ?? 0) - adjustBaseOf(r, "부가세"),
+        payout_delta:
+            (r.metrics["영화사 지급금"].file ?? 0) - adjustBaseOf(r, "영화사 지급금"),
+        supply_original: adjustBaseOf(r, "공급가액"),
+        vat_original: adjustBaseOf(r, "부가세"),
+        payout_original: adjustBaseOf(r, "영화사 지급금"),
+        ...(dateFix
+            ? { date_to: dateFix, date_to_original: r.date_to.system || "" }
+            : {}),
+    };
+};
 
 /** rows에서 섹션 totals/summary를 다시 계산 (조정 반영용) */
 const recomputeSections = (movies: IMovieSection[]) => {
@@ -230,18 +257,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         try {
             const res = await AxiosPost("settlement-adjustments", {
                 yyyyMm: result.yyyyMm,
-                movie_id: sec.movie_id,
-                client_code: r.client_code,
-                screen_format: r.포맷 || "",
-                supply_delta: ms["공급가액"].diff,
-                vat_delta: ms["부가세"].diff,
-                payout_delta: ms["영화사 지급금"].diff,
-                supply_original: ms["공급가액"].system,
-                vat_original: ms["부가세"].system,
-                payout_original: ms["영화사 지급금"].system,
-                ...(dateFix
-                    ? { date_to: dateFix, date_to_original: r.date_to.system || "" }
-                    : {}),
+                ...buildAdjustItem(sec, r),
                 note: `부금 대사 조정 (${sec.movie_title})`,
             });
             const adj: IAdjustment = {
@@ -301,12 +317,12 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 vat_delta: adj?.vat_delta ?? 0,
                 payout_delta: adj?.payout_delta ?? 0,
                 supply_original:
-                    (adj?.original?.["공급가액"] as number) ?? ms["공급가액"].system,
+                    (adj?.original?.["공급가액"] as number) ?? adjustBaseOf(r, "공급가액"),
                 vat_original:
-                    (adj?.original?.["부가세"] as number) ?? ms["부가세"].system,
+                    (adj?.original?.["부가세"] as number) ?? adjustBaseOf(r, "부가세"),
                 payout_original:
                     (adj?.original?.["영화사 지급금"] as number) ??
-                    ms["영화사 지급금"].system,
+                    adjustBaseOf(r, "영화사 지급금"),
                 date_to: r.date_to.file,
                 date_to_original: r.date_to.system || "",
                 note: adj?.note || `부금 대사 날짜 확정 (${sec.movie_title})`,
@@ -441,11 +457,14 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         }
     };
 
-    /** 전체 영화의 미확인 극장(시스템 매칭 행) 일괄 확인 */
-    const bulkConfirm = () => {
+    /** 미확인 극장(시스템 매칭 행) 일괄 확인 — movieId를 주면 해당 영화만 (P002) */
+    const bulkConfirm = (movieId?: number) => {
         if (!result) return;
+        const sections = result.movies.filter(
+            (s) => movieId === undefined || s.movie_id === movieId
+        );
         const perMovie = new Map<number, Set<string>>();
-        result.movies.forEach((sec) =>
+        sections.forEach((sec) =>
             sec.rows.forEach((r) => {
                 if (r.client_code && !r.확인) {
                     if (!perMovie.has(sec.movie_id)) perMovie.set(sec.movie_id, new Set());
@@ -458,9 +477,13 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             toast.info("확인 처리할 미확인 극장이 없습니다.");
             return;
         }
+        const scopeLabel =
+            movieId === undefined
+                ? "대사 결과의"
+                : `'${sections[0]?.movie_title}'의`;
         showAlert(
             "일괄 확인 처리",
-            `대사 결과의 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`,
+            `${scopeLabel} 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`,
             "warning",
             async () => {
                 try {
@@ -473,16 +496,21 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                             client_codes: Array.from(codes),
                         })),
                     });
+                    const movieIds = new Set(perMovie.keys());
                     setResult((prev) => {
                         if (!prev) return prev;
                         return {
                             ...prev,
-                            movies: prev.movies.map((s) => ({
-                                ...s,
-                                rows: s.rows.map((row) =>
-                                    row.client_code ? { ...row, 확인: true } : row
-                                ),
-                            })),
+                            movies: prev.movies.map((s) =>
+                                movieIds.has(s.movie_id)
+                                    ? {
+                                          ...s,
+                                          rows: s.rows.map((row) =>
+                                              row.client_code ? { ...row, 확인: true } : row
+                                          ),
+                                      }
+                                    : s
+                            ),
                         };
                     });
                     toast.success(`${total}곳을 확인 처리했습니다.`);
@@ -508,38 +536,54 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         canAdjust(r) &&
         AMOUNT_METRICS.every((m) => Math.abs(r.metrics[m].diff) < 7);
 
-    /** 전체 영화의 조정 대상 행(금액 차이 7원 미만)을 한 번에 파일 값으로 조정 */
-    const bulkAdjust = () => {
+    /** 조정 대상 행(금액 차이 7원 미만)을 한 번에 파일 값으로 조정.
+     *  movieId를 주면 해당 영화만 (P002). 제외된 불일치 행은 사유와 함께 안내 (P001). */
+    const bulkAdjust = (movieId?: number) => {
         if (!result) return;
-        const targets = result.movies.flatMap((sec) =>
+        const sections = result.movies.filter(
+            (s) => movieId === undefined || s.movie_id === movieId
+        );
+        const targets = sections.flatMap((sec) =>
             sec.rows.filter(canBulkAdjust).map((r) => ({ sec, r }))
         );
+        // 일괄 조정에서 제외되는 불일치 행 사유 집계 — "안 먹었다" 오해 방지 (P001)
+        const skipOver7 = sections.flatMap((s) =>
+            s.rows.filter((r) => canAdjust(r) && !canBulkAdjust(r)).map((r) => ({ s, r }))
+        );
+        const skipVisitor = sections.flatMap((s) =>
+            s.rows.filter(
+                (r) =>
+                    r.status === "both" &&
+                    !r.equal &&
+                    r.metrics["인원"].diff !== 0 &&
+                    !r.adjustment
+            ).map((r) => ({ s, r }))
+        );
+        const skipNote = (prefix: string) => {
+            const parts: string[] = [];
+            if (skipOver7.length)
+                parts.push(`금액 차이 7원 이상 ${skipOver7.length}행 (행별 '파일값으로 조정' 버튼으로만 가능)`);
+            if (skipVisitor.length)
+                parts.push(`인원 불일치 ${skipVisitor.length}행 (조정 불가 — 스코어 확인 필요)`);
+            return parts.length ? `${prefix} 제외: ${parts.join(", ")}` : "";
+        };
         if (!targets.length) {
-            toast.info("일괄 조정할 대상이 없습니다. (금액 차이 7원 미만 행만 일괄 조정 가능)");
+            toast.info(
+                "일괄 조정할 대상이 없습니다. (인원 일치 + 금액 차이 7원 미만 행만 일괄 조정 가능)" +
+                    (skipNote(" /") || "")
+            );
             return;
         }
+        const scopeLabel = movieId === undefined ? "" : `'${sections[0]?.movie_title}'에서 `;
         showAlert(
             "파일값으로 일괄 조정",
-            `인원은 일치하고 금액 차이가 7원 미만인 ${targets.length}개 행(극장×포맷)을 전부 파일(정산서) 값으로 조정하시겠습니까? (7원 이상 차이는 행별로만 조정 가능)`,
+            `${scopeLabel}인원은 일치하고 금액 차이가 7원 미만인 ${targets.length}개 행(극장×포맷)을 전부 파일(정산서) 값으로 조정하시겠습니까?` +
+                (skipNote(" 이번 일괄에서") ? `\n${skipNote("이번 일괄에서")}` : ""),
             "warning",
             async () => {
                 try {
                     const items = targets.map(({ sec, r }) => ({
-                        movie_id: sec.movie_id,
-                        client_code: r.client_code,
-                        screen_format: r.포맷 || "",
-                        supply_delta: r.metrics["공급가액"].diff,
-                        vat_delta: r.metrics["부가세"].diff,
-                        payout_delta: r.metrics["영화사 지급금"].diff,
-                        supply_original: r.metrics["공급가액"].system,
-                        vat_original: r.metrics["부가세"].system,
-                        payout_original: r.metrics["영화사 지급금"].system,
-                        ...(!r.date_to.equal && r.date_to.file
-                            ? {
-                                  date_to: r.date_to.file,
-                                  date_to_original: r.date_to.system || "",
-                              }
-                            : {}),
+                        ...buildAdjustItem(sec, r),
                         note: `부금 대사 일괄 조정 (${sec.movie_title})`,
                     }));
                     const res = await AxiosPost("settlement-adjustments", {
@@ -612,6 +656,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     } else {
                         toast.success(`${saved.length}개 극장을 파일 값으로 일괄 조정했습니다.`);
                     }
+                    const note = skipNote("일괄 조정에서");
+                    if (note) toast.warning(note);
                 } catch (e: any) {
                     toast.error(e?.response?.data?.error || "일괄 조정에 실패했습니다.");
                 }
@@ -650,7 +696,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 인원/공급가액/부가세/영화사지급금을 한 번에 대사합니다. PDF는
                 양식이 제각각이라 <b>AI가 분석</b>하며(파일당 수십 초, 재업로드는
                 즉시), 극장·영화명이 달라도 자동 매칭합니다. (연월은 파일의
-                상영일 기준)
+                상영일 기준) ※ 여러 극장 PDF는 <b>합본 1개보다 극장별 개별
+                파일 여러 개</b>를 한 번에 드롭하는 쪽이 판독이 정확합니다.
             </Intro>
 
             <DropZone
@@ -796,7 +843,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                             );
                             return n > 0 ? (
                                 <BulkBtn
-                                    onClick={bulkAdjust}
+                                    onClick={() => bulkAdjust()}
                                     title="인원은 일치하고 금액 차이가 7원 미만인 극장 전체를 파일 값으로 조정 (7원 이상 차이는 행별로만)"
                                 >
                                     파일값으로 일괄 조정 ({n})
@@ -811,7 +858,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                             );
                             return n > 0 ? (
                                 <ConfirmAllBtn
-                                    onClick={bulkConfirm}
+                                    onClick={() => bulkConfirm()}
                                     title="대사 결과의 미확인 극장을 전부 확인 처리 (정산 관리 테이블의 확인 상태와 공유)"
                                 >
                                     일괄 확인 ({n})
@@ -840,6 +887,31 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                     >
                                         파일 표기: {sec.file_movie_names.join(", ")}
                                     </span>
+                                    {/* 영화별 일괄 조정/확인 (P002) */}
+                                    {(() => {
+                                        const n = sec.rows.filter(canBulkAdjust).length;
+                                        return n > 0 ? (
+                                            <MiniBulkBtn
+                                                onClick={() => bulkAdjust(sec.movie_id)}
+                                                title={`'${sec.movie_title}'의 조정 대상(인원 일치 + 금액 차이 7원 미만)만 파일 값으로 조정`}
+                                            >
+                                                이 영화만 일괄 조정 ({n})
+                                            </MiniBulkBtn>
+                                        ) : null;
+                                    })()}
+                                    {(() => {
+                                        const n = sec.rows.filter(
+                                            (r) => r.client_code && !r.확인
+                                        ).length;
+                                        return n > 0 ? (
+                                            <MiniConfirmBtn
+                                                onClick={() => bulkConfirm(sec.movie_id)}
+                                                title={`'${sec.movie_title}'의 미확인 극장만 전부 확인 처리`}
+                                            >
+                                                이 영화만 일괄 확인 ({n})
+                                            </MiniConfirmBtn>
+                                        ) : null;
+                                    })()}
                                 </MovieHeader>
                                 {rows.length > 0 ? (
                                     <TableScroll>
@@ -1274,6 +1346,36 @@ const FilterBtn = styled.button<{ $on: boolean }>`
     border: 1px solid ${({ $on }) => ($on ? "#2563eb" : "#cbd5e1")};
     background: ${({ $on }) => ($on ? "#2563eb" : "#fff")};
     color: ${({ $on }) => ($on ? "#fff" : "#475569")};
+`;
+const MiniBulkBtn = styled.button`
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #7c3aed;
+    background: #fff;
+    color: #7c3aed;
+    &:hover {
+        background: #7c3aed;
+        color: #fff;
+    }
+`;
+const MiniConfirmBtn = styled.button`
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #16a34a;
+    background: #fff;
+    color: #16a34a;
+    &:hover {
+        background: #16a34a;
+        color: #fff;
+    }
 `;
 const MovieSection = styled.div`
     display: flex;

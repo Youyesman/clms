@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import styled, { keyframes } from "styled-components";
 import {
-    MagnifyingGlass,
     DownloadSimple,
     CircleNotch,
     Scales,
@@ -17,7 +16,6 @@ import { useAppAlert } from "../../../atom/alertUtils";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
-import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { GenericTable } from "../../../components/GenericTable";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
 import dayjs from "dayjs";
@@ -31,29 +29,36 @@ const rotate = keyframes`
   to { transform: rotate(360deg); }
 `;
 
+// 멀티(체인) 필터 고정 옵션 — Client.theater_kind에 실제 사용되는 값들 (F002)
+const KNOWN_MULTI_KINDS = ["CGV", "롯데", "메가박스", "씨네큐", "일반극장", "자동차극장", "프리머스"];
+
+/* Topbar(60)+TabBar(36)=96px 아래 영역에 페이지가 정확히 들어가게 해서
+   세로 페이지 스크롤 없이 테이블 가로 스크롤바가 항상 화면에 보이게 한다 (F004) */
 const PageContainer = styled.div`
     display: flex;
     flex-direction: column;
     gap: 16px;
     padding: 20px;
     background-color: #f8fafc;
-    min-height: 100vh;
+    height: calc(100vh - 96px);
+    box-sizing: border-box;
+    overflow: hidden;
     font-family: "SUIT", sans-serif;
 `;
 
 
 const ListSection = styled.div`
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
-    box-shadow: 
-        0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.1),
         0 2px 4px -1px rgba(0, 0, 0, 0.06);
     overflow: hidden;
-    height: calc(100vh - 160px);
     position: relative;
 `;
 
@@ -301,7 +306,8 @@ const EditModalBody = styled.div`
     }
 `;
 
-/** 정산 금액 직접 수정 — 저장 시 수동조정(차액)으로 기록되고 해당 극장은 자동 확인 처리 */
+/** 정산 금액 직접 수정 — 저장 시 수동조정(차액)으로 기록되고 해당 극장은 자동 확인 처리.
+ *  저장 응답(조정 레코드)을 onSaved로 넘겨 부모가 재조회 없이 목록에 즉시 반영한다. */
 function AmountEditModal({
     yyyyMm,
     movieId,
@@ -312,7 +318,7 @@ function AmountEditModal({
     yyyyMm: string;
     movieId: string;
     row: any;
-    onSaved: () => void;
+    onSaved: (saved: any) => void;
     onClose: () => void;
 }) {
     const toast = useToast();
@@ -337,7 +343,7 @@ function AmountEditModal({
         const np = ns + nv;
         setSaving(true);
         try {
-            await AxiosPost("settlement-adjustments", {
+            const res = await AxiosPost("settlement-adjustments", {
                 yyyyMm,
                 movie_id: Number(movieId),
                 client_code: row["거래처코드"],
@@ -350,9 +356,9 @@ function AmountEditModal({
                 payout_original: row["영화사 지급금"] ?? null,
                 note: "정산 관리 직접 수정",
             });
-            toast.success("저장했습니다 — '(수동조정)' 행으로 반영되고 확인 처리됩니다.");
+            toast.success("저장했습니다 — 수동조정으로 반영되고 확인 처리됩니다.");
             onClose();
-            onSaved();
+            onSaved(res.data);
         } catch (e: any) {
             toast.error(e?.response?.data?.error || "저장에 실패했습니다.");
         } finally {
@@ -399,18 +405,21 @@ function AmountEditModal({
 }
 
 /** 날짜(To) 수정 — rows가 1개면 해당 행만, 여러 개면 표시된(필터 적용) 행 전체 일괄.
- *  날짜 확정이 걸린 행이 있으면 일괄 해제 버튼도 제공한다. */
+ *  날짜 확정이 걸린 행이 있으면 일괄 해제 버튼도 제공한다.
+ *  저장/해제 결과를 부모로 넘겨 재조회 없이 목록에 즉시 반영한다. */
 function BulkDateModal({
     yyyyMm,
     movieId,
     rows,
     onSaved,
+    onCleared,
     onClose,
 }: {
     yyyyMm: string;
     movieId: string;
     rows: any[];
-    onSaved: () => void;
+    onSaved: (results: any[]) => void;
+    onCleared: (adjIds: number[]) => void;
     onClose: () => void;
 }) {
     const toast = useToast();
@@ -461,14 +470,14 @@ function BulkDateModal({
                     date_to_original: r["날짜조정"]?.["원본"] ?? (r["날짜(To)"] || ""),
                 })),
             });
-            const ok = (res.data?.results || []).length;
+            const results = res.data?.results || [];
             const errs = (res.data?.errors || []).length;
             toast.success(
-                `${ok}개 행의 날짜(To)를 ${dateTo}로 확정했습니다.` +
+                `${results.length}개 행의 날짜(To)를 ${dateTo}로 확정했습니다.` +
                     (errs ? ` (${errs}건 실패)` : "")
             );
             onClose();
-            onSaved();
+            onSaved(results);
         } catch (e: any) {
             toast.error(e?.response?.data?.error || "날짜 수정에 실패했습니다.");
         } finally {
@@ -494,7 +503,7 @@ function BulkDateModal({
                     );
                     toast.success(`${clearIds.length}건의 날짜 확정을 해제했습니다.`);
                     onClose();
-                    onSaved();
+                    onCleared(clearIds);
                 } catch {
                     toast.error("해제 중 오류가 발생했습니다.");
                 } finally {
@@ -637,13 +646,14 @@ export function ManageSettlement() {
     }, [fetchMoviesByMonth]);
 
     // 2. 최종 정산 조회
-    const fetchSettlements = useCallback(async () => {
+    // keepList=true면 기존 목록을 비우지 않고 갱신 — 스크롤 위치가 유지된다.
+    const fetchSettlements = useCallback(async (keepList = false) => {
         if (!searchParams.movieId) {
             toast.error("조회할 영화를 선택해주세요.");
             return;
         }
 
-        setSettlements([]); // 새 조회 시 이전 데이터 즉시 초기화
+        if (!keepList) setSettlements([]); // 새 조회 시 이전 데이터 즉시 초기화
         setIsLoading(true);
 
         try {
@@ -663,8 +673,123 @@ export function ManageSettlement() {
         }
     }, [searchParams, selectedTheater, toast]);
 
-    // 수동조정 해제 (원래 계산값으로 복구) — 해제 후 재조회
-    /** 수동조정 해제 — scope: "date"=날짜 확정만, "amount"=금액 조정만, 없으면 전체 */
+    /** 목록만 다시 불러오기 (스크롤 유지) — 로컬 반영이 불가능한 경우의 폴백 */
+    const refreshSettlements = useCallback(() => fetchSettlements(true), [fetchSettlements]);
+
+    const AMOUNT_KEYS = ["공급가액", "부가세", "영화사 지급금"] as const;
+
+    /** 조정이 적용될 행 인덱스 — 백엔드 적용 규칙과 동일:
+     *  같은 거래처 중 포맷버킷이 일치하는 행 우선, 없으면 전체에서 지급금 최대 행 */
+    const findAdjustTargetIdx = (list: any[], clientCode: string, screenFormat: string) => {
+        const cands = list
+            .map((r, i) => ({ r, i }))
+            .filter(
+                ({ r }) =>
+                    !r.is_subtotal &&
+                    !r.is_adjustment &&
+                    r["거래처코드"] === clientCode &&
+                    typeof r["영화사 지급금"] === "number"
+            );
+        if (!cands.length) return -1;
+        const fmt = screenFormat || "";
+        const fmtCands = fmt ? cands.filter(({ r }) => (r["포맷버킷"] || "") === fmt) : [];
+        const pool = fmtCands.length ? fmtCands : cands;
+        return pool.reduce((best, cur) =>
+            cur.r["영화사 지급금"] > best.r["영화사 지급금"] ? cur : best
+        ).i;
+    };
+
+    /** 행이 속한 섹션의 소계 행 인덱스 (행 뒤 첫 is_subtotal) */
+    const findSubtotalIdx = (list: any[], fromIdx: number) => {
+        for (let i = fromIdx + 1; i < list.length; i++) {
+            if (list[i].is_subtotal) return i;
+        }
+        return -1;
+    };
+
+    /** 금액 수정 저장 결과를 재조회 없이 목록에 즉시 반영 (F001) */
+    const applyAmountSavedLocally = (saved: any) => {
+        const ti = findAdjustTargetIdx(settlements, saved.client_code, saved.screen_format || "");
+        if (ti < 0) {
+            refreshSettlements(); // 대상 행을 못 찾으면 서버 기준으로 갱신
+            return;
+        }
+        setSettlements((prev) => {
+            const list = prev.map((r) => ({ ...r }));
+            const row = list[ti];
+            const oldDelta = row["조정액"] || {};
+            const savedDelta: Record<string, number> = {
+                공급가액: saved.supply_delta || 0,
+                부가세: saved.vat_delta || 0,
+                "영화사 지급금": saved.payout_delta || 0,
+            };
+            const net: Record<string, number> = {};
+            AMOUNT_KEYS.forEach((k) => {
+                net[k] = savedDelta[k] - (oldDelta[k] || 0);
+                if (typeof row[k] === "number") row[k] += net[k];
+            });
+            const adjusted = AMOUNT_KEYS.some((k) => savedDelta[k] !== 0);
+            row.is_adjusted = adjusted;
+            row["조정액"] = adjusted ? savedDelta : undefined;
+            if (adjusted) row["조정ID"] = saved.id;
+            const si = findSubtotalIdx(list, ti);
+            if (si >= 0) {
+                AMOUNT_KEYS.forEach((k) => {
+                    list[si][k] = (list[si][k] || 0) + net[k];
+                });
+            }
+            // 조정 저장 = 해당 극장 자동 확인 (백엔드와 동일)
+            list.forEach((r) => {
+                if (!r.is_subtotal && r["거래처코드"] === saved.client_code) r["확인"] = true;
+            });
+            return list;
+        });
+    };
+
+    /** 날짜(To) 확정 저장 결과를 재조회 없이 목록에 즉시 반영 (F001) */
+    const applyDateSavedLocally = (results: any[]) => {
+        if (!results.length) return;
+        setSettlements((prev) => {
+            const list = prev.map((r) => ({ ...r }));
+            results.forEach((saved) => {
+                if (!saved?.date_to_override) return;
+                const ti = findAdjustTargetIdx(list, saved.client_code, saved.screen_format || "");
+                if (ti < 0) return;
+                const row = list[ti];
+                row["날짜(To)"] = saved.date_to_override;
+                row["날짜조정"] = { 원본: saved.date_to_original || "", 조정ID: saved.id };
+                list.forEach((r) => {
+                    if (!r.is_subtotal && r["거래처코드"] === saved.client_code) r["확인"] = true;
+                });
+            });
+            return list;
+        });
+    };
+
+    /** 날짜(To) 확정 해제 결과를 재조회 없이 반영 — 원본 날짜로 복구 */
+    const applyDateClearedLocally = (adjIds: number[]) => {
+        const ids = new Set(adjIds);
+        // 원본 날짜가 보존되지 않은 행이 있으면 서버 기준으로 갱신 (스크롤 유지)
+        const missingOrig = settlements.some(
+            (r) =>
+                !r.is_subtotal &&
+                ids.has(r?.["날짜조정"]?.["조정ID"]) &&
+                !r?.["날짜조정"]?.["원본"]
+        );
+        if (missingOrig) {
+            refreshSettlements();
+            return;
+        }
+        setSettlements((prev) =>
+            prev.map((r) => {
+                if (r.is_subtotal || !ids.has(r?.["날짜조정"]?.["조정ID"])) return r;
+                return { ...r, "날짜(To)": r["날짜조정"]["원본"], 날짜조정: undefined };
+            })
+        );
+    };
+
+    /** 수동조정 해제 — scope: "date"=날짜 확정만, "amount"=금액 조정만, 없으면 전체.
+     *  해제 결과는 재조회 없이 목록에 즉시 반영 (스크롤 유지, F001) */
     const handleRemoveAdjustment = (row: any, scope?: "date" | "amount") => {
         const adjId = row?.["조정ID"];
         if (!adjId) return;
@@ -682,7 +807,48 @@ export function ManageSettlement() {
                         await AxiosDelete("settlement-adjustments", adjId);
                     }
                     toast.success(`${label}을 해제했습니다.`);
-                    fetchSettlements();
+                    if (scope === "date") {
+                        applyDateClearedLocally([adjId]);
+                        return;
+                    }
+                    setSettlements((prev) => {
+                        const list = prev.map((r) => ({ ...r }));
+                        if (scope === "amount") {
+                            const ti = list.findIndex(
+                                (r) => !r.is_subtotal && r.is_adjusted && r["조정ID"] === adjId
+                            );
+                            if (ti < 0) return prev;
+                            const target = list[ti];
+                            const delta = target["조정액"] || {};
+                            AMOUNT_KEYS.forEach((k) => {
+                                if (typeof target[k] === "number") target[k] -= delta[k] || 0;
+                            });
+                            const si = findSubtotalIdx(list, ti);
+                            if (si >= 0) {
+                                AMOUNT_KEYS.forEach((k) => {
+                                    list[si][k] = (list[si][k] || 0) - (delta[k] || 0);
+                                });
+                            }
+                            target.is_adjusted = false;
+                            target["조정액"] = undefined;
+                            target["조정ID"] = undefined;
+                            return list;
+                        }
+                        // scope 없음: 계산 행이 없어 조정만 별도 행(is_adjustment)인 경우 — 행 제거
+                        const ti = list.findIndex(
+                            (r) => r.is_adjustment && r["조정ID"] === adjId
+                        );
+                        if (ti < 0) return prev;
+                        const removed = list[ti];
+                        const si = findSubtotalIdx(list, ti);
+                        if (si >= 0) {
+                            AMOUNT_KEYS.forEach((k) => {
+                                list[si][k] = (list[si][k] || 0) - (removed[k] || 0);
+                            });
+                        }
+                        list.splice(ti, 1);
+                        return list;
+                    });
                 } catch (e: any) {
                     toast.error(e?.response?.data?.error || "해제에 실패했습니다.");
                 }
@@ -794,7 +960,8 @@ export function ManageSettlement() {
                 yyyyMm={searchParams.yyyyMm}
                 movieId={searchParams.movieId}
                 rows={[row]}
-                onSaved={fetchSettlements}
+                onSaved={applyDateSavedLocally}
+                onCleared={applyDateClearedLocally}
                 onClose={closeModal}
             />,
             { title: `날짜(To) 수정 — ${row["극장명"]}`, width: "480px" }
@@ -808,7 +975,7 @@ export function ManageSettlement() {
                 movieId={searchParams.movieId}
                 row={row}
                 onClose={closeModal}
-                onSaved={fetchSettlements}
+                onSaved={applyAmountSavedLocally}
             />,
             { title: `금액 직접 수정 — ${row["극장명"]}`, width: "560px" }
         );
@@ -935,9 +1102,10 @@ export function ManageSettlement() {
         },
     ];
 
-    // 데이터에 존재하는 멀티구분 목록 (필터 옵션)
+    // 멀티(체인) 필터 옵션 — 조회 전에도 선택할 수 있게 고정 목록을 기본으로 제공하고,
+    // 데이터에 있는 그 밖의 멀티구분 값은 추가로 합친다. (F002)
     const multiOptions = useMemo(() => {
-        const set = new Set<string>();
+        const set = new Set<string>(KNOWN_MULTI_KINDS);
         settlements.forEach((r) => {
             if (!r.is_subtotal && r["멀티구분"]) set.add(r["멀티구분"]);
         });
@@ -948,7 +1116,7 @@ export function ManageSettlement() {
     // (확인여부 필터 중엔 소계 행이 맞지 않으므로 숨김, 멀티 필터는 해당 멀티 소계만 유지)
     const displayedSettlements = useMemo(() => {
         let rows = settlements;
-        if (multiFilter !== "전체") {
+        if (multiFilter && multiFilter !== "전체") {
             rows = rows.filter((r) => {
                 if (r.is_subtotal) {
                     // 소계 라벨 "[CGV 직영] 합계"의 브랜드가 선택 멀티의 접두면 유지 ("메가"↔"메가박스")
@@ -958,7 +1126,7 @@ export function ManageSettlement() {
                 return r["멀티구분"] === multiFilter;
             });
         }
-        if (confirmFilter !== "전체") {
+        if (confirmFilter === "확인" || confirmFilter === "미확인") {
             rows = rows.filter(
                 (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
             );
@@ -1041,7 +1209,7 @@ export function ManageSettlement() {
         <PageContainer>
             <CommonFilterBar
                 wrap
-                onSearch={fetchSettlements}
+                onSearch={() => fetchSettlements()}
                 actions={
                     <>
                         <EseroButton
@@ -1052,7 +1220,8 @@ export function ManageSettlement() {
                                         yyyyMm={searchParams.yyyyMm}
                                         movieId={searchParams.movieId}
                                         rows={displayedSettlements}
-                                        onSaved={fetchSettlements}
+                                        onSaved={applyDateSavedLocally}
+                                        onCleared={applyDateClearedLocally}
                                         onClose={closeModal}
                                     />,
                                     { title: "날짜(To) 일괄 수정", width: "480px" }
@@ -1109,7 +1278,6 @@ export function ManageSettlement() {
                         value={searchParams.yyyyMm}
                         setValue={(v) => {
                             setSearchParams((p: any) => ({ ...p, yyyyMm: v }));
-                            setMultiFilter("전체"); // 월 변경 시 멀티 필터 초기화
                             setSettlements([]); // 이전 월 목록이 남아 헷갈리지 않게 비움
                         }}
                         labelWidth="60px"
@@ -1122,7 +1290,6 @@ export function ManageSettlement() {
                         value={searchParams.movieId}
                         onChange={(val) => {
                             setSearchParams((p: any) => ({ ...p, movieId: val }));
-                            setMultiFilter("전체"); // 영화 변경 시 멀티 필터 초기화
                             setSettlements([]); // 이전 영화 목록이 남아 헷갈리지 않게 비움 (검색 시 재조회)
                         }}
                         labelWidth="50px"
@@ -1141,6 +1308,7 @@ export function ManageSettlement() {
                         value={searchParams.target}
                         onChange={(v) => setSearchParams((p: any) => ({ ...p, target: v }))}
                         labelWidth="60px"
+                        allowClear={false}
                     />
                 </div>
                 <div style={{ width: "200px" }}>
@@ -1150,6 +1318,7 @@ export function ManageSettlement() {
                         value={confirmFilter}
                         onChange={setConfirmFilter}
                         labelWidth="60px"
+                        allowClear={false}
                     />
                 </div>
                 <div style={{ width: "170px" }}>
@@ -1159,6 +1328,7 @@ export function ManageSettlement() {
                         value={multiFilter}
                         onChange={setMultiFilter}
                         labelWidth="40px"
+                        allowClear={false}
                     />
                 </div>
                 <TheaterSearchWrapper ref={theaterWrapperRef}>
@@ -1213,7 +1383,7 @@ export function ManageSettlement() {
                         <Spinner size={40} weight="bold" />
                     </LoadingOverlay>
                 )}
-                <div style={{ height: "calc(100vh - 198px)", overflow: "hidden" }}>
+                <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
                     <GenericTable
                         headers={headers}
                         data={displayedSettlements}
