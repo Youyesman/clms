@@ -37,6 +37,7 @@ _MAX_WORKERS = 3  # Cloudflare rate-limit(429) 회피 — 과한 병렬이 429 �
 _RETRY = 3
 _REQ_GAP = 0.35  # 요청 간 최소 간격(초) — rate-limit 회피
 _RETRY_429_WAITS = [5, 15, 30, 60]  # 429 재시도 대기(초). Retry-After 헤더가 더 크면 그 값 사용
+_MAX_COOLDOWN = 120  # Retry-After 상한(초) — CF가 1800 등 과대값을 줘도 실제 차단은 금방 풀림
 
 # 429 전역 쿨다운: 한 스레드가 429를 만나면 모든 스레드가 요청을 멈추고 대기
 _cooldown_lock = threading.Lock()
@@ -113,6 +114,9 @@ def fetch_schedule_json(session, site_no, scn_ymd):
                     wait = max(wait, int(r.headers.get("Retry-After", "0")))
                 except ValueError:
                     pass
+                wait = min(wait, _MAX_COOLDOWN)
+                print(f"[CGV-API] 429 rate-limit → 전역 쿨다운 {wait}초 "
+                      f"(site={site_no}, date={scn_ymd}, attempt={attempt + 1})", flush=True)
                 _set_cooldown(wait)
                 last_err = requests.HTTPError(
                     f"429 Too Many Requests (cooldown {wait}s)", response=r)

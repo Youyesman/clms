@@ -131,7 +131,10 @@ def fetch_schedule_json(session, brch_no, play_de, crt_de):
         except requests.ConnectionError as e:
             # 연결 리셋 = WAF 차단 신호일 가능성 → 모든 워커 일시 정지 후 재시도
             last_err = e
-            _set_cooldown(_RESET_COOLDOWN_WAITS[min(attempt, len(_RESET_COOLDOWN_WAITS) - 1)])
+            wait = _RESET_COOLDOWN_WAITS[min(attempt, len(_RESET_COOLDOWN_WAITS) - 1)]
+            print(f"[Megabox-API] 연결 리셋 → 전역 쿨다운 {wait}초 "
+                  f"(brch={brch_no}, date={play_de}, attempt={attempt + 1})", flush=True)
+            _set_cooldown(wait)
         except requests.Timeout as e:
             last_err = e
             time.sleep(0.5 * (attempt + 1))
