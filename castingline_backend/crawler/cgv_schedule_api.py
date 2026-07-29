@@ -33,11 +33,14 @@ _RTCTL = "08"  # 발매통제범위코드 (예매 채널)
 _SITE_URL = f"{BASE}/api/v1/content/site/searchAllRegionAndSite"
 _SCHED_URL = f"{BASE}/api/v1/booking/searchMovScnInfo"
 
-_MAX_WORKERS = 3  # Cloudflare rate-limit(429) 회피 — 과한 병렬이 429 대량 실패의 원인
+# Cloudflare rate-limit(429)이 아예 안 뜨는 속도로 크롤링한다.
+# 초당 6~8건(워커 3~8)은 1분 내 429 유발 확인 → 초당 1건 이하로 유지.
+# 전체 531건(177극장×3일) 기준 약 12분 소요 — 13:00 크론이라 소요시간은 무관.
+_MAX_WORKERS = 1
 _RETRY = 3
-_REQ_GAP = 0.35  # 요청 간 최소 간격(초) — rate-limit 회피
+_REQ_GAP = 1.0  # 요청 간 최소 간격(초)
 _RETRY_429_WAITS = [5, 15, 30, 60]  # 429 재시도 대기(초). Retry-After 헤더가 더 크면 그 값 사용
-_MAX_COOLDOWN = 120  # Retry-After 상한(초) — CF가 1800 등 과대값을 줘도 실제 차단은 금방 풀림
+_MAX_COOLDOWN = 1800  # Retry-After 상한(초) — 저속 모드에서 429는 예외 상황이므로 서버 지시를 존중
 
 # 429 전역 쿨다운: 한 스레드가 429를 만나면 모든 스레드가 요청을 멈추고 대기
 _cooldown_lock = threading.Lock()
