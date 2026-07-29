@@ -19,7 +19,9 @@ import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
-const fmtR = (r: number) => `${r.toFixed(2)}%`;
+/* 부율 없는 극장은 부율 의존 값이 null로 내려옴 → null-safe 포맷 */
+const fmtNn = (n: number | null) => (n == null ? "" : n.toLocaleString("ko-KR"));
+const fmtRn = (r: number | null) => (r == null ? "" : `${r.toFixed(2)}%`);
 
 const getYesterday = () => {
     const d = new Date();
@@ -41,11 +43,11 @@ interface SettlementRow {
     ticket_revenue: number;
     fund_excluded: number;
     vat_excluded: number;
-    rate: number;
-    supply_value: number;
-    vat: number;
-    total_payment: number;
-    unit_price: number;
+    rate: number | null;
+    supply_value: number | null;
+    vat: number | null;
+    total_payment: number | null;
+    unit_price: number | null;
 }
 
 interface SettlementData {
@@ -538,9 +540,9 @@ export function SettlementAggregatePage() {
             s.ticket_revenue += r.ticket_revenue;
             s.fund_excluded += r.fund_excluded;
             s.vat_excluded += r.vat_excluded;
-            s.supply_value += r.supply_value;
-            s.vat += r.vat;
-            s.total_payment += r.total_payment;
+            s.supply_value += r.supply_value || 0;
+            s.vat += r.vat || 0;
+            s.total_payment += r.total_payment || 0;
         }
         return {
             ...s,
@@ -564,9 +566,9 @@ export function SettlementAggregatePage() {
             s.ticket_revenue += r.ticket_revenue;
             s.fund_excluded += r.fund_excluded;
             s.vat_excluded += r.vat_excluded;
-            s.supply_value += r.supply_value;
-            s.vat += r.vat;
-            s.total_payment += r.total_payment;
+            s.supply_value += r.supply_value || 0;
+            s.vat += r.vat || 0;
+            s.total_payment += r.total_payment || 0;
         }
         return {
             ...s,
@@ -821,11 +823,11 @@ export function SettlementAggregatePage() {
                                             <td>{fmtN(row.ticket_revenue)}</td>
                                             <td>{fmtN(row.fund_excluded)}</td>
                                             <td>{fmtN(row.vat_excluded)}</td>
-                                            <td>{fmtR(row.rate)}</td>
-                                            <td>{fmtN(row.supply_value)}</td>
-                                            <td>{fmtN(row.vat)}</td>
-                                            <td>{fmtN(row.total_payment)}</td>
-                                            <td>{fmtN(row.unit_price)}</td>
+                                            <td>{fmtRn(row.rate)}</td>
+                                            <td>{fmtNn(row.supply_value)}</td>
+                                            <td>{fmtNn(row.vat)}</td>
+                                            <td>{fmtNn(row.total_payment)}</td>
+                                            <td>{fmtNn(row.unit_price)}</td>
                                         </tr>
                                     ))}
 

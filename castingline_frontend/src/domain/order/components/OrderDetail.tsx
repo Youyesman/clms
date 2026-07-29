@@ -74,15 +74,17 @@ export function OrderDetail({
         const params = new URLSearchParams();
 
         // -----------------------------------------------------------
-        // [핵심 로직] 
-        // 필터 모드가 아닐 때만 영화 ID(id)를 파라미터에 추가합니다.
+        // [핵심 로직]
+        // 영화 선택 모드: 영화 ID만 적용 / 필터 모드: 기준일자·극장 필터만 적용
+        // (모드별 파라미터를 섞으면 첫 조회와 페이지 이동 조회의 카운트가 달라져
+        //  invalid page 오류가 발생하므로 반드시 분리)
         // -----------------------------------------------------------
-        if (!currentFilterMode && selectedOrderList?.id) {
-            params.append("id", String(selectedOrderList.id));
+        if (!currentFilterMode) {
+            if (selectedOrderList?.id) params.append("id", String(selectedOrderList.id));
+        } else {
+            if (filterStartDate) params.append("start_date", filterStartDate);
+            if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
         }
-
-        if (filterStartDate) params.append("start_date", filterStartDate);
-        if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
 
         params.append("ordering", ordering);
         params.append("page", String(currentPage));
@@ -191,12 +193,13 @@ export function OrderDetail({
         setIsExcelLoading(true);
         const params = new URLSearchParams();
 
-        if (!isFilterMode && selectedOrderList?.id) {
-            params.append("id", String(selectedOrderList.id));
+        // 조회와 동일하게 모드별 파라미터 분리 (섞이면 화면 목록과 다른 결과가 다운로드됨)
+        if (!isFilterMode) {
+            if (selectedOrderList?.id) params.append("id", String(selectedOrderList.id));
+        } else {
+            if (filterStartDate) params.append("start_date", filterStartDate);
+            if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
         }
-
-        if (filterStartDate) params.append("start_date", filterStartDate);
-        if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
 
         if (sortKey) {
             params.append("ordering", sortOrder === "desc" ? `-${sortKey}` : sortKey);

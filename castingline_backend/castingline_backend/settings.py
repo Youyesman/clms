@@ -109,14 +109,15 @@ WSGI_APPLICATION = "castingline_backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+# 환경변수로 로컬 DB 오버라이드 가능 (기본값은 운영 DB)
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "clms_db_new",
-        "USER": "postgres",
-        "PASSWORD": "wkahd88**",
-        "HOST": "116.125.120.94",
-        "PORT": "5432",
+        "NAME": os.getenv("DB_NAME", "clms_db_new"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "wkahd88**"),
+        "HOST": os.getenv("DB_HOST", "116.125.120.94"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 

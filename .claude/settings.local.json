@@ -58,7 +58,12 @@
       "PowerShell(Start-Sleep -Seconds 20; '--- backend ---'; Get-Content \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\cb413790-b365-434b-89f2-4bfae19bc72b\\\\tasks\\\\bt8rcgdsl.output\" -Tail 10; '--- frontend ---'; Get-Content \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\cb413790-b365-434b-89f2-4bfae19bc72b\\\\tasks\\\\bpthjwpc3.output\" -Tail 15)",
       "PowerShell(python \"C:\\\\Users\\\\yyw02\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--clms\\\\38dcf4f4-f281-4331-959d-62a54e7735a6\\\\scratchpad\\\\test_imap.py\")",
       "PowerShell(Get-NetTCPConnection *)",
-      "PowerShell(Start-Sleep -Seconds 12; try { \\(Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing -TimeoutSec 5\\).StatusCode } catch { $_.Exception.Response.StatusCode.value__ })"
+      "PowerShell(Start-Sleep -Seconds 12; try { \\(Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing -TimeoutSec 5\\).StatusCode } catch { $_.Exception.Response.StatusCode.value__ })",
+      "PowerShell(git stash *)",
+      "PowerShell(git diff stash@{0} -- .claude/settings.local.json | Select-Object -First 40)",
+      "Skill(run)",
+      "PowerShell(git pull *)",
+      "PowerShell(git add *)"
     ],
     "additionalDirectories": [
       "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",

@@ -5,11 +5,12 @@
 
 - 매칭은 공백/특수문자를 제거한 정규화 비교(_norm)로 수행한다.
 - (mail_folder, mail_uid, attachment_index) 유니크라 재스캔해도 중복 저장되지 않는다.
-- 월(month)은 기본값으로 메일 수신월(YYYY-MM)을 쓰되, 호출 측에서 override 가능하다.
+- 월(month)은 기본값으로 메일 수신월(YYYY-MM, 한국시간 기준)을 쓰되, 호출 측에서 override 가능하다.
 """
 
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from django.core.files.base import ContentFile
 from django.utils.dateparse import parse_datetime
@@ -222,12 +223,19 @@ def _parse_date(iso):
         return None
 
 
+_KST = ZoneInfo("Asia/Seoul")
+
+
 def _month_of(dt, fallback_month):
     if fallback_month:
         return fallback_month
     if dt:
+        # Date 헤더가 발신 서버 타임존(UTC 등)일 수 있으므로 한국시간으로 변환해 월을 계산
+        # (예: 6/30 23:53 UTC = 7/1 08:53 KST → "2026-07"). naive면 KST로 간주.
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(_KST)
         return dt.strftime("%Y-%m")
-    return datetime.now().strftime("%Y-%m")
+    return datetime.now(_KST).strftime("%Y-%m")
 
 
 def _date_in_range(dt, since, until):

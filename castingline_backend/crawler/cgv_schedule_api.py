@@ -15,6 +15,7 @@
        (브라우저가 가로채던 응답과 필드가 100% 동일함을 확인)
 """
 
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -32,8 +33,29 @@ _RTCTL = "08"  # 발매통제범위코드 (예매 채널)
 _SITE_URL = f"{BASE}/api/v1/content/site/searchAllRegionAndSite"
 _SCHED_URL = f"{BASE}/api/v1/booking/searchMovScnInfo"
 
-_MAX_WORKERS = 8
+_MAX_WORKERS = 3  # Cloudflare rate-limit(429) 회피 — 과한 병렬이 429 대량 실패의 원인
 _RETRY = 3
+_REQ_GAP = 0.35  # 요청 간 최소 간격(초) — rate-limit 회피
+_RETRY_429_WAITS = [5, 15, 30, 60]  # 429 재시도 대기(초). Retry-After 헤더가 더 크면 그 값 사용
+
+# 429 전역 쿨다운: 한 스레드가 429를 만나면 모든 스레드가 요청을 멈추고 대기
+_cooldown_lock = threading.Lock()
+_cooldown_until = 0.0
+
+
+def _wait_cooldown():
+    while True:
+        with _cooldown_lock:
+            remain = _cooldown_until - time.monotonic()
+        if remain <= 0:
+            return
+        time.sleep(min(remain, 1.0))
+
+
+def _set_cooldown(seconds):
+    global _cooldown_until
+    with _cooldown_lock:
+        _cooldown_until = max(_cooldown_until, time.monotonic() + seconds)
 
 
 def _new_session():
@@ -79,9 +101,22 @@ def fetch_schedule_json(session, site_no, scn_ymd):
     params = {"coCd": _CO_CD, "siteNo": site_no,
               "scnYmd": scn_ymd, "rtctlScopCd": _RTCTL}
     last_err = None
-    for attempt in range(_RETRY):
+    # 429는 쿨다운 후 재시도하므로 연결오류(_RETRY)보다 시도 횟수를 넉넉히 준다
+    for attempt in range(_RETRY + len(_RETRY_429_WAITS)):
+        _wait_cooldown()
+        time.sleep(_REQ_GAP)
         try:
             r = session.get(_SCHED_URL, params=params, timeout=30)
+            if r.status_code == 429:
+                wait = _RETRY_429_WAITS[min(attempt, len(_RETRY_429_WAITS) - 1)]
+                try:
+                    wait = max(wait, int(r.headers.get("Retry-After", "0")))
+                except ValueError:
+                    pass
+                _set_cooldown(wait)
+                last_err = requests.HTTPError(
+                    f"429 Too Many Requests (cooldown {wait}s)", response=r)
+                continue
             r.raise_for_status()
             return r.json()
         except (requests.ConnectionError, requests.Timeout) as e:
@@ -126,7 +161,6 @@ def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
     collected_logs = []
     failures = []
 
-    import threading
     _local = threading.local()
 
     def _init():

@@ -457,8 +457,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         }
     };
 
-    /** 미확인 극장(시스템 매칭 행) 일괄 확인 — movieId를 주면 해당 영화만 (P002) */
-    const bulkConfirm = (movieId?: number) => {
+    /** 시스템 매칭 행 일괄 확인/해제 — movieId를 주면 해당 영화만 (P002)
+     *  confirmed=true: 미확인 극장 전부 확인 / false: 확인된 극장 전부 해제 */
+    const bulkSetConfirm = (confirmed: boolean, movieId?: number) => {
         if (!result) return;
         const sections = result.movies.filter(
             (s) => movieId === undefined || s.movie_id === movieId
@@ -466,7 +467,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         const perMovie = new Map<number, Set<string>>();
         sections.forEach((sec) =>
             sec.rows.forEach((r) => {
-                if (r.client_code && !r.확인) {
+                if (r.client_code && r.확인 !== confirmed) {
                     if (!perMovie.has(sec.movie_id)) perMovie.set(sec.movie_id, new Set());
                     perMovie.get(sec.movie_id)!.add(r.client_code);
                 }
@@ -474,53 +475,64 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         );
         const total = Array.from(perMovie.values()).reduce((a, s) => a + s.size, 0);
         if (!total) {
-            toast.info("확인 처리할 미확인 극장이 없습니다.");
+            toast.info(
+                confirmed
+                    ? "확인 처리할 미확인 극장이 없습니다."
+                    : "해제할 확인된 극장이 없습니다."
+            );
             return;
         }
         const scopeLabel =
             movieId === undefined
                 ? "대사 결과의"
                 : `'${sections[0]?.movie_title}'의`;
+        const actionLabel = confirmed ? "확인" : "확인 해제";
         showAlert(
-            "일괄 확인 처리",
-            `${scopeLabel} 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`,
+            `일괄 ${actionLabel} 처리`,
+            confirmed
+                ? `${scopeLabel} 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`
+                : `${scopeLabel} 확인된 극장 ${total}곳의 확인을 모두 해제하시겠습니까?`,
             "warning",
             async () => {
                 try {
                     await AxiosPost("settlement-confirms", {
                         yyyyMm: result.yyyyMm,
-                        confirmed: true,
+                        confirmed,
                         source: "대사",
                         items: Array.from(perMovie.entries()).map(([movie_id, codes]) => ({
                             movie_id,
                             client_codes: Array.from(codes),
                         })),
                     });
-                    const movieIds = new Set(perMovie.keys());
                     setResult((prev) => {
                         if (!prev) return prev;
                         return {
                             ...prev,
-                            movies: prev.movies.map((s) =>
-                                movieIds.has(s.movie_id)
+                            movies: prev.movies.map((s) => {
+                                const codes = perMovie.get(s.movie_id);
+                                return codes
                                     ? {
                                           ...s,
                                           rows: s.rows.map((row) =>
-                                              row.client_code ? { ...row, 확인: true } : row
+                                              row.client_code && codes.has(row.client_code)
+                                                  ? { ...row, 확인: confirmed }
+                                                  : row
                                           ),
                                       }
-                                    : s
-                            ),
+                                    : s;
+                            }),
                         };
                     });
-                    toast.success(`${total}곳을 확인 처리했습니다.`);
+                    toast.success(`${total}곳을 ${actionLabel} 처리했습니다.`);
                 } catch (e: any) {
-                    toast.error(e?.response?.data?.error || "일괄 확인에 실패했습니다.");
+                    toast.error(e?.response?.data?.error || `일괄 ${actionLabel}에 실패했습니다.`);
                 }
             },
             true
         );
     };
+    const bulkConfirm = (movieId?: number) => bulkSetConfirm(true, movieId);
+    const bulkUnconfirm = (movieId?: number) => bulkSetConfirm(false, movieId);
 
     /** 조정 가능 조건: 인원은 일치하고 금액만 차이 + 거래처코드 존재 + 미조정 */
     const canAdjust = (r: ICompareRow) =>
@@ -865,6 +877,21 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                 </ConfirmAllBtn>
                             ) : null;
                         })()}
+                        {(() => {
+                            const n = result.movies.reduce(
+                                (acc, s) =>
+                                    acc + s.rows.filter((r) => r.client_code && r.확인).length,
+                                0
+                            );
+                            return n > 0 ? (
+                                <UnconfirmAllBtn
+                                    onClick={() => bulkUnconfirm()}
+                                    title="대사 결과의 확인된 극장을 전부 확인 해제 (정산 관리 테이블의 확인 상태와 공유)"
+                                >
+                                    일괄 해제 ({n})
+                                </UnconfirmAllBtn>
+                            ) : null;
+                        })()}
                     </FilterBar>
 
                     {result.movies.map((sec) => {
@@ -910,6 +937,19 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                             >
                                                 이 영화만 일괄 확인 ({n})
                                             </MiniConfirmBtn>
+                                        ) : null;
+                                    })()}
+                                    {(() => {
+                                        const n = sec.rows.filter(
+                                            (r) => r.client_code && r.확인
+                                        ).length;
+                                        return n > 0 ? (
+                                            <MiniUnconfirmBtn
+                                                onClick={() => bulkUnconfirm(sec.movie_id)}
+                                                title={`'${sec.movie_title}'의 확인된 극장만 전부 확인 해제`}
+                                            >
+                                                이 영화만 일괄 해제 ({n})
+                                            </MiniUnconfirmBtn>
                                         ) : null;
                                     })()}
                                 </MovieHeader>
@@ -1374,6 +1414,36 @@ const MiniConfirmBtn = styled.button`
     color: #16a34a;
     &:hover {
         background: #16a34a;
+        color: #fff;
+    }
+`;
+const UnconfirmAllBtn = styled.button`
+    margin-left: 6px;
+    height: 28px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #64748b;
+    background: #64748b;
+    color: #fff;
+    &:hover {
+        background: #475569;
+    }
+`;
+const MiniUnconfirmBtn = styled.button`
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid #64748b;
+    background: #fff;
+    color: #64748b;
+    &:hover {
+        background: #64748b;
         color: #fff;
     }
 `;

@@ -90,25 +90,6 @@ const TableSection = styled.div`
     overflow: hidden;
 `;
 
-const FooterRow = styled.div`
-    display: flex;
-    background-color: #f1f5f9;
-    border-top: 2px solid #64748b;
-    font-weight: 800;
-    font-size: 13px;
-    .cell {
-        padding: 12px;
-        text-align: right;
-        border-right: 1px solid #cbd5e1;
-        &:first-child {
-            text-align: center;
-        }
-        &:last-child {
-            border-right: none;
-        }
-    }
-`;
-
 export function ScorePage() {
     const toast = useToast();
     const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
@@ -306,7 +287,6 @@ export function ScorePage() {
         { key: "total_fare", label: "총요금(원)" },
     ];
 
-    const columnWidths = ["150px", "100px", "100px", "140px", "160px", "140px", "160px", "120px"];
     const baseDate = searchParams.date; // 기준일
 
     const prevDate = useMemo(() => {
@@ -442,32 +422,6 @@ export function ScorePage() {
                             return val || "-";
                         }}
                     />
-                    <FooterRow>
-                        <div className="cell" style={{ width: columnWidths[0] }}>
-                            합계
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[1] }}>
-                            {totals.theater_count.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[2] }}>
-                            {totals.screen_count.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[3] }}>
-                            {totals.base_day_visitors.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[4] }}>
-                            {totals.base_day_fare.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[5] }}>
-                            {totals.total_visitors.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[6] }}>
-                            {totals.total_fare.toLocaleString()}
-                        </div>
-                        <div className="cell" style={{ width: columnWidths[7] }}>
-                            {totals.screen_count ? (totals.base_day_visitors / totals.screen_count).toFixed(1) : "0"}
-                        </div>
-                    </FooterRow>
                 </TableSection>
                 <div style={{ width: "800px" }}>
                     {sortedData.length > 0 && (

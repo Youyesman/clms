@@ -17,6 +17,7 @@ sleep 이 전부 사라져 벽시계 시간이 크게 단축된다.
 """
 
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -32,11 +33,31 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _MASTER_URL = f"{BASE}/on/oh/ohb/PlayTime/selectPlayTimeMasterList.do"
 _SCHEDULE_URL = f"{BASE}/on/oh/ohc/Brch/schedulePage.do"
 
-# 극장×날짜 동시 요청 수. 메가박스는 keep-alive 연결에 짧은 시간 다량 요청이
-# 몰리면 연결을 리셋(ConnectionReset 10054)하므로 보수적으로 둔다.
-_MAX_WORKERS = 4
+# 극장×날짜 동시 요청 수. 메가박스는 짧은 시간 다량 요청이 몰리면 WAF가
+# 연결을 리셋(RemoteDisconnected/10054)하고 한동안 전면 차단하므로 보수적으로 둔다.
+_MAX_WORKERS = 2
 _RETRY = 4  # 일시적 연결 리셋/타임아웃 재시도 횟수
-_REQ_GAP = 0.12  # 요청 간 최소 간격(초) — rate-limit 회피
+_REQ_GAP = 0.4  # 요청 간 최소 간격(초) — rate-limit 회피
+_RESET_COOLDOWN_WAITS = [5, 15, 30, 60]  # 연결 리셋 재시도 전 전역 대기(초)
+
+# 연결 리셋 전역 쿨다운: 한 스레드가 차단(리셋)을 만나면 모든 스레드가 대기
+_cooldown_lock = threading.Lock()
+_cooldown_until = 0.0
+
+
+def _wait_cooldown():
+    while True:
+        with _cooldown_lock:
+            remain = _cooldown_until - time.monotonic()
+        if remain <= 0:
+            return
+        time.sleep(min(remain, 1.0))
+
+
+def _set_cooldown(seconds):
+    global _cooldown_until
+    with _cooldown_lock:
+        _cooldown_until = max(_cooldown_until, time.monotonic() + seconds)
 
 
 def _new_session():
@@ -99,14 +120,21 @@ def fetch_schedule_json(session, brch_no, play_de, crt_de):
         "crtDe": crt_de, "playDe": play_de,
     })
     last_err = None
-    for attempt in range(_RETRY):
+    # 연결 리셋(차단)은 전역 쿨다운 후 재시도하므로 시도 횟수를 넉넉히 준다
+    for attempt in range(_RETRY + len(_RESET_COOLDOWN_WAITS)):
+        _wait_cooldown()
+        time.sleep(_REQ_GAP)
         try:
             r = session.post(_SCHEDULE_URL, data=payload, timeout=30)
             r.raise_for_status()
             return r.json()
-        except (requests.ConnectionError, requests.Timeout) as e:
+        except requests.ConnectionError as e:
+            # 연결 리셋 = WAF 차단 신호일 가능성 → 모든 워커 일시 정지 후 재시도
             last_err = e
-            time.sleep(0.5 * (attempt + 1))  # 0.5s, 1.0s, 1.5s
+            _set_cooldown(_RESET_COOLDOWN_WAITS[min(attempt, len(_RESET_COOLDOWN_WAITS) - 1)])
+        except requests.Timeout as e:
+            last_err = e
+            time.sleep(0.5 * (attempt + 1))
     raise last_err
 
 
@@ -172,7 +200,6 @@ def collect_schedule_logs(dates=None, stop_signal=None, crawler_run=None):
             if stat not in (0, None):
                 raise RuntimeError(f"statCd={stat}")
             log_id = _save_log(theater, play_de, json_data, crawler_run)
-            time.sleep(_REQ_GAP)  # rate-limit 회피
             return ("ok", {"log_id": log_id, "date": play_de})
         except Exception as e:
             return ("fail", {

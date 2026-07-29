@@ -19,7 +19,8 @@ import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
-const fmtR = (r: number) => `${r.toFixed(2)}%`;
+/* 부율 없는 극장은 부율 의존 값이 null로 내려옴 → null-safe 포맷 */
+const fmtRn = (r: number | null) => (r == null ? "" : `${r.toFixed(2)}%`);
 
 const getYesterday = () => {
     const d = new Date();
@@ -41,11 +42,11 @@ interface SettlementRow {
     ticket_revenue: number;
     fund_excluded: number;
     vat_excluded: number;
-    rate: number;
-    supply_value: number;
-    vat: number;
-    total_payment: number;
-    unit_price: number;
+    rate: number | null;
+    supply_value: number | null;
+    vat: number | null;
+    total_payment: number | null;
+    unit_price: number | null;
 }
 
 interface SettlementData {
@@ -518,9 +519,9 @@ export function TheaterTotalPage() {
             const ticket_revenue = rows.reduce((s, r) => s + r.ticket_revenue, 0);
             const fund_excluded = rows.reduce((s, r) => s + r.fund_excluded, 0);
             const vat_excluded = rows.reduce((s, r) => s + r.vat_excluded, 0);
-            const supply_value = rows.reduce((s, r) => s + r.supply_value, 0);
-            const vat = rows.reduce((s, r) => s + r.vat, 0);
-            const total_payment = rows.reduce((s, r) => s + r.total_payment, 0);
+            const supply_value = rows.reduce((s, r) => s + (r.supply_value || 0), 0);
+            const vat = rows.reduce((s, r) => s + (r.vat || 0), 0);
+            const total_payment = rows.reduce((s, r) => s + (r.total_payment || 0), 0);
             const unit_price = visitor > 0 ? Math.round(supply_value / visitor) : 0;
 
             const min_date = rows.reduce(
@@ -535,7 +536,7 @@ export function TheaterTotalPage() {
             /* 부율: 단일 값이면 표시, 복수면 "-" */
             const uniqueRates = Array.from(new Set(rows.map((r) => r.rate)));
             const rate_display =
-                uniqueRates.length === 1 ? fmtR(uniqueRates[0]) : "-";
+                uniqueRates.length === 1 ? fmtRn(uniqueRates[0]) : "-";
 
             /* 배급사별 극장명: 중복 제거 후 합산 */
             const uniqueDist = Array.from(
