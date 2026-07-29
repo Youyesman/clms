@@ -21,11 +21,39 @@ from crawler.utils.excel_exporter import export_schedules_to_excel
 
 logger = logging.getLogger(__name__)
 
-def run_crawler_background(history_id, data):
+def _manual_site_defs():
+    """수동 크롤 사이트 정의: 서비스/로그모델/변환함수/브랜드 매핑"""
+    from crawler.models import CGVScheduleLog, LotteScheduleLog, MegaboxScheduleLog, KobisScheduleLog
+    return {
+        'cgv': {
+            'label': 'CGV', 'brand': 'CGV', 'export': 'CGV',
+            'service': CGVPipelineService, 'log_model': CGVScheduleLog,
+            'create_fn': MovieSchedule.create_from_cgv_log,
+        },
+        'lotte': {
+            'label': '롯데', 'brand': 'LOTTE', 'export': 'LOTTE',
+            'service': LottePipelineService, 'log_model': LotteScheduleLog,
+            'create_fn': MovieSchedule.create_from_lotte_log,
+        },
+        'mega': {
+            'label': '메가박스', 'brand': 'MEGABOX', 'export': 'MEGABOX',
+            'service': MegaboxPipelineService, 'log_model': MegaboxScheduleLog,
+            'create_fn': MovieSchedule.create_from_megabox_log,
+        },
+        'normal': {
+            'label': '일반극장', 'brand': '일반극장', 'export': '일반극장',
+            'service': KobisPipelineService, 'log_model': KobisScheduleLog,
+            'create_fn': MovieSchedule.create_from_kobis_log,
+        },
+    }
+
+
+def run_site_crawler_background(history_id, data, site_key):
     """
-    백그라운드에서 실행될 크롤러 로직
+    백그라운드에서 실행될 사이트 1개 크롤 로직.
+    수동 실행도 데일리와 마찬가지로 사이트별 이력이 분리되어 목록에 각각 표시된다.
     """
-    # Windows 한글 콘솔(cp949)에서 이모지(🎯 등) print 시 UnicodeEncodeError로
+    # Windows 한글 콘솔(cp949)에서 이모지 print 시 UnicodeEncodeError로
     # 크롤이 죽는 것을 방지: 인코딩 불가 문자는 '?'로 대체.
     import sys
     for _stream in (sys.stdout, sys.stderr):
@@ -34,34 +62,27 @@ def run_crawler_background(history_id, data):
         except Exception:
             pass
 
+    site = _manual_site_defs()[site_key]
+    label, brand = site['label'], site['brand']
+
     try:
-        # 0. Retrieve History Object
+        # 0. 이력 조회 및 시작 처리
         history = CrawlerRunHistory.objects.get(id=history_id)
         history.status = 'RUNNING'
         history.save()
 
-        # 1. Parse Dates
+        # 1. 날짜 목록 구성
         start_date_str = data.get('crawlStartDate')
         end_date_str = data.get('crawlEndDate')
-        
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-
-        # Generate date list
         date_list = []
         curr = start_date
         while curr <= end_date:
             date_list.append(curr.strftime("%Y%m%d"))
             curr += timedelta(days=1)
-            
-        # 2. Parse Company Choice
-        choice_company = data.get('choiceCompany', {})
-        run_cgv = choice_company.get('cgv', False)
-        run_lotte = choice_company.get('lotte', False)
-        run_mega = choice_company.get('mega', False)
-        run_normal = choice_company.get('normal', False)  # 일반극장 (KOBIS)
 
-        # 3. Parse Movie Settings (Target Titles)
+        # 2. 대상 영화 (요청 페이로드 기준 — 엑셀 필터용)
         movie_settings = data.get('movieSettings', [])
         target_titles = set()
         for setting in movie_settings:
@@ -70,154 +91,47 @@ def run_crawler_background(history_id, data):
                 target_titles.add(val)
             for rival in setting.get('rivalMovieNames', []):
                 target_titles.add(rival)
-        
         target_titles_list = list(target_titles) if target_titles else None
-        
-        all_failures = []
-        executed_companies = []
-        companies_for_export = []
-        
-        # Stop Signal Helper
+
+        # 중단 신호: 자기 이력만 확인 → 사이트별 개별 중단 가능
         def check_stop_signal():
             h = CrawlerRunHistory.objects.get(id=history_id)
             if h.status == 'STOP_REQUESTED':
                 raise InterruptedError("User requested stop")
             return False
 
-        # Execute Pipelines
-        # Execute Pipelines in Parallel
-        def run_cgv_wrapper():
-            if not run_cgv: return None
-            try:
-                check_stop_signal()
-                print(f"Executing CGV for {date_list}")
-                logs, cnt, failures = CGVPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
-                check_stop_signal()
-                
-                CGVPipelineService.send_slack_message("SUCCESS", {
-                    "collected": len(logs),
-                    "collected_list": logs,  # [FIX] Pass logs for date-wise breakdown
-                    "created": 0,
-                    "failures": failures,
-                    "total_master": cnt
-                })
-                return 'CGV', failures
-            except InterruptedError:
-                raise
-            except Exception as e:
-                CGVPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
-                logger.error(f"CGV Failure: {e}")
-                return None
+        # 3. 수집
+        check_stop_signal()
+        print(f"Executing {label} for {date_list}")
+        logs, cnt, failures = site['service'].collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+        check_stop_signal()
 
-        def run_lotte_wrapper():
-            if not run_lotte: return None
-            try:
-                check_stop_signal()
-                print(f"Executing Lotte for {date_list}")
-                logs, cnt, failures = LottePipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
-                check_stop_signal()
-                
-                LottePipelineService.send_slack_message("SUCCESS", {
-                    "collected": len(logs),
-                    "collected_list": logs, # [FIX] Pass logs for date-wise breakdown
-                    "created": 0,
-                    "failures": failures,
-                    "total_master": cnt
-                })
-                return 'Lotte', failures
-            except InterruptedError:
-                raise
-            except Exception as e:
-                LottePipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
-                logger.error(f"Lotte Failure: {e}")
-                return None
+        for f in failures:
+            f['brand'] = label
 
-        def run_mega_wrapper():
-            if not run_mega: return None
-            try:
-                check_stop_signal()
-                print(f"Executing Megabox for {date_list}")
-                logs, cnt, failures = MegaboxPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
-                check_stop_signal()
-                
-                MegaboxPipelineService.send_slack_message("SUCCESS", {
-                    "collected": len(logs),
-                    "collected_list": logs, # [FIX] Pass logs for date-wise breakdown
-                    "created": 0,
-                    "failures": failures,
-                    "total_master": cnt
-                })
-                return 'Megabox', failures
-            except InterruptedError:
-                raise
-            except Exception as e:
-                MegaboxPipelineService.send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
-                logger.error(f"Megabox Failure: {e}")
-                return None
+        try:
+            site['service'].send_slack_message("SUCCESS", {
+                "collected": len(logs),
+                "collected_list": logs,
+                "created": 0,
+                "failures": failures,
+                "total_master": cnt
+            })
+        except Exception as slack_err:
+            logger.error(f"{label} Slack Failure: {slack_err}")
 
-        def run_normal_wrapper():
-            if not run_normal: return None
-            try:
-                check_stop_signal()
-                print(f"Executing 일반극장(KOBIS) for {date_list}")
-                logs, cnt, failures = KobisPipelineService.collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
-                check_stop_signal()
-                KobisPipelineService.send_slack_message("SUCCESS", {
-                    "collected": len(logs), "collected_list": logs,
-                    "created": 0, "failures": failures, "total_master": cnt
-                })
-                return 'Normal', failures
-            except InterruptedError:
-                raise
-            except Exception as e:
-                logger.error(f"KOBIS Failure: {e}")
-                return None
-
-        # Run Parallel
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = []
-            if run_cgv: futures.append(executor.submit(run_cgv_wrapper))
-            if run_lotte: futures.append(executor.submit(run_lotte_wrapper))
-            if run_mega: futures.append(executor.submit(run_mega_wrapper))
-            if run_normal: futures.append(executor.submit(run_normal_wrapper))
-
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result:
-                        comp_name, comp_failures = result
-                        executed_companies.append(comp_name)
-                        if comp_failures:
-                            for f in comp_failures:
-                                f['brand'] = comp_name
-                            all_failures.extend(comp_failures)
-
-                        if comp_name == 'CGV': companies_for_export.append('CGV')
-                        elif comp_name == 'Lotte': companies_for_export.append('LOTTE')
-                        elif comp_name == 'Megabox': companies_for_export.append('MEGABOX')
-                        elif comp_name == 'Normal': companies_for_export.append('일반극장')
-                except InterruptedError:
-                    raise
-                except Exception as e:
-                    logger.error(f"Parallel Execution Error: {e}")
-                
-        # 4. Generate Excel (raw crawl log)
+        # 4. 원본 수집 로그 엑셀
         check_stop_signal()
         excel_path = export_schedules_to_excel(
             start_date_str=start_date_str,
             end_date_str=end_date_str,
-            companies=companies_for_export,
+            companies=[site['export']],
             target_titles=target_titles_list,
-            failures=all_failures
+            failures=failures
         )
 
-        # 5. Auto Transform: 크롤 완료 후 자동으로 스케줄 생성
+        # 5. 자동 변환: 크롤 대상 영화 기준
         check_stop_signal()
-        transform_results = {}
-        total_created = 0
-
-        # 크롤 대상 영화 기반 target_titles 조회
-        from crawler.models import CrawlTargetMovie
         active_targets = list(CrawlTargetMovie.objects.filter(is_active=True))
         if active_targets:
             crawl_target_titles = []
@@ -227,71 +141,31 @@ def run_crawler_background(history_id, data):
         else:
             crawl_target_titles = None
 
-        if run_cgv:
-            from crawler.models import CGVScheduleLog
-            cgv_logs = CGVScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
-            cnt = 0
-            for log in cgv_logs:
-                c, _ = MovieSchedule.create_from_cgv_log(log, target_titles=crawl_target_titles)
-                cnt += c
-            transform_results['CGV'] = cnt
-            total_created += cnt
+        site_logs = site['log_model'].objects.filter(query_date__in=date_list).order_by('created_at')
+        total_created = 0
+        for log in site_logs:
+            c, _ = site['create_fn'](log, target_titles=crawl_target_titles)
+            total_created += c
 
-        if run_lotte:
-            from crawler.models import LotteScheduleLog
-            lotte_logs = LotteScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
-            cnt = 0
-            for log in lotte_logs:
-                c, _ = MovieSchedule.create_from_lotte_log(log, target_titles=crawl_target_titles)
-                cnt += c
-            transform_results['Lotte'] = cnt
-            total_created += cnt
-
-        if run_mega:
-            from crawler.models import MegaboxScheduleLog
-            mega_logs = MegaboxScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
-            cnt = 0
-            for log in mega_logs:
-                c, _ = MovieSchedule.create_from_megabox_log(log, target_titles=crawl_target_titles)
-                cnt += c
-            transform_results['Megabox'] = cnt
-            total_created += cnt
-
-        if run_normal:
-            from crawler.models import KobisScheduleLog
-            kobis_logs = KobisScheduleLog.objects.filter(query_date__in=date_list).order_by('created_at')
-            cnt = 0
-            for log in kobis_logs:
-                c, _ = MovieSchedule.create_from_kobis_log(log, target_titles=crawl_target_titles)
-                cnt += c
-            transform_results['Normal'] = cnt
-            total_created += cnt
-
-        # 6. Export transformed schedules
+        # 6. 변환 결과 엑셀
         from crawler.utils.excel_exporter import export_transformed_schedules
-        target_brands = []
-        if run_cgv: target_brands.append('CGV')
-        if run_lotte: target_brands.append('LOTTE')
-        if run_mega: target_brands.append('MEGABOX')
-        if run_normal: target_brands.append('일반극장')
-
         schedule_qs = MovieSchedule.objects.filter(
             play_date__gte=start_date.date(),
             play_date__lte=end_date.date(),
-            brand__in=target_brands
+            brand__in=[brand]
         )
         transform_excel = export_transformed_schedules(schedule_qs)
 
+        # 7. 결과 저장 — 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
+        SKIP_REASONS = {"Date Button Disabled", "Date Button Not Found"}
+        real_failures = [f for f in failures if f.get('reason') not in SKIP_REASONS]
+        skipped = [f for f in failures if f.get('reason') in SKIP_REASONS]
+
         history.status = 'SUCCESS'
         history.finished_at = timezone.now()
-
-        # 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
-        SKIP_REASONS = {"Date Button Disabled", "Date Button Not Found"}
-        real_failures = [f for f in all_failures if f.get('reason') not in SKIP_REASONS]
-        skipped = [f for f in all_failures if f.get('reason') in SKIP_REASONS]
-
         history.result_summary = {
-            "executed_companies": executed_companies,
+            "site": label,
+            "executed_companies": [label],
             "target_dates": date_list,
             "target_movies": target_titles_list,
             "total_failures": len(real_failures),
@@ -305,23 +179,26 @@ def run_crawler_background(history_id, data):
                 }
                 for f in real_failures[:20]
             ],
-            "transform_results": transform_results,
+            "transform_results": {label: total_created},
             "total_created": total_created,
         }
         history.excel_file_path = transform_excel or excel_path
         history.save()
-    
+
     except InterruptedError:
-        logger.warning(f"Background Task Stopped by User: {history_id}")
+        logger.warning(f"Background Task Stopped by User: {history_id} ({label})")
         history = CrawlerRunHistory.objects.get(id=history_id)
-        # 이미 STOP_REQUESTED 일 것임
         history.status = 'STOPPED'
         history.finished_at = timezone.now()
         history.error_message = "Stopped by user request."
         history.save()
-        
+
     except Exception as e:
-        logger.error(f"Background Task Failed: {e}")
+        logger.error(f"Background Task Failed ({label}): {e}")
+        try:
+            site['service'].send_slack_message("ERROR", {"errors": [{"theater": "Global", "movie": "Unknown", "error": str(e)}]})
+        except Exception:
+            pass
         history = CrawlerRunHistory.objects.get(id=history_id)
         history.status = 'FAILED'
         history.finished_at = timezone.now()
@@ -358,20 +235,32 @@ class CrawlerExecutionView(APIView):
             return Response({"error": "crawlStartDate and crawlEndDate are required"}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
-            # Create Pending History
-            history = CrawlerRunHistory.objects.create(
-                status='PENDING',
-                configuration=data
-            )
-            
-            # Start Background Thread
-            thread = threading.Thread(target=run_crawler_background, args=(history.id, data))
-            thread.daemon = True # Daemonize thread
-            thread.start()
-            
+            # 선택된 사이트별로 이력을 따로 생성하고 각각 백그라운드 실행
+            choice_company = data.get('choiceCompany', {}) or {}
+            selected = [k for k in ('cgv', 'lotte', 'mega', 'normal') if choice_company.get(k)]
+            if not selected:
+                return Response({"error": "선택된 크롤 대상이 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+            defs = _manual_site_defs()
+            history_ids = []
+            for site_key in selected:
+                site_conf = dict(data)
+                site_conf['site'] = defs[site_key]['label']
+                site_conf['choiceCompany'] = {k: (k == site_key) for k in ('cgv', 'lotte', 'mega', 'normal')}
+
+                history = CrawlerRunHistory.objects.create(
+                    status='PENDING',
+                    configuration=site_conf
+                )
+                thread = threading.Thread(target=run_site_crawler_background, args=(history.id, data, site_key))
+                thread.daemon = True
+                thread.start()
+                history_ids.append(history.id)
+
             return Response({
-                "message": "Crawler started in background", 
-                "history_id": history.id,
+                "message": "Crawler started in background",
+                "history_id": history_ids[0],
+                "history_ids": history_ids,
                 "status": "PENDING"
             }, status=status.HTTP_200_OK)
             
