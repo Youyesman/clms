@@ -399,6 +399,26 @@ export const CrawlerPage = () => {
             }
         },
         {
+            key: "site",
+            label: "사이트",
+            width: "90px",
+            renderCell: (_: any, item: ICrawlerHistory) => {
+                // 이력 유형별 사이트 표시: 신규(site) / 구 데일리(brands) / 수동실행(choiceCompany)
+                const conf = item.configuration || {};
+                let label = '-';
+                if (conf.site) {
+                    label = conf.site;
+                } else if (Array.isArray(conf.brands)) {
+                    label = conf.brands.length >= 4 ? '전체' : conf.brands.join('/');
+                } else if (conf.choiceCompany) {
+                    const nameMap: Record<string, string> = { cgv: 'CGV', lotte: '롯데', mega: '메가박스', normal: '일반극장' };
+                    const selected = Object.keys(nameMap).filter(k => conf.choiceCompany[k]).map(k => nameMap[k]);
+                    label = selected.length === 0 ? '-' : selected.length >= 4 ? '전체' : selected.join('/');
+                }
+                return <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>{label}</span>;
+            }
+        },
+        {
             key: "created_at",
             label: "시작",
             renderCell: (val: string) => <span style={{ fontSize: '12px' }}>{formatDateTime(val)}</span>
