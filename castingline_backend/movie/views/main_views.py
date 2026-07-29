@@ -43,6 +43,29 @@ class MovieViewSet(viewsets.ModelViewSet):
         'production_company': 'production_company__client_name',
     }
 
+    def destroy(self, request, *args, **kwargs):
+        # 영화 삭제 시 연결된 스코어/오더가 있으면 삭제 차단.
+        # (FK가 SET_NULL이라 그대로 지우면 영화명이 빈칸인 유령 오더/스코어가 남음)
+        instance = self.get_object()
+        score_count = instance.score_movie.count()
+        order_count = instance.order_movie.count()
+        if score_count or order_count:
+            parts = []
+            if score_count:
+                parts.append(f"스코어 {score_count:,}건")
+            if order_count:
+                parts.append(f"오더 {order_count:,}건")
+            return Response(
+                {"detail": f"'{instance.title_ko}'에 연결된 {' / '.join(parts)}이 있어 "
+                           f"삭제할 수 없습니다. 연결된 데이터를 먼저 삭제해 주세요."},
+                status=400,
+            )
+        # 스코어/오더가 없으면 1:1 오더 목록(OrderList)은 빈 껍데기이므로 함께 삭제
+        # (SET_NULL로 남겨두면 오더 관리 상단 표에 영화명 빈칸 행이 생김)
+        from order.models import OrderList
+        OrderList.objects.filter(movie=instance).delete()
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         # 1. 현재 연도 가져오기 (2026)
         current_year = timezone.now().year

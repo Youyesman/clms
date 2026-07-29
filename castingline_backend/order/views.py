@@ -5,6 +5,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from django.db.models import F
+from django.db.models.functions import Coalesce
 from datetime import datetime
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from rest_framework import viewsets, filters, status
@@ -56,9 +57,13 @@ class OrderViewSet(viewsets.ModelViewSet):
             except OrderList.DoesNotExist:
                 return queryset.none()
 
-        # 4. ✅ 추가 로직: 기준일자 필터링 (start_date)
+        # 4. ✅ 기준일자 필터링 (start_date): "기준일자 이후 상영 이력이 있는" 오더.
+        #    개봉일 기준(release_date >= d)이면 그 이전에 개봉해 계속 상영 중인 극장이
+        #    다 빠지므로, 마지막상영일 → 종영일 → 개봉일 순으로 있는 값과 비교한다.
         if filter_start_date:
-            queryset = queryset.filter(release_date__gte=filter_start_date)
+            queryset = queryset.annotate(
+                _active_until=Coalesce("last_screening_date", "end_date", "release_date")
+            ).filter(_active_until__gte=filter_start_date)
 
         # 5. ✅ 추가 로직: 특정 극장 필터링 (client_id)
         if filter_client_id:
