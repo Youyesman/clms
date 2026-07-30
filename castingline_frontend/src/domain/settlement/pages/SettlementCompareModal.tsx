@@ -1002,7 +1002,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                     onClick={() => bulkAdjust()}
                                     title="차이 나는 행(금액 7원 미만 + 날짜)을 전부 파일 값으로 조정하고 확인 처리 (7원 이상 금액 차이는 알림 후 행별로만)"
                                 >
-                                    일괄 조정 ({n})
+                                    일괄 조정 및 확인 ({n})
                                 </BulkBtn>
                             ) : null;
                         })()}
@@ -1054,7 +1054,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                 onClick={() => bulkAdjust(sec.movie_id)}
                                                 title={`'${sec.movie_title}'의 차이 나는 행을 전부 파일 값으로 조정하고 확인 처리 (금액 7원 이상은 알림 후 행별로만)`}
                                             >
-                                                이 영화만 일괄 조정 ({n})
+                                                이 영화만 일괄 조정 및 확인 ({n})
                                             </MiniBulkBtn>
                                         ) : null;
                                     })()}
