@@ -160,6 +160,7 @@ const SearchBtn = styled.button`
 const FieldWrapper = styled.div<{ $error?: boolean }>`
     display: flex;
     flex-direction: column;
+    position: relative; /* 에러 문구 absolute 배치 기준 */
     & > * {
         border-color: ${({ $error }) =>
             $error ? "#ef4444 !important" : "inherit"};
@@ -167,9 +168,14 @@ const FieldWrapper = styled.div<{ $error?: boolean }>`
 `;
 
 const ErrorMsg = styled.div`
+    /* 레이아웃 공간을 차지하지 않게 입력칸 아래에 겹쳐 표시 — 입력칸 밀림 방지 */
+    position: absolute;
+    top: 100%;
+    left: 2px;
+    margin-top: 2px;
     font-size: 10px;
     color: #ef4444;
-    margin-top: 2px;
+    white-space: nowrap;
 `;
 
 const MovieInfo = styled.div`

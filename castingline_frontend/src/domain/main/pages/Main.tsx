@@ -43,7 +43,7 @@ const WelcomeText = styled.div`
         color: #0f172a;
     }
     p {
-        margin: 4px 0 0;
+        margin: 10px 0 0;
         font-size: 14px;
         color: #64748b;
     }

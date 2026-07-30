@@ -104,6 +104,7 @@ const FieldBox = styled.div<{ $error?: boolean }>`
     display: flex;
     flex-direction: column;
     gap: 4px;
+    position: relative; /* 에러 문구 absolute 배치 기준 */
     label {
         font-size: 11px;
         font-weight: 600;
@@ -124,9 +125,15 @@ const FieldBox = styled.div<{ $error?: boolean }>`
         &:disabled { background: #f8fafc; color: #94a3b8; cursor: default; }
     }
     .err-msg {
+        /* 레이아웃 공간을 차지하지 않게 입력칸 아래에 겹쳐 표시 — 입력칸 밀림 방지 */
+        position: absolute;
+        top: 100%;
+        left: 2px;
+        margin-top: 2px;
         font-size: 11px;
         color: #ef4444;
         font-weight: 500;
+        white-space: nowrap;
     }
 `;
 

@@ -61,7 +61,7 @@ const Title = styled.h1`
 const TodayText = styled.div`
     font-size: 13px;
     color: #64748b;
-    margin-top: 2px;
+    margin-top: 10px;
 `;
 
 const TitleBlock = styled.div``;
