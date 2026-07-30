@@ -26,7 +26,8 @@ const PageWrapper = styled.div`
     display: flex;
     flex-direction: column;
     background-color: #f8fafc;
-    min-height: calc(100vh - 60px);
+    /* 높이를 고정해 테이블이 내부 스크롤되게 함 — 헤더 틀고정(sticky)이 동작하는 조건 */
+    height: calc(100vh - 60px);
     padding: 20px;
 `;
 

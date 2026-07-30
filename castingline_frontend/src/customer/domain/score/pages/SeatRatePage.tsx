@@ -69,7 +69,8 @@ const PageWrapper = styled.div`
     display: flex;
     flex-direction: column;
     background-color: #f8fafc;
-    min-height: calc(100vh - 60px);
+    /* 높이를 고정해 상세표가 내부 스크롤되게 함 — 요약표·헤더 틀고정(sticky) 동작 조건 */
+    height: calc(100vh - 60px);
     padding: 20px;
     gap: 16px;
 `;
@@ -109,6 +110,24 @@ const TableContainer = styled.div`
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     overflow: auto;
+`;
+
+/* 상단 요약표: 스크롤과 무관하게 항상 위에 고정 */
+const SummarySection = styled.div`
+    flex-shrink: 0;
+`;
+
+/* 하단 상세표: 남은 높이를 차지하고 내부 스크롤 — 헤더는 sticky로 첫 줄 고정 */
+const DetailSection = styled.div`
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+
+    ${TableContainer} {
+        flex: 1;
+        min-height: 0;
+    }
 `;
 
 const StyledTable = styled.table`
@@ -352,7 +371,7 @@ export function SeatRatePage() {
             )}
 
             {/* ── 상단 요약표 ── */}
-            <div>
+            <SummarySection>
                 <SectionLabel>멀티별 좌석판매율 요약</SectionLabel>
                 <TableContainer>
                     <StyledTable>
@@ -413,10 +432,10 @@ export function SeatRatePage() {
                         </tbody>
                     </StyledTable>
                 </TableContainer>
-            </div>
+            </SummarySection>
 
             {/* ── 하단 상세표 ── */}
-            <div>
+            <DetailSection>
                 <SectionLabel>극장별 좌석판매율 상세</SectionLabel>
                 <TableContainer>
                     <StyledTable>
@@ -520,7 +539,7 @@ export function SeatRatePage() {
                         </tbody>
                     </StyledTable>
                 </TableContainer>
-            </div>
+            </DetailSection>
         </PageWrapper>
     );
 }
