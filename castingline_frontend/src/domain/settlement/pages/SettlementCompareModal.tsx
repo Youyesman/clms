@@ -556,9 +556,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         canAdjust(r) &&
         AMOUNT_METRICS.every((m) => Math.abs(r.metrics[m].diff) < 7);
 
-    /** 날짜 일괄 적용 대상: 날짜(To)만 남은 불일치 행.
-     *  일괄 조정 대상(미조정 + 금액 차이)은 일괄 조정이 날짜까지 함께 확정하므로 제외 —
-     *  주로 이미 수동조정된 행의 날짜 차이가 여기에 해당한다. */
+    /** 날짜만 적용 대상: 금액 일괄 조정에 안 걸리는 날짜(To) 불일치 행.
+     *  주로 이미 수동조정된 행의 날짜 차이가 여기에 해당하며, 일괄 조정 시 함께 처리된다. */
     const canBulkDateApply = (r: ICompareRow) =>
         r.status === "both" &&
         r.date_to?.equal === false &&
@@ -566,46 +565,11 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         !!r.client_code &&
         !canBulkAdjust(r);
 
-    /** 날짜(To) 불일치 행을 한 번에 파일 값으로 확정. movieId를 주면 해당 영화만. */
-    const bulkApplyDates = (movieId?: number) => {
-        if (!result) return;
-        const sections = result.movies.filter(
-            (s) => movieId === undefined || s.movie_id === movieId
-        );
-        const targets = sections.flatMap((sec) =>
-            sec.rows.filter(canBulkDateApply).map((r) => ({ sec, r }))
-        );
-        if (!targets.length) {
-            toast.info("날짜를 일괄 적용할 대상이 없습니다.");
-            return;
-        }
-        const scopeLabel = movieId === undefined ? "" : `'${sections[0]?.movie_title}'에서 `;
-        showAlert(
-            "날짜(To) 일괄 적용",
-            `${scopeLabel}날짜(To)가 불일치한 ${targets.length}개 행(극장×포맷)의 시스템 날짜를 전부 파일(정산서) 날짜로 확정하시겠습니까?\n기존 수동조정 금액은 그대로 유지됩니다.`,
-            "warning",
-            async () => {
-                let ok = 0;
-                let fail = 0;
-                for (const { sec, r } of targets) {
-                    try {
-                        await postDateOnly(sec, r);
-                        ok += 1;
-                    } catch {
-                        fail += 1;
-                    }
-                }
-                if (fail) {
-                    toast.warning(`날짜 적용 ${ok}건 완료, ${fail}건 실패했습니다.`);
-                } else {
-                    toast.success(`${ok}개 행의 날짜(To)를 파일 값으로 확정했습니다.`);
-                }
-            },
-            true
-        );
-    };
+    /** 일괄 조정 대상 수 (금액 조정 + 날짜만 적용) — 버튼 표시/카운트 공용 */
+    const bulkTargetCount = (rows: ICompareRow[]) =>
+        rows.filter((r) => canBulkAdjust(r) || canBulkDateApply(r)).length;
 
-    /** 조정 대상 행(금액 차이 7원 미만)을 한 번에 파일 값으로 조정.
+    /** 조정 대상 행을 한 번에 파일 값으로 조정 — 금액(차이 7원 미만)과 날짜(To)를 모두 처리.
      *  movieId를 주면 해당 영화만 (P002). 제외된 불일치 행은 사유와 함께 안내 (P001). */
     const bulkAdjust = (movieId?: number) => {
         if (!result) return;
@@ -614,6 +578,10 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         );
         const targets = sections.flatMap((sec) =>
             sec.rows.filter(canBulkAdjust).map((r) => ({ sec, r }))
+        );
+        // 금액 조정 대상이 아닌 날짜(To) 불일치 행 — 날짜만 파일 값으로 확정
+        const dateTargets = sections.flatMap((sec) =>
+            sec.rows.filter(canBulkDateApply).map((r) => ({ sec, r }))
         );
         // 일괄 조정에서 제외되는 불일치 행 사유 집계 — "안 먹었다" 오해 방지 (P001)
         const skipOver7 = sections.flatMap((s) =>
@@ -636,20 +604,28 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 parts.push(`인원 불일치 ${skipVisitor.length}행 (조정 불가 — 스코어 확인 필요)`);
             return parts.length ? `${prefix} 제외: ${parts.join(", ")}` : "";
         };
-        if (!targets.length) {
+        if (!targets.length && !dateTargets.length) {
             toast.info(
-                "일괄 조정할 대상이 없습니다. (인원 일치 + 금액 차이 7원 미만 행만 일괄 조정 가능)" +
+                "일괄 조정할 대상이 없습니다. (인원 일치 + 금액 차이 7원 미만, 또는 날짜(To) 불일치 행만 가능)" +
                     (skipNote(" /") || "")
             );
             return;
         }
         const scopeLabel = movieId === undefined ? "" : `'${sections[0]?.movie_title}'에서 `;
+        const detailParts: string[] = [];
+        if (targets.length) detailParts.push(`금액+날짜 조정 ${targets.length}건`);
+        if (dateTargets.length) detailParts.push(`날짜만 적용 ${dateTargets.length}건`);
         showAlert(
             "파일값으로 일괄 조정",
-            `${scopeLabel}인원은 일치하고 금액 차이가 7원 미만인 ${targets.length}개 행(극장×포맷)을 전부 파일(정산서) 값으로 조정하시겠습니까?` +
+            `${scopeLabel}불일치 ${targets.length + dateTargets.length}개 행(극장×포맷)을 전부 파일(정산서) 값으로 조정하시겠습니까? (${detailParts.join(
+                " + "
+            )})` +
                 (skipNote(" 이번 일괄에서") ? `\n${skipNote("이번 일괄에서")}` : ""),
             "warning",
             async () => {
+                let amtSaved = 0;
+                let amtFail = 0;
+                if (targets.length)
                 try {
                     const items = targets.map(({ sec, r }) => ({
                         ...buildAdjustItem(sec, r),
@@ -661,6 +637,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     });
                     const saved: any[] = res.data.results || [];
                     const errors: any[] = res.data.errors || [];
+                    amtSaved = saved.length;
+                    amtFail = errors.length;
                     const idMap = new Map<string, any>();
                     saved.forEach((s) =>
                         idMap.set(`${s.movie_id}|${s.client_code}|${s.screen_format || ""}`, s)
@@ -720,16 +698,35 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                             recomputeSections(movies);
                         return { ...prev, movies: newMovies, grand_totals, grand_summary };
                     });
-                    if (errors.length) {
-                        toast.warning(`${saved.length}개 조정 완료, ${errors.length}개 실패`);
-                    } else {
-                        toast.success(`${saved.length}개 극장을 파일 값으로 일괄 조정했습니다.`);
-                    }
-                    const note = skipNote("일괄 조정에서");
-                    if (note) toast.warning(note);
                 } catch (e: any) {
-                    toast.error(e?.response?.data?.error || "일괄 조정에 실패했습니다.");
+                    amtFail = targets.length;
+                    toast.error(e?.response?.data?.error || "금액 일괄 조정에 실패했습니다.");
                 }
+
+                // 날짜만 남은 불일치 행 — 파일 날짜로 확정 (기존 수동조정 금액 유지)
+                let dateOk = 0;
+                let dateFail = 0;
+                for (const { sec, r } of dateTargets) {
+                    try {
+                        await postDateOnly(sec, r);
+                        dateOk += 1;
+                    } catch {
+                        dateFail += 1;
+                    }
+                }
+
+                const doneParts: string[] = [];
+                if (targets.length)
+                    doneParts.push(`금액 조정 ${amtSaved}건${amtFail ? ` (실패 ${amtFail})` : ""}`);
+                if (dateTargets.length)
+                    doneParts.push(`날짜 적용 ${dateOk}건${dateFail ? ` (실패 ${dateFail})` : ""}`);
+                if (amtFail || dateFail) {
+                    toast.warning(`일괄 조정 결과: ${doneParts.join(", ")}`);
+                } else {
+                    toast.success(`파일 값으로 일괄 조정했습니다 — ${doneParts.join(", ")}`);
+                }
+                const note = skipNote("일괄 조정에서");
+                if (note) toast.warning(note);
             },
             true
         );
@@ -907,29 +904,15 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         ))}
                         {(() => {
                             const n = result.movies.reduce(
-                                (acc, s) => acc + s.rows.filter(canBulkAdjust).length,
+                                (acc, s) => acc + bulkTargetCount(s.rows),
                                 0
                             );
                             return n > 0 ? (
                                 <BulkBtn
                                     onClick={() => bulkAdjust()}
-                                    title="인원은 일치하고 금액 차이가 7원 미만인 극장 전체를 파일 값으로 조정 (7원 이상 차이는 행별로만)"
+                                    title="금액 차이 7원 미만(인원 일치)과 날짜(To) 불일치를 전부 파일 값으로 조정 (7원 이상 금액 차이는 행별로만)"
                                 >
                                     파일값으로 일괄 조정 ({n})
-                                </BulkBtn>
-                            ) : null;
-                        })()}
-                        {(() => {
-                            const n = result.movies.reduce(
-                                (acc, s) => acc + s.rows.filter(canBulkDateApply).length,
-                                0
-                            );
-                            return n > 0 ? (
-                                <BulkBtn
-                                    onClick={() => bulkApplyDates()}
-                                    title="날짜(To)만 불일치한 극장 전체의 시스템 날짜를 파일(정산서) 날짜로 확정 (기존 수동조정 금액은 유지)"
-                                >
-                                    날짜 일괄 적용 ({n})
                                 </BulkBtn>
                             ) : null;
                         })()}
@@ -987,24 +970,13 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                     </span>
                                     {/* 영화별 일괄 조정/확인 (P002) */}
                                     {(() => {
-                                        const n = sec.rows.filter(canBulkAdjust).length;
+                                        const n = bulkTargetCount(sec.rows);
                                         return n > 0 ? (
                                             <MiniBulkBtn
                                                 onClick={() => bulkAdjust(sec.movie_id)}
-                                                title={`'${sec.movie_title}'의 조정 대상(인원 일치 + 금액 차이 7원 미만)만 파일 값으로 조정`}
+                                                title={`'${sec.movie_title}'의 조정 대상(금액 차이 7원 미만 + 날짜 불일치)을 전부 파일 값으로 조정`}
                                             >
                                                 이 영화만 일괄 조정 ({n})
-                                            </MiniBulkBtn>
-                                        ) : null;
-                                    })()}
-                                    {(() => {
-                                        const n = sec.rows.filter(canBulkDateApply).length;
-                                        return n > 0 ? (
-                                            <MiniBulkBtn
-                                                onClick={() => bulkApplyDates(sec.movie_id)}
-                                                title={`'${sec.movie_title}'의 날짜(To) 불일치 행만 전부 파일(정산서) 날짜로 확정 (기존 수동조정 금액은 유지)`}
-                                            >
-                                                이 영화만 날짜 일괄 적용 ({n})
                                             </MiniBulkBtn>
                                         ) : null;
                                     })()}
