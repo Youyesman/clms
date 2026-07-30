@@ -34,11 +34,12 @@ _SITE_URL = f"{BASE}/api/v1/content/site/searchAllRegionAndSite"
 _SCHED_URL = f"{BASE}/api/v1/booking/searchMovScnInfo"
 
 # Cloudflare rate-limit(429)이 아예 안 뜨는 속도로 크롤링한다.
-# 초당 6~8건(워커 3~8)은 1분 내 429 유발 확인 → 초당 1건 이하로 유지.
-# 전체 531건(177극장×3일) 기준 약 12분 소요 — 13:00 크론이라 소요시간은 무관.
+# 초당 6~8건(워커 3~8)은 1분 내 429 유발 확인. 워커1/간격1.0초(0730 크론)는 429 0건 확인
+# → 간격 0.5초(초당 ~2건)로 1단계 상향. 전체 531건(177극장×3일) 기준 약 6~7분 소요 예상.
+# 429가 다시 뜨면 간격 1.0초로 롤백할 것.
 _MAX_WORKERS = 1
 _RETRY = 3
-_REQ_GAP = 1.0  # 요청 간 최소 간격(초)
+_REQ_GAP = 0.5  # 요청 간 최소 간격(초)
 _RETRY_429_WAITS = [5, 15, 30, 60]  # 429 재시도 대기(초). Retry-After 헤더가 더 크면 그 값 사용
 _MAX_COOLDOWN = 1800  # Retry-After 상한(초) — 저속 모드에서 429는 예외 상황이므로 서버 지시를 존중
 
