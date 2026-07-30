@@ -59,7 +59,7 @@ export const SCORE_TABS: TabItem[] = [
     { to: "/score", label: "스코어 현황" },
     { to: "/score/criteria", label: "기준별 조회" },
     { to: "/score/daily", label: "일별 현황" },
-    { to: "/score/seat-rate", label: "좌석 점유율" },
+    { to: "/score/seat-rate", label: "좌석 판매율" },
     { to: "/score/ranking", label: "순위 조회" },
 ];
 

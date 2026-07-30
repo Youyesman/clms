@@ -56,7 +56,7 @@ export const PATH_TO_TAB_LABEL: Record<string, string> = {
     "/manage/score": "스코어 현황",
     "/manage/score/criteria": "기준별 조회",
     "/manage/score/daily": "일별 현황",
-    "/manage/score/seat-rate": "좌석 점유율",
+    "/manage/score/seat-rate": "좌석 판매율",
     "/manage/score/ranking": "순위 조회",
     "/manage/settlement/detail": "정산 상세",
     "/manage/settlement/aggregate": "정산 집계",

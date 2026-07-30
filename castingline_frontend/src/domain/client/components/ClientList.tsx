@@ -20,7 +20,7 @@ const TableWrapper = styled.div`
 `;
 
 /** 2. 메인 컴포넌트 **/
-export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, filter, refreshTrigger, checkedClientIds, setCheckedClientIds }) {
+export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, filter, refreshTrigger, searchTrigger, checkedClientIds, setCheckedClientIds }) {
     const toast = useToast();
     const [sortKey, setSortKey] = useState<string | null>("client_name");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -71,6 +71,16 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
     useEffect(() => {
         getClients()
     }, [sortKey, sortOrder, page, refreshTrigger]);
+
+    // 검색: 1페이지로 리셋 후 조회 (페이지가 이미 1이면 즉시 조회)
+    useEffect(() => {
+        if (searchTrigger === 0) return;
+        if (page !== 1) {
+            setPage(1);
+        } else {
+            getClients();
+        }
+    }, [searchTrigger]);
 
     const handlePageChange = (newPage: number) => {
         if (newPage < 1 || newPage > Math.ceil(totalCount / pageSize)) return;

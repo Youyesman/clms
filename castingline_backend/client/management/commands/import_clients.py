@@ -115,6 +115,16 @@ class Command(BaseCommand):
 
                     data[model_field] = value
 
+                # 사업자명은 ctm_name이 정본 (2026-07-30 사용자 확정) —
+                # ctm_desc는 구버전 명칭이 많아 ctm_name이 비어있을 때만 폴백으로 사용
+                def _clean(v):
+                    v = (v or "").strip()
+                    return "" if v == "<NULL>" else v
+
+                ctm_name = _clean(row.get("ctm_name"))
+                if ctm_name:
+                    data["business_name"] = ctm_name
+
                 Client.objects.create(**data)
                 created += 1
             self.stdout.write(

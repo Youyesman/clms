@@ -72,6 +72,7 @@ export function ManageClient() {
     const [screenData, setScreenData] = useState<any[]>([]);
     const [feeData, setFeeData] = useState<any[]>([]);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [searchTrigger, setSearchTrigger] = useState(0);
     // 수정 및 로딩 상태
     const [selectedScreen, setSelectedScreen] = useState<any>(null);
     const [selectedFee, setSelectedFee] = useState<any>(null);
@@ -101,7 +102,7 @@ export function ManageClient() {
     };
 
     const onClickSearch = () => {
-        setRefreshTrigger((prev) => prev + 1);
+        setSearchTrigger((prev) => prev + 1);
     };
 
     const handleSelectClient = (client: any) => {
@@ -373,6 +374,7 @@ export function ManageClient() {
                             handleAddClient={handleAddClient}
                             filter={filter}
                             refreshTrigger={refreshTrigger}
+                            searchTrigger={searchTrigger}
                             checkedClientIds={checkedClientIds}
                             setCheckedClientIds={setCheckedClientIds}
                         />
