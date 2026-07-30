@@ -12,8 +12,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters
 from rest_framework.permissions import AllowAny
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery
+from django.db.models.functions import Coalesce
+from django.db.models import Value, DateField
 from datetime import datetime, timedelta
+from score.auto_rate import RATE_OPEN_END_DATE
 from django_filters.rest_framework import DjangoFilterBackend
 import django_filters
 from castingline_backend.utils.ordering import KoreanOrderingFilter
@@ -90,6 +93,29 @@ class RateViewSet(viewsets.ModelViewSet):
         'movie': 'movie__title_ko',
     }
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+
+        # latest_only=true 이면 (극장, 영화) 조합별로 종료일이 가장 늦은 부율 한 건만 반환
+        # (극장 부율 관리 목록용 — 공통 부율 이력은 파라미터 없이 전체 이력 조회)
+        if self.request.query_params.get("latest_only") in ("true", "1"):
+            latest_id = (
+                Rate.objects.filter(
+                    client_id=OuterRef("client_id"), movie_id=OuterRef("movie_id")
+                )
+                .annotate(
+                    # 종료일이 비어있으면 무기한(9999-12-31)으로 간주하여 비교
+                    effective_end=Coalesce(
+                        "end_date", Value(RATE_OPEN_END_DATE, output_field=DateField())
+                    )
+                )
+                .order_by("-effective_end", "-id")
+                .values("id")[:1]
+            )
+            qs = qs.filter(id=Subquery(latest_id))
+
+        return qs
+
     def create(self, request, *args, **kwargs):
         # 1. 요청 데이터가 리스트인지 확인
         is_many = isinstance(request.data, list)
@@ -139,7 +165,10 @@ class RateViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def bulk_region_update(self, request):
         """
-        지역별(서울/지방) 부율 일괄 업데이트 및 소급 적용
+        지역별(서울/지방) 부율 일괄 업데이트 (덮어쓰기 방식)
+        - 기준일자 이후에 시작하는 기존 부율은 모두 삭제
+        - 기준일자를 걸치는 기존 부율은 기준일자 전날로 종료 처리
+        - 기준일자 ~ 9999-12-31 구간의 새 부율을 등록
         - 업데이트 후 부율이 같아진 인접 구간은 자동으로 하나의 기간으로 합침 (Merge Contiguous)
         """
         filter_params = request.data.get("filter_params", {})
@@ -156,7 +185,8 @@ class RateViewSet(viewsets.ModelViewSet):
 
             queryset = self.get_queryset()
             filtered_qs = RateFilter(filter_params, queryset=queryset).qs
-            combinations = filtered_qs.values("client", "movie").distinct()
+            # 기본 정렬(-id)이 남아 있으면 DISTINCT에 id가 포함되어 조합이 중복되므로 정렬 제거
+            combinations = filtered_qs.order_by().values("client", "movie").distinct()
 
             affected_count = 0
 
@@ -177,47 +207,25 @@ class RateViewSet(viewsets.ModelViewSet):
                     if target_value is None or target_value == "":
                         continue
 
-                    # --- [Step A] 업데이트 및 분리 로직 ---
-                    target_rate = Rate.objects.filter(
-                        client_id=c_id, movie_id=m_id,
-                        start_date__lte=base_date
-                    ).filter(
+                    # --- [Step A] 덮어쓰기 로직 ---
+                    # 기준일자 이후는 새 부율로 전면 대체한다.
+                    combo_qs = Rate.objects.filter(client_id=c_id, movie_id=m_id)
+
+                    # 1) 기준일자 당일 또는 이후에 시작하는 기존 부율은 모두 삭제
+                    combo_qs.filter(start_date__gte=base_date).delete()
+
+                    # 2) 기준일자를 걸치는 기존 부율은 기준일자 전날로 종료 처리
+                    combo_qs.filter(start_date__lt=base_date).filter(
                         Q(end_date__gte=base_date) | Q(end_date__isnull=True)
-                    ).first()
+                    ).update(end_date=yesterday)
 
-                    if target_rate:
-                        if target_rate.share_rate != target_value:
-                            if target_rate.start_date == base_date:
-                                target_rate.share_rate = target_value
-                                target_rate.save()
-                            else:
-                                original_end_date = target_rate.end_date
-                                target_rate.end_date = yesterday
-                                target_rate.save()
-
-                                Rate.objects.create(
-                                    client_id=c_id, movie_id=m_id,
-                                    start_date=base_date, end_date=original_end_date,
-                                    share_rate=target_value
-                                )
-                            affected_count += 1
-                    else:
-                        # 소급 생성 체크
-                        earliest = Rate.objects.filter(
-                            client_id=c_id, movie_id=m_id).order_by("start_date").first()
-                        if earliest and base_date < earliest.start_date:
-                            if earliest.share_rate == target_value:
-                                earliest.start_date = base_date
-                                earliest.save()
-                            else:
-                                Rate.objects.create(
-                                    client_id=c_id, movie_id=m_id,
-                                    start_date=base_date,
-                                    end_date=earliest.start_date -
-                                    timedelta(days=1),
-                                    share_rate=target_value
-                                )
-                            affected_count += 1
+                    # 3) 기준일자 ~ 무기한(9999-12-31) 새 부율 등록
+                    Rate.objects.create(
+                        client_id=c_id, movie_id=m_id,
+                        start_date=base_date, end_date=RATE_OPEN_END_DATE,
+                        share_rate=target_value
+                    )
+                    affected_count += 1
 
                     # --- [Step B] 핵심: 인접 구간 통합 로직 (Merge Adjacent Records) ---
                     # 처리가 끝난 후 해당 극장/영화의 모든 데이터를 시작일 순으로 정렬하여 검사

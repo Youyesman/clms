@@ -102,6 +102,10 @@ export function ManageRate() {
         params.append("page", String(page));
         params.append("page_size", String(pageSize));
 
+        // 4. 극장 부율 관리 목록은 (극장, 영화)별 종료일이 가장 늦은 부율 한 건만 표시
+        //    (전체 이력은 우측 [공통 부율 이력]에서 확인)
+        params.append("latest_only", "true");
+
         AxiosGet(`rates/?${params.toString()}`)
             .then((res) => {
                 setRates(res.data.results);
@@ -199,7 +203,7 @@ export function ManageRate() {
 
         if (
             !window.confirm(
-                `${baseDate} 기점으로 부율을 일괄 변경하시겠습니까?\n기존 데이터의 기간이 조정되고 새로운 데이터가 생성됩니다.`,
+                `${baseDate} 기점으로 부율을 일괄 변경하시겠습니까?\n기준일자 이후의 기존 부율은 삭제되고, 기준일자부터 9999-12-31까지 새 부율이 등록됩니다.`,
             )
         )
             return;
