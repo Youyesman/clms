@@ -644,8 +644,30 @@ def preview_megabox_format(file):
         # 메가박스 회차: 특회(0회) + 1~15회. 파일에 존재하는 회차 컬럼만 사용한다.
         show_cols = ["특회"] + [f"{i}회" for i in range(1, 16)]
         existing_show_cols = [col for col in show_cols if col in df.columns]
+        id_vars = ["지점", "상영일", "관", "상영영화", "상영종류", "티켓가"]
+
+        # 회차 컬럼 합보다 '합계'가 큰 행은 파일의 회차 컬럼 범위 밖 상영
+        # (예: 컬럼이 5회까지인데 6회차 상영) — 잔여 관객을 1회차에 합산한다
+        if "합계" in df.columns:
+            show_sum = (
+                df[existing_show_cols]
+                .apply(pd.to_numeric, errors="coerce")
+                .fillna(0)
+                .sum(axis=1)
+            )
+            residual = (
+                pd.to_numeric(df["합계"], errors="coerce").fillna(0) - show_sum
+            ).clip(lower=0)
+            if residual.gt(0).any():
+                if "1회" not in df.columns:
+                    df["1회"] = 0
+                    existing_show_cols = [c for c in show_cols if c in df.columns]
+                df["1회"] = (
+                    pd.to_numeric(df["1회"], errors="coerce").fillna(0) + residual
+                )
+
         df_melted = df.melt(
-            id_vars=["지점", "상영일", "관", "상영영화", "상영종류", "티켓가"],
+            id_vars=id_vars,
             value_vars=existing_show_cols,
             var_name="상영회차",
             value_name="매수",
@@ -675,6 +697,11 @@ def preview_megabox_format(file):
             val = str(row["상영회차"]).replace("회", "").strip()
             display_show_count = val.zfill(2) if val.isdigit() else val
 
+            # NaN은 참으로 평가되므로 `or 0`로는 거를 수 없다 — notna로 방어
+            fare_num = pd.to_numeric(
+                str(row["티켓가"]).replace(",", ""), errors="coerce"
+            )
+
             preview_data.append(
                 {
                     "entry_date": str(row["상영일"]).split(" ")[0],
@@ -689,12 +716,7 @@ def preview_megabox_format(file):
                     ),
                     "auditorium": theater.auditorium if theater else str(row["관"]),
                     "show_count": display_show_count,
-                    "fare": int(
-                        pd.to_numeric(
-                            str(row["티켓가"]).replace(",", ""), errors="coerce"
-                        )
-                        or 0
-                    ),
+                    "fare": int(fare_num) if pd.notna(fare_num) else 0,
                     "visitor": int(row["매수"]),
                     "is_matched": not match_errs,
                     "match_error": " / ".join(match_errs),
@@ -713,8 +735,11 @@ def preview_lotte_format(file):
             else _read_excel(file, skiprows=2)
         )
         df.columns = df.columns.str.strip()
+        # 소계 행과 전체총계 행 모두 집계 대상에서 제외
         df = df[
-            ~df.apply(lambda row: row.astype(str).str.contains("소계").any(), axis=1)
+            ~df.apply(
+                lambda row: row.astype(str).str.contains("소계|총계").any(), axis=1
+            )
         ]
         df["발권금액"] = pd.to_numeric(
             df["발권금액"].astype(str).str.replace(",", ""), errors="coerce"
@@ -763,7 +788,9 @@ def preview_lotte_format(file):
                     ),
                     "auditorium": theater.auditorium if theater else str(row["상영관"]),
                     "show_count": display_show_count,
-                    "fare": int(row["발권금액"] or 0),
+                    "fare": (
+                        int(row["발권금액"]) if pd.notna(row["발권금액"]) else 0
+                    ),
                     "visitor": int(row["매수"]),
                     "is_matched": not match_errs,
                     "match_error": " / ".join(match_errs),
