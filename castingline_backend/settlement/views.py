@@ -887,14 +887,12 @@ class SettlementCompareView(SettlementListView):
                           if k in sys_by_theater and agg["source"] == "excel"}
                          | {(ch, "직영") for ch in excel_chains})
 
-        # 메가박스: 시스템 금액을 정산 회차(파일) 구간 단위로 재계산 (직영 엑셀 전용)
-        if "메가박스" in excel_chains:
-            mega_rows = [r for r in file_rows
-                         if r["chain"] == "메가박스" and r.get("source") != "ai"]
-            self._apply_megabox_period_amounts(
-                yyyy_mm, primary_movie, mega_rows, sys_by_theater, norm_theater)
+        # 시스템 금액은 정산 관리(월 단위 계산)와 동일하게 표시한다.
+        # 메가박스 정산 회차 단위 재계산(_apply_megabox_period_amounts)은 파일과의
+        # 반올림 잔차를 숨겨서 두 화면 값이 달라 보이는 문제가 있어 사용하지 않음 —
+        # 원 단위 잔차는 일괄 조정으로 흡수한다. (사용자 확정 2026-07-30)
 
-        # 수동 조정 적용 (재계산 이후) — 조정값을 더하고 원래값을 함께 보존.
+        # 수동 조정 적용 — 조정값을 더하고 원래값을 함께 보존.
         # 포맷 지정 조정은 해당 (극장, 포맷) 행에, 포맷 미지정(구버전/극장 전체) 조정은
         # 그 극장에서 지급금이 가장 큰 포맷 행에 적용 (정산 화면과 동일 규칙).
         from settlement.models import SettlementAdjustment
