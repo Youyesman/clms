@@ -97,7 +97,9 @@ const TableWrapper = styled.div`
 
 const ScoreTable = styled.table`
     width: 100%;
-    border-collapse: collapse;
+    /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 12px;
     thead {
         position: sticky;

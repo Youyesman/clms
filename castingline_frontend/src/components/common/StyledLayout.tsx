@@ -84,12 +84,17 @@ export const TableWrapper = styled.div`
 
 export const CommonTable = styled.table`
     width: 100%;
-    border-collapse: collapse;
+    /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
+    border-collapse: separate;
+    border-spacing: 0;
+    border-top: 1px solid #b0b0b0;
+    border-left: 1px solid #b0b0b0;
     font-size: 12px;
 
     th {
         background-color: #e0e0e0;
-        border: 1px solid #b0b0b0;
+        border-right: 1px solid #b0b0b0;
+        border-bottom: 1px solid #b0b0b0;
         padding: 8px;
         font-weight: normal;
         position: sticky;
@@ -97,7 +102,8 @@ export const CommonTable = styled.table`
     }
 
     td {
-        border: 1px solid #b0b0b0;
+        border-right: 1px solid #b0b0b0;
+        border-bottom: 1px solid #b0b0b0;
         padding: 8px;
         white-space: nowrap;
     }

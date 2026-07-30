@@ -195,13 +195,16 @@ const TableContainer = styled.div`
 
 const StyledTable = styled.table`
     width: 100%;
-    border-collapse: collapse;
+    /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 11px;
     min-width: 1200px;
 
     th,
     td {
-        border: 1px solid #e2e8f0;
+        border-right: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
         padding: 4px 8px;
         text-align: center;
         white-space: nowrap;
