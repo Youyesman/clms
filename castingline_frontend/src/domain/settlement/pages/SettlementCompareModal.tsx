@@ -105,6 +105,47 @@ const AMOUNT_METRICS = ["공급가액", "부가세", "영화사 지급금"];
 const adjustBaseOf = (r: ICompareRow, m: string): number =>
     r.adjust_base?.[m] ?? r.metrics[m].system ?? 0;
 
+/** 수동조정 해제 시 행을 조정 전 계산값으로 복원 (행별/일괄 해제 공용) */
+const restoreRowFromAdjustment = (row: ICompareRow, adj: IAdjustment): ICompareRow => {
+    const deltas: Record<string, number> = {
+        공급가액: adj.supply_delta,
+        부가세: adj.vat_delta,
+        "영화사 지급금": adj.payout_delta,
+    };
+    const metrics = { ...row.metrics };
+    AMOUNT_METRICS.forEach((m) => {
+        const orig =
+            (adj.original?.[m] as number) ?? (metrics[m].system ?? 0) - deltas[m];
+        metrics[m] = {
+            system: orig,
+            file: metrics[m].file,
+            diff: (metrics[m].file ?? 0) - orig,
+        };
+    });
+    // 날짜(To)도 조정 전 시스템 값으로 복귀
+    const origDate = (adj.original?.["날짜(To)"] as string) || row.date_to.system;
+    const date_to: IDateTo = {
+        system: origDate || null,
+        file: row.date_to.file,
+        equal: !(
+            row.status === "both" &&
+            origDate &&
+            row.date_to.file &&
+            origDate !== row.date_to.file
+        ),
+    };
+    return {
+        ...row,
+        adjustment: null,
+        metrics,
+        date_to,
+        equal:
+            row.status === "both" &&
+            METRICS.every((m) => metrics[m].diff === 0) &&
+            date_to.equal,
+    };
+};
+
 /** 파일(정산서) 값 기준 조정 항목 payload — 행별/일괄 조정 공용 (P003) */
 const buildAdjustItem = (sec: IMovieSection, r: ICompareRow) => {
     const dateFix = !r.date_to.equal && r.date_to.file ? r.date_to.file : null;
@@ -380,47 +421,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             async () => {
                 try {
                     await AxiosDelete("settlement-adjustments", adj.id);
-                    updateRow(sec.movie_id, r, (row) => {
-                        const deltas: Record<string, number> = {
-                            공급가액: adj.supply_delta,
-                            부가세: adj.vat_delta,
-                            "영화사 지급금": adj.payout_delta,
-                        };
-                        const metrics = { ...row.metrics };
-                        AMOUNT_METRICS.forEach((m) => {
-                            const orig =
-                                (adj.original?.[m] as number) ??
-                                (metrics[m].system ?? 0) - deltas[m];
-                            metrics[m] = {
-                                system: orig,
-                                file: metrics[m].file,
-                                diff: (metrics[m].file ?? 0) - orig,
-                            };
-                        });
-                        // 날짜(To)도 조정 전 시스템 값으로 복귀
-                        const origDate =
-                            (adj.original?.["날짜(To)"] as string) || row.date_to.system;
-                        const date_to: IDateTo = {
-                            system: origDate || null,
-                            file: row.date_to.file,
-                            equal: !(
-                                row.status === "both" &&
-                                origDate &&
-                                row.date_to.file &&
-                                origDate !== row.date_to.file
-                            ),
-                        };
-                        return {
-                            ...row,
-                            adjustment: null,
-                            metrics,
-                            date_to,
-                            equal:
-                                row.status === "both" &&
-                                METRICS.every((m) => metrics[m].diff === 0) &&
-                                date_to.equal,
-                        };
-                    });
+                    updateRow(sec.movie_id, r, (row) => restoreRowFromAdjustment(row, adj));
                     toast.success("조정을 해제했습니다.");
                 } catch {
                     toast.error("조정 해제에 실패했습니다.");
@@ -466,7 +467,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
     };
 
     /** 시스템 매칭 행 일괄 확인/해제 — movieId를 주면 해당 영화만 (P002)
-     *  confirmed=true: 미확인 극장 전부 확인 / false: 확인된 극장 전부 해제 */
+     *  confirmed=true: 미확인 극장 전부 확인
+     *  confirmed=false: 확인된 극장 전부 확인 해제 + 수동조정도 전부 해제(원래 계산값 복귀) */
     const bulkSetConfirm = (confirmed: boolean, movieId?: number) => {
         if (!result) return;
         const sections = result.movies.filter(
@@ -482,11 +484,19 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             })
         );
         const total = Array.from(perMovie.values()).reduce((a, s) => a + s.size, 0);
-        if (!total) {
+        // 해제 시에는 수동조정된 행도 함께 해제 대상 (확인 여부 무관)
+        const adjTargets = confirmed
+            ? []
+            : sections.flatMap((sec) =>
+                  sec.rows
+                      .filter((r) => r.adjustment)
+                      .map((r) => ({ sec, r, adj: r.adjustment! }))
+              );
+        if (!total && !adjTargets.length) {
             toast.info(
                 confirmed
                     ? "확인 처리할 미확인 극장이 없습니다."
-                    : "해제할 확인된 극장이 없습니다."
+                    : "해제할 확인된 극장/수동조정이 없습니다."
             );
             return;
         }
@@ -499,39 +509,70 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             `일괄 ${actionLabel} 처리`,
             confirmed
                 ? `${scopeLabel} 미확인 극장 ${total}곳을 모두 확인 처리하시겠습니까? (차이가 있는 극장 포함)`
-                : `${scopeLabel} 확인된 극장 ${total}곳의 확인을 모두 해제하시겠습니까?`,
+                : `${scopeLabel} 확인된 극장 ${total}곳의 확인을 모두 해제하시겠습니까?` +
+                      (adjTargets.length
+                          ? `\n수동조정 ${adjTargets.length}건도 함께 해제되어 원래 계산값으로 복귀합니다.`
+                          : ""),
             "warning",
             async () => {
                 try {
-                    await AxiosPost("settlement-confirms", {
-                        yyyyMm: result.yyyyMm,
-                        confirmed,
-                        source: "대사",
-                        items: Array.from(perMovie.entries()).map(([movie_id, codes]) => ({
-                            movie_id,
-                            client_codes: Array.from(codes),
-                        })),
-                    });
-                    setResult((prev) => {
-                        if (!prev) return prev;
-                        return {
-                            ...prev,
-                            movies: prev.movies.map((s) => {
-                                const codes = perMovie.get(s.movie_id);
-                                return codes
-                                    ? {
-                                          ...s,
-                                          rows: s.rows.map((row) =>
-                                              row.client_code && codes.has(row.client_code)
-                                                  ? { ...row, 확인: confirmed }
-                                                  : row
-                                          ),
-                                      }
-                                    : s;
-                            }),
-                        };
-                    });
-                    toast.success(`${total}곳을 ${actionLabel} 처리했습니다.`);
+                    if (total) {
+                        await AxiosPost("settlement-confirms", {
+                            yyyyMm: result.yyyyMm,
+                            confirmed,
+                            source: "대사",
+                            items: Array.from(perMovie.entries()).map(([movie_id, codes]) => ({
+                                movie_id,
+                                client_codes: Array.from(codes),
+                            })),
+                        });
+                        setResult((prev) => {
+                            if (!prev) return prev;
+                            return {
+                                ...prev,
+                                movies: prev.movies.map((s) => {
+                                    const codes = perMovie.get(s.movie_id);
+                                    return codes
+                                        ? {
+                                              ...s,
+                                              rows: s.rows.map((row) =>
+                                                  row.client_code && codes.has(row.client_code)
+                                                      ? { ...row, 확인: confirmed }
+                                                      : row
+                                              ),
+                                          }
+                                        : s;
+                                }),
+                            };
+                        });
+                    }
+
+                    // 수동조정 일괄 해제 (확인 해제 시)
+                    let adjOk = 0;
+                    let adjFail = 0;
+                    for (const { sec, r, adj } of adjTargets) {
+                        try {
+                            await AxiosDelete("settlement-adjustments", adj.id);
+                            updateRow(sec.movie_id, r, (row) =>
+                                restoreRowFromAdjustment(row, adj)
+                            );
+                            adjOk += 1;
+                        } catch {
+                            adjFail += 1;
+                        }
+                    }
+
+                    const doneParts: string[] = [];
+                    if (total) doneParts.push(`${actionLabel} ${total}곳`);
+                    if (adjTargets.length)
+                        doneParts.push(
+                            `수동조정 해제 ${adjOk}건${adjFail ? ` (실패 ${adjFail})` : ""}`
+                        );
+                    if (adjFail) {
+                        toast.warning(`일괄 처리 결과: ${doneParts.join(", ")}`);
+                    } else {
+                        toast.success(`${doneParts.join(", ")} 처리했습니다.`);
+                    }
                 } catch (e: any) {
                     toast.error(e?.response?.data?.error || `일괄 ${actionLabel}에 실패했습니다.`);
                 }
@@ -934,13 +975,16 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         {(() => {
                             const n = result.movies.reduce(
                                 (acc, s) =>
-                                    acc + s.rows.filter((r) => r.client_code && r.확인).length,
+                                    acc +
+                                    s.rows.filter(
+                                        (r) => r.client_code && (r.확인 || r.adjustment)
+                                    ).length,
                                 0
                             );
                             return n > 0 ? (
                                 <UnconfirmAllBtn
                                     onClick={() => bulkUnconfirm()}
-                                    title="대사 결과의 확인된 극장을 전부 확인 해제 (정산 관리 테이블의 확인 상태와 공유)"
+                                    title="대사 결과의 확인·수동조정을 전부 해제 (조정 금액은 원래 계산값으로 복귀, 확인 상태는 정산 관리 테이블과 공유)"
                                 >
                                     일괄 해제 ({n})
                                 </UnconfirmAllBtn>
@@ -995,12 +1039,12 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                     })()}
                                     {(() => {
                                         const n = sec.rows.filter(
-                                            (r) => r.client_code && r.확인
+                                            (r) => r.client_code && (r.확인 || r.adjustment)
                                         ).length;
                                         return n > 0 ? (
                                             <MiniUnconfirmBtn
                                                 onClick={() => bulkUnconfirm(sec.movie_id)}
-                                                title={`'${sec.movie_title}'의 확인된 극장만 전부 확인 해제`}
+                                                title={`'${sec.movie_title}'의 확인·수동조정을 전부 해제 (조정 금액은 원래 계산값으로 복귀)`}
                                             >
                                                 이 영화만 일괄 해제 ({n})
                                             </MiniUnconfirmBtn>
