@@ -297,6 +297,63 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         }
     };
 
+    /** 날짜(To)만 파일 값으로 확정하는 API 호출 + 행 상태 갱신 (행별/일괄 공용, 토스트 없음) */
+    const postDateOnly = async (sec: IMovieSection, r: ICompareRow) => {
+        if (!r.client_code || !result || !r.date_to.file) {
+            throw new Error("거래처코드 또는 파일 날짜가 없어 적용할 수 없습니다.");
+        }
+        const adj = r.adjustment;
+        const ms = r.metrics;
+        const res = await AxiosPost("settlement-adjustments", {
+            yyyyMm: result.yyyyMm,
+            movie_id: sec.movie_id,
+            client_code: r.client_code,
+            screen_format: r.포맷 || "",
+            // 기존 조정액 보존 (없으면 0 = 날짜만 조정)
+            supply_delta: adj?.supply_delta ?? 0,
+            vat_delta: adj?.vat_delta ?? 0,
+            payout_delta: adj?.payout_delta ?? 0,
+            supply_original:
+                (adj?.original?.["공급가액"] as number) ?? adjustBaseOf(r, "공급가액"),
+            vat_original:
+                (adj?.original?.["부가세"] as number) ?? adjustBaseOf(r, "부가세"),
+            payout_original:
+                (adj?.original?.["영화사 지급금"] as number) ??
+                adjustBaseOf(r, "영화사 지급금"),
+            date_to: r.date_to.file,
+            date_to_original: r.date_to.system || "",
+            note: adj?.note || `부금 대사 날짜 확정 (${sec.movie_title})`,
+        });
+        const newAdj: IAdjustment = {
+            id: res.data.id,
+            supply_delta: res.data.supply_delta,
+            vat_delta: res.data.vat_delta,
+            payout_delta: res.data.payout_delta,
+            note: res.data.note,
+            original: {
+                공급가액:
+                    (adj?.original?.["공급가액"] as number) ??
+                    (ms["공급가액"].system ?? 0),
+                부가세:
+                    (adj?.original?.["부가세"] as number) ?? (ms["부가세"].system ?? 0),
+                "영화사 지급금":
+                    (adj?.original?.["영화사 지급금"] as number) ??
+                    (ms["영화사 지급금"].system ?? 0),
+                "날짜(To)": r.date_to.system ?? "",
+            },
+        };
+        const fileDate = r.date_to.file;
+        updateRow(sec.movie_id, r, (row) => ({
+            ...row,
+            확인: true, // 조정 저장 = 확인 처리 (백엔드 자동)
+            adjustment: newAdj,
+            date_to: { system: fileDate, file: fileDate, equal: true },
+            equal:
+                row.status === "both" &&
+                METRICS.every((m) => row.metrics[m].diff === 0),
+        }));
+    };
+
     /** 날짜(To)만 파일 값으로 확정 — 금액/인원 일치 여부와 무관하게 시스템 날짜를 변경.
      *  기존 수동조정(금액)이 있으면 그 조정액은 그대로 유지하고 날짜만 갱신한다. */
     const applyDateOnly = async (sec: IMovieSection, r: ICompareRow) => {
@@ -304,60 +361,11 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             toast.error("거래처코드 또는 파일 날짜가 없어 적용할 수 없습니다.");
             return;
         }
-        const adj = r.adjustment;
-        const ms = r.metrics;
         try {
-            const res = await AxiosPost("settlement-adjustments", {
-                yyyyMm: result.yyyyMm,
-                movie_id: sec.movie_id,
-                client_code: r.client_code,
-                screen_format: r.포맷 || "",
-                // 기존 조정액 보존 (없으면 0 = 날짜만 조정)
-                supply_delta: adj?.supply_delta ?? 0,
-                vat_delta: adj?.vat_delta ?? 0,
-                payout_delta: adj?.payout_delta ?? 0,
-                supply_original:
-                    (adj?.original?.["공급가액"] as number) ?? adjustBaseOf(r, "공급가액"),
-                vat_original:
-                    (adj?.original?.["부가세"] as number) ?? adjustBaseOf(r, "부가세"),
-                payout_original:
-                    (adj?.original?.["영화사 지급금"] as number) ??
-                    adjustBaseOf(r, "영화사 지급금"),
-                date_to: r.date_to.file,
-                date_to_original: r.date_to.system || "",
-                note: adj?.note || `부금 대사 날짜 확정 (${sec.movie_title})`,
-            });
-            const newAdj: IAdjustment = {
-                id: res.data.id,
-                supply_delta: res.data.supply_delta,
-                vat_delta: res.data.vat_delta,
-                payout_delta: res.data.payout_delta,
-                note: res.data.note,
-                original: {
-                    공급가액:
-                        (adj?.original?.["공급가액"] as number) ??
-                        (ms["공급가액"].system ?? 0),
-                    부가세:
-                        (adj?.original?.["부가세"] as number) ?? (ms["부가세"].system ?? 0),
-                    "영화사 지급금":
-                        (adj?.original?.["영화사 지급금"] as number) ??
-                        (ms["영화사 지급금"].system ?? 0),
-                    "날짜(To)": r.date_to.system ?? "",
-                },
-            };
-            const fileDate = r.date_to.file;
-            updateRow(sec.movie_id, r, (row) => ({
-                ...row,
-                확인: true, // 조정 저장 = 확인 처리 (백엔드 자동)
-                adjustment: newAdj,
-                date_to: { system: fileDate, file: fileDate, equal: true },
-                equal:
-                    row.status === "both" &&
-                    METRICS.every((m) => row.metrics[m].diff === 0),
-            }));
+            await postDateOnly(sec, r);
             toast.success("날짜(To)를 파일 값으로 확정했습니다 — 정산 조회에 반영됩니다.");
         } catch (e: any) {
-            toast.error(e?.response?.data?.error || "날짜 적용에 실패했습니다.");
+            toast.error(e?.response?.data?.error || e?.message || "날짜 적용에 실패했습니다.");
         }
     };
 
@@ -547,6 +555,55 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
     const canBulkAdjust = (r: ICompareRow) =>
         canAdjust(r) &&
         AMOUNT_METRICS.every((m) => Math.abs(r.metrics[m].diff) < 7);
+
+    /** 날짜 일괄 적용 대상: 날짜(To)만 남은 불일치 행.
+     *  일괄 조정 대상(미조정 + 금액 차이)은 일괄 조정이 날짜까지 함께 확정하므로 제외 —
+     *  주로 이미 수동조정된 행의 날짜 차이가 여기에 해당한다. */
+    const canBulkDateApply = (r: ICompareRow) =>
+        r.status === "both" &&
+        r.date_to?.equal === false &&
+        !!r.date_to?.file &&
+        !!r.client_code &&
+        !canBulkAdjust(r);
+
+    /** 날짜(To) 불일치 행을 한 번에 파일 값으로 확정. movieId를 주면 해당 영화만. */
+    const bulkApplyDates = (movieId?: number) => {
+        if (!result) return;
+        const sections = result.movies.filter(
+            (s) => movieId === undefined || s.movie_id === movieId
+        );
+        const targets = sections.flatMap((sec) =>
+            sec.rows.filter(canBulkDateApply).map((r) => ({ sec, r }))
+        );
+        if (!targets.length) {
+            toast.info("날짜를 일괄 적용할 대상이 없습니다.");
+            return;
+        }
+        const scopeLabel = movieId === undefined ? "" : `'${sections[0]?.movie_title}'에서 `;
+        showAlert(
+            "날짜(To) 일괄 적용",
+            `${scopeLabel}날짜(To)가 불일치한 ${targets.length}개 행(극장×포맷)의 시스템 날짜를 전부 파일(정산서) 날짜로 확정하시겠습니까?\n기존 수동조정 금액은 그대로 유지됩니다.`,
+            "warning",
+            async () => {
+                let ok = 0;
+                let fail = 0;
+                for (const { sec, r } of targets) {
+                    try {
+                        await postDateOnly(sec, r);
+                        ok += 1;
+                    } catch {
+                        fail += 1;
+                    }
+                }
+                if (fail) {
+                    toast.warning(`날짜 적용 ${ok}건 완료, ${fail}건 실패했습니다.`);
+                } else {
+                    toast.success(`${ok}개 행의 날짜(To)를 파일 값으로 확정했습니다.`);
+                }
+            },
+            true
+        );
+    };
 
     /** 조정 대상 행(금액 차이 7원 미만)을 한 번에 파일 값으로 조정.
      *  movieId를 주면 해당 영화만 (P002). 제외된 불일치 행은 사유와 함께 안내 (P001). */
@@ -864,6 +921,20 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         })()}
                         {(() => {
                             const n = result.movies.reduce(
+                                (acc, s) => acc + s.rows.filter(canBulkDateApply).length,
+                                0
+                            );
+                            return n > 0 ? (
+                                <BulkBtn
+                                    onClick={() => bulkApplyDates()}
+                                    title="날짜(To)만 불일치한 극장 전체의 시스템 날짜를 파일(정산서) 날짜로 확정 (기존 수동조정 금액은 유지)"
+                                >
+                                    날짜 일괄 적용 ({n})
+                                </BulkBtn>
+                            ) : null;
+                        })()}
+                        {(() => {
+                            const n = result.movies.reduce(
                                 (acc, s) =>
                                     acc + s.rows.filter((r) => r.client_code && !r.확인).length,
                                 0
@@ -923,6 +994,17 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                 title={`'${sec.movie_title}'의 조정 대상(인원 일치 + 금액 차이 7원 미만)만 파일 값으로 조정`}
                                             >
                                                 이 영화만 일괄 조정 ({n})
+                                            </MiniBulkBtn>
+                                        ) : null;
+                                    })()}
+                                    {(() => {
+                                        const n = sec.rows.filter(canBulkDateApply).length;
+                                        return n > 0 ? (
+                                            <MiniBulkBtn
+                                                onClick={() => bulkApplyDates(sec.movie_id)}
+                                                title={`'${sec.movie_title}'의 날짜(To) 불일치 행만 전부 파일(정산서) 날짜로 확정 (기존 수동조정 금액은 유지)`}
+                                            >
+                                                이 영화만 날짜 일괄 적용 ({n})
                                             </MiniBulkBtn>
                                         ) : null;
                                     })()}
