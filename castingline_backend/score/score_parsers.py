@@ -1087,6 +1087,24 @@ def save_confirmed_scores(data_list):
     ols_to_create, orders_to_create, orders_to_update = _build_order_changes(valid_data)
 
     # 3. Score 객체 준비
+    # 동일 unique 키 행은 관객수를 합산해 병합한다.
+    # (예: 엑셀의 '1층'/'2층' 상영관이 등록된 한 관으로 매칭되면 키가 충돌해
+    #  Postgres ON CONFLICT가 같은 행을 두 번 갱신하려다 500 에러 발생)
+    merged = {}
+    for i in valid_data:
+        key = (
+            i["entry_date"],
+            i["client_id"],
+            i["movie_id"],
+            i["auditorium"],
+            i["fare"],
+            i["show_count"],
+        )
+        if key in merged:
+            merged[key]["visitor"] += i["visitor"]
+        else:
+            merged[key] = dict(i)
+
     scores_to_save = [
         Score(
             entry_date=i["entry_date"],
@@ -1097,7 +1115,7 @@ def save_confirmed_scores(data_list):
             show_count=i["show_count"],
             visitor=i["visitor"],
         )
-        for i in valid_data
+        for i in merged.values()
     ]
 
     # 4. DB 반영 (트랜잭션 보장: 오더 + 스코어 + 자동 부율 원자적 처리)
