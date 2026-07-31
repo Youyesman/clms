@@ -116,6 +116,35 @@ const ErrorText = styled.span`
     font-weight: 700;
 `;
 
+const ReplaceWarning = styled.div`
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    background: #fef2f2;
+    color: #991b1b;
+
+    strong {
+        display: block;
+        font-size: 12.5px;
+        font-weight: 800;
+        margin-bottom: 4px;
+    }
+
+    p {
+        margin: 0;
+        font-size: 11.5px;
+        line-height: 1.6;
+    }
+
+    ul {
+        margin: 6px 0 0;
+        padding-left: 16px;
+        font-size: 11.5px;
+        line-height: 1.6;
+    }
+`;
+
 const FixButton = styled.button`
     margin-left: 6px;
     padding: 1px 6px;
@@ -217,6 +246,17 @@ const StyledButton = styled.button<{ $primary?: boolean; $disabled?: boolean }>`
 `;
 
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+
+// 확정 저장 시 삭제될 기존 스코어 범위 (score/preview_replace 응답)
+interface IReplaceScope {
+    movie_id: string;
+    movie_title: string;
+    entry_dates: string[];
+    /** 이번 파일에 들어있는 멀티(CGV/롯데/메가박스/…) — 이 멀티만 교체된다 */
+    multis: string[];
+    existing_count: number;
+    theater_count: number;
+}
 
 /* ---------------- Main Component ---------------- */
 
@@ -329,10 +369,51 @@ export function ScoreExcelUploader({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieForm.movie?.id]);
 
+    // 재업로드 교체 범위 (같은 상영일자·영화의 기존 스코어가 얼마나 삭제되는지) dry-run 조회
+    const [replaceScope, setReplaceScope] = useState<IReplaceScope[]>([]);
+
+    useEffect(() => {
+        if (previewData.length === 0) {
+            setReplaceScope([]);
+            return;
+        }
+        let cancelled = false;
+        AxiosPost("score/preview_replace", { data: previewData })
+            .then((res) => {
+                if (!cancelled) setReplaceScope(res.data?.data || []);
+            })
+            .catch(() => {
+                if (!cancelled) setReplaceScope([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [previewData]);
+
+    const replaceScopeTotal = useMemo(
+        () => replaceScope.reduce((sum, r) => sum + r.existing_count, 0),
+        [replaceScope]
+    );
+    const replaceScopeTheaters = useMemo(
+        () => replaceScope.reduce((sum, r) => sum + r.theater_count, 0),
+        [replaceScope]
+    );
+    // 이번 파일이 교체하는 멀티 목록 (영화가 여러 개여도 합쳐서 한 번만 보여준다)
+    const replaceScopeMultis = useMemo(() => {
+        const set = new Set<string>();
+        replaceScope.forEach((r) => (r.multis || []).forEach((m) => set.add(m)));
+        return Array.from(set);
+    }, [replaceScope]);
+
     const handleConfirmSave = () => {
+        // 재업로드 교체 정책 안내: 이번 파일에 들어있는 멀티의 기존 스코어만 삭제·교체된다.
+        const subtitle =
+            replaceScopeTotal > 0
+                ? `[${replaceScopeMultis.join(", ")}]의 기존 스코어 ${replaceScopeTotal.toLocaleString()}건(극장 ${replaceScopeTheaters.toLocaleString()}곳)이 삭제되고 이번 파일 내용으로 교체됩니다. 삭제된 데이터는 복구할 수 없습니다.`
+                : "저장 후에는 기존 데이터에 반영됩니다.";
         showAlert(
             `${previewData.length}건의 데이터를 저장하시겠습니까?`,
-            "저장 후에는 기존 데이터에 반영됩니다.",
+            subtitle,
             "warning",
             async () => {
                 setLoading(true);
@@ -693,6 +774,25 @@ export function ScoreExcelUploader({
                             </PreviewTable>
                         </OrderTableWrap>
                     </OrderSection>
+
+                    {replaceScopeTotal > 0 && (
+                        <ReplaceWarning>
+                            <strong>재업로드 교체 안내 — [{replaceScopeMultis.join(", ")}]</strong>
+                            <p>
+                                확정 저장 시 위 <b>멀티의 해당 상영일자·영화 기존 스코어 {replaceScopeTotal.toLocaleString()}건
+                                (극장 {replaceScopeTheaters.toLocaleString()}곳)</b>이 통째로 삭제되고 이번 파일 내용으로 교체됩니다.
+                                관·요금·회차가 달라진 옛 행은 물론, 이번 파일에서 빠진 극장의 옛 행도 함께 삭제됩니다.
+                                파일에 없는 다른 멀티(롯데·메가박스 등)의 스코어는 그대로 유지됩니다.
+                            </p>
+                            <ul>
+                                {replaceScope.map((r) => (
+                                    <li key={r.movie_id}>
+                                        {r.movie_title} — {r.entry_dates.join(", ")} [{(r.multis || []).join(", ")}] : 기존 {r.existing_count.toLocaleString()}건 / 극장 {r.theater_count.toLocaleString()}곳
+                                    </li>
+                                ))}
+                            </ul>
+                        </ReplaceWarning>
+                    )}
 
                     <ActionFooter>
                         <StyledButton onClick={() => { setPreviewData([]); setUploadedFile(null); setEditingTheater(null); setEditingClient(null); }}>

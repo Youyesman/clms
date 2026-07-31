@@ -110,3 +110,36 @@ class CollectedSettlement(models.Model):
 
     def __str__(self):
         return f"[{self.month}] {self.movie_title} - {self.filename}"
+
+
+class CollectedMailLog(models.Model):
+    """'이 메일은 이미 한 번 수집했다'는 이력. 수집 파일을 지워도 남는다.
+
+    CollectedSettlement 는 사용자가 삭제할 수 있어서, 그것만으로 재수집 여부를 판단하면
+    '수집 → 삭제 → 다시 지금 수집' 시 지운 것이 되살아난다. 이 표는 삭제와 무관하게
+    유지되어, 자동 스캔이 같은 메일을 두 번 수집하지 않도록 막는 기준이 된다.
+
+    (특정 메일을 일부러 다시 받고 싶으면 메일함 화면의 '수동 수집'을 쓰면 된다.)
+    """
+
+    mail_folder = models.CharField(max_length=255)
+    mail_uid = models.IntegerField()
+    mail_subject = models.CharField(max_length=500, blank=True, default="")
+    mail_date = models.DateTimeField(null=True, blank=True)
+    # 처음 수집된 시각 (이력이므로 갱신하지 않는다)
+    collected_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-collected_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["mail_folder", "mail_uid"],
+                name="uniq_collected_mail_log",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["mail_folder", "mail_uid"]),
+        ]
+
+    def __str__(self):
+        return f"{self.mail_folder}#{self.mail_uid}"

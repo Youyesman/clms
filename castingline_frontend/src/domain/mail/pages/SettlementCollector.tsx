@@ -11,6 +11,7 @@ import {
     ArrowSquareOut,
     CaretLeft,
     CaretRight,
+    CaretDown,
     CheckCircle,
     EnvelopeSimple,
 } from "@phosphor-icons/react";
@@ -311,8 +312,13 @@ const MailboxTab = ({
             if (r.error) {
                 toast.error(r.error);
             } else {
+                const extra: string[] = [];
+                if (r.saved_unassigned) extra.push(`미지정 영화 ${r.saved_unassigned}건`);
+                if (r.skipped_already_collected)
+                    extra.push(`수집완료 메일 ${r.skipped_already_collected}건 건너뜀`);
                 toast.success(
-                    `수집 완료 · 신규 ${r.saved}건 (매칭 ${r.matched}건)`
+                    `수집 완료 · 신규 ${r.saved}건 (매칭 ${r.matched}건)` +
+                    (extra.length ? ` · ${extra.join(" · ")}` : "")
                 );
             }
             await loadCollected();
@@ -479,8 +485,14 @@ const MailboxTab = ({
                 {lastResult && !lastResult.error && (
                     <span>
                         스캔 {lastResult.scanned} · 매칭 {lastResult.matched} · 신규{" "}
-                        <b className="ok">{lastResult.saved}</b> · 중복제외{" "}
-                        {lastResult.skipped_duplicate}
+                        <b className="ok">{lastResult.saved}</b>
+                        {lastResult.saved_unassigned > 0 && (
+                            <> (미지정 영화 {lastResult.saved_unassigned})</>
+                        )}
+                        {" · "}중복제외 {lastResult.skipped_duplicate}
+                        {lastResult.skipped_already_collected > 0 && (
+                            <> · 수집완료 건너뜀 {lastResult.skipped_already_collected}</>
+                        )}
                     </span>
                 )}
             </StatusLine>
@@ -794,9 +806,12 @@ const BrowseTab = ({
     const [activeMonth, setActiveMonth] = useState<string>("");
     const [items, setItems] = useState<ICollectedSettlement[]>([]);
     const [loading, setLoading] = useState(false);
-    const [zipLoading, setZipLoading] = useState<number | null>(null);
+    // 어떤 그룹의 zip 을 준비 중인지: 영화 그룹은 movie_id, '미지정 영화' 그룹은 그룹명
+    const [zipLoading, setZipLoading] = useState<number | string | null>(null);
     // 다중 선택(일괄 삭제용)
     const [selected, setSelected] = useState<Set<number>>(new Set());
+    // 접힌 영화 그룹 (기본은 모두 펼침 — 접은 것만 담아둔다)
+    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
     // 원본메일 미리보기 모달
     const [mailModal, setMailModal] = useState<{
         folder: string;
@@ -894,6 +909,23 @@ const BrowseTab = ({
         return Array.from(map.entries());
     }, [items]);
 
+    // zip 진행 표시용 그룹 키 (영화 미지정 그룹은 movie_id 가 없어 그룹명으로 구분)
+    const groupZipKey = (list: ICollectedSettlement[]) =>
+        list[0]?.movie_id ?? `t:${list[0]?.movie_title || ""}`;
+
+    const toggleGroup = (movie: string) =>
+        setCollapsed((prev) => {
+            const next = new Set(prev);
+            if (next.has(movie)) next.delete(movie);
+            else next.add(movie);
+            return next;
+        });
+
+    const allCollapsed = grouped.length > 0 && collapsed.size >= grouped.length;
+
+    const toggleAllGroups = () =>
+        setCollapsed(allCollapsed ? new Set() : new Set(grouped.map(([m]) => m)));
+
     const onDelete = (it: ICollectedSettlement) => {
         showAlert(
             "첨부 삭제",
@@ -967,27 +999,55 @@ const BrowseTab = ({
                         </BulkClearBtn>
                     </BulkBar>
                 )}
+                {!loading && grouped.length > 0 && (
+                    <GroupToolbar>
+                        <span>영화 {grouped.length}개</span>
+                        <CollapseAllBtn type="button" onClick={toggleAllGroups}>
+                            <CaretDown
+                                weight="bold"
+                                className={allCollapsed ? "caret closed" : "caret"}
+                            />
+                            {allCollapsed ? "전체 펼치기" : "전체 접기"}
+                        </CollapseAllBtn>
+                    </GroupToolbar>
+                )}
                 {!loading &&
                     grouped.map(([movie, list]) => (
                         <MovieGroup key={movie}>
                             <div className="gtitle">
-                                <span>
+                                <GroupToggle
+                                    type="button"
+                                    onClick={() => toggleGroup(movie)}
+                                    aria-expanded={!collapsed.has(movie)}
+                                    title={collapsed.has(movie) ? "펼치기" : "접기"}
+                                >
+                                    <CaretDown
+                                        weight="bold"
+                                        className={collapsed.has(movie) ? "caret closed" : "caret"}
+                                    />
                                     {movie} <em>{list.length}건</em>
-                                </span>
-                                {list[0]?.movie_id != null && (
+                                </GroupToggle>
+                                {list.length > 0 && (
                                     <ZipBtn
                                         disabled={
-                                            zipLoading === list[0].movie_id
+                                            zipLoading === groupZipKey(list)
                                         }
                                         onClick={async () => {
-                                            const mid = list[0]
-                                                .movie_id as number;
-                                            setZipLoading(mid);
+                                            const mid = list[0].movie_id;
+                                            setZipLoading(groupZipKey(list));
                                             try {
-                                                await downloadMovieZip(
-                                                    mid,
-                                                    activeMonth || undefined
-                                                );
+                                                // 영화가 지정된 그룹은 영화(+월) 단위로,
+                                                // '미지정 영화' 그룹은 movie_id 가 없으므로 항목 id 목록으로 묶는다.
+                                                if (mid != null) {
+                                                    await downloadMovieZip(
+                                                        mid,
+                                                        activeMonth || undefined
+                                                    );
+                                                } else {
+                                                    await downloadSelectedZip(
+                                                        list.map((it) => it.id)
+                                                    );
+                                                }
                                             } catch {
                                                 toast.error(
                                                     "일괄 다운로드 실패"
@@ -998,7 +1058,7 @@ const BrowseTab = ({
                                         }}
                                         title={`${movie} 파일 일괄 다운로드(zip)`}
                                     >
-                                        {zipLoading === list[0].movie_id ? (
+                                        {zipLoading === groupZipKey(list) ? (
                                             <>
                                                 <ArrowClockwise
                                                     weight="bold"
@@ -1015,6 +1075,7 @@ const BrowseTab = ({
                                     </ZipBtn>
                                 )}
                             </div>
+                            {!collapsed.has(movie) && (
                             <Table>
                                 <thead>
                                     <tr>
@@ -1108,6 +1169,7 @@ const BrowseTab = ({
                                     ))}
                                 </tbody>
                             </Table>
+                            )}
                         </MovieGroup>
                     ))}
             </BrowseMain>
@@ -2413,6 +2475,72 @@ const MovieGroup = styled.div`
             color: #94a3b8;
             margin-left: 6px;
         }
+    }
+`;
+// 영화 그룹 제목 = 접기/펼치기 토글 버튼
+const GroupToggle = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px 2px 2px;
+    margin-left: -2px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover {
+        background: #f1f5f9;
+    }
+
+    .caret {
+        flex: none;
+        color: #64748b;
+        transition: transform 0.15s ease;
+    }
+    .caret.closed {
+        transform: rotate(-90deg);
+    }
+`;
+// 그룹 목록 위 도구줄 (영화 개수 + 전체 접기/펼치기)
+const GroupToolbar = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #64748b;
+
+    .caret {
+        color: #64748b;
+        transition: transform 0.15s ease;
+    }
+    .caret.closed {
+        transform: rotate(-90deg);
+    }
+`;
+// 전체 접기/펼치기 (그룹 목록 위)
+const CollapseAllBtn = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+
+    &:hover {
+        background: #f8fafc;
+        border-color: #94a3b8;
     }
 `;
 const BulkBar = styled.div`

@@ -14,6 +14,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SETTLEMENT_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 
@@ -176,6 +178,12 @@ const ErrorMsg = styled.div`
     font-size: 10px;
     color: #ef4444;
     white-space: nowrap;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -555,6 +563,40 @@ export function SupplyPricePage() {
     const { meta } = data;
     const movieTitle = meta?.movie_title || "";
 
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 2단 헤더 + 총 합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const body: (string | number)[][] = sortedRows.map((row) => [
+            movieTitle, row.entry_date, row.visitor,
+            row.ticket_revenue, row.fund_excluded,
+            row.fund_excluded - row.vat_excluded, row.vat_excluded,
+            row.supply_value, row.vat, row.total_payment, row.unit_price,
+        ]);
+        if (body.length > 0) {
+            body.push([
+                "총 합계", "", totals.visitor,
+                totals.ticket_revenue, totals.fund_excluded, totals.ticket_vat, totals.vat_excluded,
+                totals.supply_value, totals.vat, totals.total_payment, totals.unit_price,
+            ]);
+        }
+
+        const n = downloadExcel(
+            `부금정산_공급가조회_${movieTitle}_${searchParams.date_from}~${searchParams.date_to}`,
+            {
+                caption: `${movieTitle} (개봉일: ${meta?.release_date || "-"}) / 조회기간: ${searchParams.date_from} ~ ${searchParams.date_to}`,
+                headers: [
+                    ["영화", "날짜", "인원(명)", "입장료 기준", "", "", "", "정산 기준", "", "", ""],
+                    [
+                        "", "", "",
+                        "금액(입장료)", "기금제외입장료", "부가세", "부가세제외입장료",
+                        "공급가액", "부가세", "영화사지급액", "객단가",
+                    ],
+                ],
+                rows: body,
+            }
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
+
     return (
         <PageWrapper>
             <PageNavTabs tabs={SETTLEMENT_TABS} />
@@ -758,6 +800,10 @@ export function SupplyPricePage() {
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}
                     </FieldWrapper>
+
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
                 </FilterRow>
             </FilterBar>
 

@@ -16,7 +16,7 @@ from django.core.files.base import ContentFile
 from django.utils.dateparse import parse_datetime
 
 from . import services
-from .models import CollectedSettlement, SettlementTargetMovie
+from .models import CollectedMailLog, CollectedSettlement, SettlementTargetMovie
 
 
 # ── 매칭용 정규화 ──
@@ -195,6 +195,11 @@ _NAME_NOISE_RE = re.compile(
 )
 
 
+# 대상 영화에 매칭되지 않은 첨부를 모아두는 가상 영화 그룹명.
+# movie=None 으로 저장되며 '수집 파일' 화면에서 이 이름으로 묶여 일괄 다운로드된다.
+UNASSIGNED_MOVIE_TITLE = "미지정 영화"
+
+
 def _is_document(filename):
     return (filename or "").lower().endswith(_DOC_EXTS)
 
@@ -248,6 +253,14 @@ def _date_in_range(dt, since, until):
     if until and d > until:
         return False
     return True
+
+
+def _as_uid_int(uid):
+    """IMAP uid(문자열/정수 혼용)를 int 로 정규화. 실패하면 None."""
+    try:
+        return int(uid)
+    except (TypeError, ValueError):
+        return None
 
 
 def _to_date(s):
@@ -317,7 +330,27 @@ def save_collected(
     )
     rec.file.save(filename, ContentFile(payload), save=False)
     rec.save()
+    mark_mail_collected(folder, uid, msg)
     return rec
+
+
+def mark_mail_collected(folder, uid, msg=None):
+    """이 메일을 '수집 완료'로 이력에 남긴다. 이미 있으면 그대로 둔다.
+
+    수집 파일을 나중에 삭제해도 이 이력은 남아, 자동 스캔이 같은 메일을 다시 수집하지 않는다.
+    """
+    uid_int = _as_uid_int(uid)
+    if uid_int is None:
+        return
+    msg = msg or {}
+    CollectedMailLog.objects.get_or_create(
+        mail_folder=folder,
+        mail_uid=uid_int,
+        defaults={
+            "mail_subject": (msg.get("subject", "") or "")[:500],
+            "mail_date": _parse_date(msg.get("date")),
+        },
+    )
 
 
 def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
@@ -342,13 +375,24 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
         "scanned": 0,
         "matched": 0,
         "saved": 0,
+        "saved_unassigned": 0,
         "skipped_duplicate": 0,
+        "skipped_already_collected": 0,
         "matched_no_attachment": 0,
         "saved_items": [],
     }
     if not targets:
         stats["error"] = "활성화된 대상 영화가 없습니다. 먼저 대상 영화를 등록하세요."
         return stats
+
+    # 한 번이라도 수집한 적 있는 메일은 재스캔에서 통째로 건너뛴다.
+    # 판단 기준은 CollectedMailLog(수집 이력)이므로, 수집 파일을 나중에 삭제해도
+    # 다시 수집되지 않는다. 새로 들어온 메일만 수집된다.
+    # (mail_uid 는 IntegerField 이므로 int 집합)
+    already_collected_uids = set(
+        CollectedMailLog.objects.filter(mail_folder=folder)
+        .values_list("mail_uid", flat=True)
+    )
 
     # 헤더 목록을 최신순으로 페이지네이션하며 기간 안의 uid 만 수집.
     page = 1
@@ -376,6 +420,9 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
     for uid in uids_in_range:
         if stats["scanned"] >= max_messages:
             break
+        if _as_uid_int(uid) in already_collected_uids:
+            stats["skipped_already_collected"] += 1
+            continue
         stats["scanned"] += 1
         try:
             msg = services.get_message(folder, uid)
@@ -424,8 +471,19 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
                     continue  # 파일명에 영화명/고유명이 있음 → 제목/본문 폴백 미적용
                 assignments[idx] = [(info["movie"], info["title"], raw_kw, where)]
 
+        # 3) 어떤 대상 영화에도 매칭되지 않은 메일: 문서 첨부가 있으면 '미지정 영화'로 모아 수집.
+        #    이렇게 하면 미수집으로 남아 눈으로 훑어야 했던 메일이 '수집 파일' 화면에
+        #    한 그룹으로 쌓여 일괄 다운로드/확인할 수 있다.
+        unassigned_only = False
         if not assignments:
-            continue
+            doc_indexes = [
+                att["index"] for att in attachments if _is_document(att.get("filename", ""))
+            ]
+            if not doc_indexes:
+                continue  # 첨부가 없거나 이미지뿐 → 수집할 것이 없음
+            unassigned_only = True
+            for idx in doc_indexes:
+                assignments[idx] = [(None, UNASSIGNED_MOVIE_TITLE, "", "unassigned")]
 
         stats["matched"] += 1
         dt = _parse_date(msg.get("date"))
@@ -446,6 +504,8 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
                 if res == "notfound":
                     continue
                 stats["saved"] += 1
+                if unassigned_only:
+                    stats["saved_unassigned"] += 1
                 stats["saved_items"].append(
                     {
                         "id": res.id,

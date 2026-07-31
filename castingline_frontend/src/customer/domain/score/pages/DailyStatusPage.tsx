@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
@@ -47,6 +49,13 @@ const FilterRow = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    align-self: flex-end;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -266,7 +275,47 @@ export function DailyStatusPage() {
         fetchData,
     ]);
 
-    const { meta, rows, grand_total } = data;
+    const { meta } = data;
+
+    // 극장 검색 (조회 결과 내에서 극장명으로 좁히기 — 전체합계도 함께 재계산됨)
+    const [theaterSearch, setTheaterSearch] = useState("");
+
+    const rows = useMemo(() => {
+        const all = data.rows || [];
+        const q = theaterSearch.trim().toLowerCase();
+        if (!q) return all;
+        return all.filter((r) => (r.theater || "").toLowerCase().includes(q));
+    }, [data.rows, theaterSearch]);
+
+    // 극장 검색으로 걸러진 경우 합계도 걸러진 행 기준으로 다시 계산한다
+    const grand_total = useMemo(() => {
+        if (!theaterSearch.trim()) return data.grand_total;
+        return rows.reduce(
+            (acc, r) => ({ visitor: acc.visitor + r.visitor, revenue: acc.revenue + r.revenue }),
+            { visitor: 0, revenue: 0 }
+        );
+    }, [rows, theaterSearch, data.grand_total]);
+
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 전체합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const body: (string | number)[][] = rows.map((row) => [
+            row.date, row.theater, row.auditorium, 1,
+            Number(row.fare) || 0, row.visitor, row.revenue,
+        ]);
+        if (body.length > 0) {
+            body.push(["전체합계", "", "", "", "", grand_total.visitor, grand_total.revenue]);
+        }
+
+        const n = downloadExcel(
+            `스코어_일별현황_${meta?.movie_title || ""}_${searchParams.date_from}~${searchParams.date_to}`,
+            {
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 조회기간: ${searchParams.date_from} ~ ${searchParams.date_to}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
+                headers: [["날짜", "극장", "상영관", "--", "요금(원)", "관객수(명)", "매출액"]],
+                rows: body,
+            }
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
 
     return (
         <PageWrapper>
@@ -384,6 +433,17 @@ export function DailyStatusPage() {
                             }}
                         />
                     </div>
+                    <div>
+                        <CustomInput
+                            label="극장 검색"
+                            placeholder="극장명 입력"
+                            value={theaterSearch}
+                            setValue={setTheaterSearch}
+                        />
+                    </div>
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
                 </FilterRow>
             </FilterBar>
 

@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
@@ -38,6 +40,13 @@ const FilterRow = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다 (입력 박스와 baseline 맞춤)
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    align-self: flex-end;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -200,9 +209,19 @@ export function CriteriaPage() {
         selectedFormats, fetchData,
     ]);
 
+    // 극장 검색 (조회된 결과 내에서 극장명으로 좁히기 — 소계/합계도 함께 재계산됨)
+    const [theaterSearch, setTheaterSearch] = useState("");
+
+    const filteredRows = useMemo(() => {
+        const rows = data.rows || [];
+        const q = theaterSearch.trim().toLowerCase();
+        if (!q) return rows;
+        return rows.filter((r: any) => (r.theater || "").toLowerCase().includes(q));
+    }, [data.rows, theaterSearch]);
+
     // 소계 행 삽입 로직
     const processedRows = useMemo(() => {
-        const rows = data.rows || [];
+        const rows = filteredRows;
         if (rows.length === 0) return [];
 
         const result: any[] = [];
@@ -267,9 +286,43 @@ export function CriteriaPage() {
         // 전체 합계
         pushSubtotal("합 계", grandTotal, "grand_total");
         return result;
-    }, [data.rows]);
+    }, [filteredRows]);
 
     const meta = data.meta;
+
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 소계/합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const HEAD = [
+            "지역", "멀티", "구분", "포맷", "극장", "관", "요금",
+            ...Array.from({ length: 12 }, (_, i) => `${i + 1}회`),
+            "일계", "전일", "전주일", "누계",
+        ];
+        // 주의: API 는 데이터 행에도 type:"data" 를 붙여 내려준다.
+        // 소계/합계 행만 골라내야 하므로 type 존재 여부가 아니라 값으로 판별한다.
+        const AGG_TYPES = ["aud_subtotal", "theater_subtotal", "grand_total"];
+        const rows = processedRows.map((row: any) => {
+            const tail = [row.daily_total || "", row.prev_day || "", row.prev_week || "", row.cumulative || ""];
+            if (AGG_TYPES.includes(row.type)) {
+                // 소계/합계 행 — 앞 7칸 중 마지막 칸에 라벨을 넣어 화면과 같은 위치로 맞춘다
+                return ["", "", "", "", "", "", row.label, ...row.sessions.map((s: number) => s || ""), ...tail];
+            }
+            return [
+                row.region, row.multi, row.classification, row.format,
+                row.theater, row.auditorium, row.fare,
+                ...row.sessions.map((s: number) => s || ""), ...tail,
+            ];
+        });
+
+        const n = downloadExcel(
+            `스코어_기준별조회_${meta?.movie_title || ""}_${debouncedDate}`,
+            {
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${debouncedDate}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
+                headers: [HEAD],
+                rows,
+            }
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
 
     return (
         <PageWrapper>
@@ -342,6 +395,17 @@ export function CriteriaPage() {
                             }}
                         />
                     </div>
+                    <div>
+                        <CustomInput
+                            label="극장 검색"
+                            placeholder="극장명 입력"
+                            value={theaterSearch}
+                            setValue={setTheaterSearch}
+                        />
+                    </div>
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
                 </FilterRow>
             </FilterBar>
 

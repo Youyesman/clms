@@ -11,6 +11,8 @@ import { GenericTable } from "../../../../components/GenericTable";
 import { ComparisonChart } from "../../../../components/common/ComparisonChart";
 import LogoImg from "../../../../assets/img/logo/logo.png";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
@@ -81,6 +83,13 @@ const FilterRow = styled.div`
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    align-self: flex-end;
+    padding-bottom: 2px;
 `;
 
 const TableSection = styled.div`
@@ -287,6 +296,34 @@ export function ScorePage() {
         { key: "total_fare", label: "총요금(원)" },
     ];
 
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 정렬 상태 + 합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const movieTitle =
+            moviesList.find((m) => m.id?.toString() === searchParams.movie_id)?.title_ko || "";
+        const sortLabel =
+            activeFilters.sort_by === "region" ? "지역별총괄"
+                : activeFilters.sort_by === "multi" ? "멀티별총괄"
+                    : activeFilters.sort_by === "version" ? "버전별총괄" : "기간별총괄";
+
+        const body: (string | number)[][] = sortedData.map((row) =>
+            headers.map((h) => row[h.key] ?? "")
+        );
+        if (body.length > 0) {
+            body.push([
+                "합계", totals.theater_count, totals.screen_count,
+                totals.base_day_visitors, totals.base_day_fare,
+                totals.total_visitors, totals.total_fare,
+            ]);
+        }
+
+        const n = downloadExcel(`스코어_${sortLabel}_${movieTitle}_${searchParams.date}`, {
+            caption: `${movieTitle} / ${sortLabel} / 기준일: ${searchParams.date} / 극장유형: ${searchParams.theater_type} / 지역: ${searchParams.region} / 멀티: ${searchParams.multi}`,
+            headers: [headers.map((h) => h.label)],
+            rows: body,
+        });
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
+
     const baseDate = searchParams.date; // 기준일
 
     const prevDate = useMemo(() => {
@@ -404,6 +441,9 @@ export function ScorePage() {
                                 onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))}
                             />
                         </div>
+                        <ExcelSlot>
+                            <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                        </ExcelSlot>
                     </FilterRow>
                 </FilterBar>
 

@@ -45,7 +45,11 @@ export interface IScanResult {
     scanned: number;
     matched: number;
     saved: number;
+    /** 대상 영화에 매칭되지 않아 '미지정 영화'로 수집된 건수 */
+    saved_unassigned: number;
     skipped_duplicate: number;
+    /** 이미 수집된(초록 체크) 메일이라 통째로 건너뛴 건수 */
+    skipped_already_collected: number;
     matched_no_attachment: number;
     saved_items: {
         id: number;

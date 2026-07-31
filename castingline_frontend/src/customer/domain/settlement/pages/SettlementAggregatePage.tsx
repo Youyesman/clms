@@ -14,6 +14,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SETTLEMENT_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 
@@ -206,6 +208,12 @@ const ErrorMsg = styled.div`
     font-size: 10px;
     color: #ef4444;
     white-space: nowrap;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -592,6 +600,47 @@ export function SettlementAggregatePage() {
             ? row.distributor_theater || row.theater
             : row.theater;
 
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 극장별 소계 + 총 합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const COLS = [
+            "지역", "멀티", "구분", "포맷", "영화관명", "배급사별 극장명",
+            "날짜(from)", "날짜(to)", "인원(명)", "금액(입장료)", "기금제외금액",
+            "부가세제외금액", "부율", "공급가액", "부가세", "당사입금액", "객단가",
+        ];
+        // 소계/합계 행은 앞 8칸을 비우고 마지막 칸에 라벨 (화면의 colSpan=8 과 동일한 위치)
+        const aggRow = (label: string, t: ReturnType<typeof calcGroupTotal>) => [
+            "", "", "", "", "", "", "", label,
+            t.visitor, t.ticket_revenue, t.fund_excluded, t.vat_excluded,
+            "-", t.supply_value, t.vat, t.total_payment, t.unit_price,
+        ];
+
+        const body: (string | number)[][] = [];
+        groupedByTheater.forEach(({ theater, rows: groupRows }) => {
+            groupRows.forEach((row) => {
+                body.push([
+                    row.region, row.multi, row.classification, row.format,
+                    getTheaterName(row), row.distributor_theater,
+                    row.min_date, row.max_date,
+                    row.visitor, row.ticket_revenue, row.fund_excluded, row.vat_excluded,
+                    row.rate == null ? "" : row.rate.toFixed(2),
+                    row.supply_value ?? "", row.vat ?? "", row.total_payment ?? "", row.unit_price ?? "",
+                ]);
+            });
+            body.push(aggRow(`${theater} 합계`, calcGroupTotal(groupRows)));
+        });
+        if (filteredRows.length > 0) body.push(aggRow("총 합계", totals));
+
+        const n = downloadExcel(
+            `부금정산집계_${meta?.movie_title || ""}_${searchParams.date_from}~${searchParams.date_to}`,
+            {
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 조회기간: ${meta?.date_from || searchParams.date_from} ~ ${meta?.date_to || searchParams.date_to}${tableFilter.trim() ? ` / 검색: ${tableFilter.trim()}` : ""}`,
+                headers: [COLS],
+                rows: body,
+            }
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
+
     return (
         <PageWrapper>
             <PageNavTabs tabs={SETTLEMENT_TABS} />
@@ -761,6 +810,10 @@ export function SettlementAggregatePage() {
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}
                     </FieldWrapper>
+
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
                 </FilterRow>
             </FilterBar>
 

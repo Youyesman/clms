@@ -20,6 +20,10 @@ urlpatterns = [
     path('score/confirm_order_save/', confirm_order_save,
          name='score-confirm-order-save'),
 
+    # 2-1-1. 재업로드 교체 범위 미리보기 API (삭제될 기존 스코어 규모 dry-run)
+    path('score/preview_replace/', preview_score_replace,
+         name='score-preview-replace'),
+
     # 2-2. 오더 생성 미리보기 API (생성/갱신될 오더 목록 dry-run)
     path('score/preview_order_save/', preview_order_save,
          name='score-preview-order-save'),

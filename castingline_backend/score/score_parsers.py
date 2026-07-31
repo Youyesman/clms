@@ -1070,18 +1070,122 @@ def save_confirmed_orders(data_list):
     }
 
 
+def collect_replace_scope(data_list):
+    """
+    확정 저장 시 '기존 스코어를 삭제할 범위'를 만든다.
+
+    삭제 범위는 (상영일자 × 영화 × 이번 파일에 들어있는 멀티)이다.
+    멀티는 Client.theater_kind (CGV / 롯데 / 메가박스 / 씨네큐 / 프리머스 / 일반극장 /
+    자동차극장). CGV 파일을 올리면 그 날짜·영화의 CGV 스코어가 통째로 갈아끼워지고
+    롯데·메가박스 등 다른 멀티는 건드리지 않는다. 멀티 단위로 전부 지운 뒤 새로 넣으므로
+    관/요금/회차가 달라진 옛 행이나, 이번 파일에서 빠진 극장의 옛 행도 남지 않는다.
+
+    반환: {(movie_id, entry_date): {theater_kind 또는 None, ...}}
+    """
+    client_ids = {
+        i["client_id"]
+        for i in data_list
+        if i.get("movie_id") and i.get("client_id")
+    }
+    if not client_ids:
+        return {}
+
+    kind_of = dict(
+        Client.objects.filter(id__in=client_ids).values_list("id", "theater_kind")
+    )
+
+    scope = {}
+    for i in data_list:
+        if not i.get("movie_id") or not i.get("client_id"):
+            continue
+        kind = kind_of.get(i["client_id"])
+        scope.setdefault((i["movie_id"], i["entry_date"]), set()).add(kind or None)
+    return scope
+
+
+def _scope_filter(movie_id, entry_date, kinds):
+    """(영화 × 상영일자 × 멀티집합)에 해당하는 Score 쿼리셋.
+
+    theater_kind 가 비어있는(NULL/'') 극장도 하나의 그룹으로 취급한다.
+    IN (NULL) 은 매칭되지 않으므로 별도 조건으로 OR 한다.
+    """
+    named = sorted(k for k in kinds if k)
+    cond = Q()
+    if named:
+        cond |= Q(client__theater_kind__in=named)
+    if any(not k for k in kinds):
+        cond |= Q(client__theater_kind__isnull=True) | Q(client__theater_kind="")
+    return Score.objects.filter(
+        Q(movie_id=movie_id, entry_date=entry_date) & cond
+    )
+
+
+def preview_replace_scope(data_list):
+    """
+    확정 저장 전, 삭제될 기존 스코어의 규모를 dry-run 으로 조회한다. (DB 미반영)
+    반환: [{"movie_id", "movie_title", "entry_dates", "existing_count", "theater_count"}]
+    """
+    scope = collect_replace_scope(data_list)
+    if not scope:
+        return []
+
+    movie_ids = {movie_id for movie_id, _ in scope}
+    titles = dict(
+        Movie.objects.filter(id__in=movie_ids).values_list("id", "title_ko")
+    )
+
+    # 영화별로 (날짜 / 멀티 / 삭제될 행 수 / 실제 데이터가 있는 극장 수)를 합산
+    agg = {}
+    for (movie_id, entry_date), kinds in scope.items():
+        qs = _scope_filter(movie_id, entry_date, kinds)
+        a = agg.setdefault(
+            movie_id,
+            {"dates": set(), "multis": set(), "existing": 0, "theaters": set()},
+        )
+        a["dates"].add(entry_date)
+        a["multis"].update(k or "(미지정)" for k in kinds)
+        a["existing"] += qs.count()
+        a["theaters"].update(qs.values_list("client_id", flat=True).distinct())
+
+    result = [
+        {
+            "movie_id": movie_id,
+            "movie_title": titles.get(movie_id) or "",
+            "entry_dates": sorted(str(d) for d in a["dates"]),
+            "multis": sorted(a["multis"]),
+            "existing_count": a["existing"],
+            "theater_count": len(a["theaters"]),
+        }
+        for movie_id, a in agg.items()
+    ]
+    result.sort(key=lambda x: x["movie_title"])
+    return result
+
+
 def save_confirmed_scores(data_list):
     """
     엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함.
     저장된 (영화×극장) 조합에 부율(Rate)이 없으면 국가별 기준 부율을 자동 생성함.
-    반환: {"saved": 저장 건수, "rates_created": 부율 생성 건수, "rates_skipped_no_country": [영화명]}
+
+    재업로드 정책: 업로드에 포함된 (상영일자 × 영화 × 멀티)의 기존 스코어를 전부 삭제한 뒤
+    이번 파일 내용으로 교체한다. CGV 파일을 올리면 그 날짜·영화의 CGV 스코어가 통째로
+    갈아끼워지고 롯데 등 다른 멀티는 유지된다. 관/요금/회차가 바뀌어도, 이번 파일에서
+    빠진 극장이 있어도 옛 행이 남지 않는다.
+
+    반환: {"saved": 저장 건수, "deleted": 삭제 건수, "rates_created": 부율 생성 건수,
+           "rates_skipped_no_country": [영화명]}
     """
     from .auto_rate import auto_create_rates
 
     # 1. 유효 데이터 필터링 (영화와 극장이 모두 매칭된 데이터만)
     valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
     if not valid_data:
-        return {"saved": 0, "rates_created": 0, "rates_skipped_no_country": []}
+        return {
+            "saved": 0,
+            "deleted": 0,
+            "rates_created": 0,
+            "rates_skipped_no_country": [],
+        }
 
     # 2. 오더(OrderList/Order) 변경분 준비
     ols_to_create, orders_to_create, orders_to_update = _build_order_changes(valid_data)
@@ -1118,8 +1222,18 @@ def save_confirmed_scores(data_list):
         for i in merged.values()
     ]
 
-    # 4. DB 반영 (트랜잭션 보장: 오더 + 스코어 + 자동 부율 원자적 처리)
+    # 4. DB 반영 (트랜잭션 보장: 기존분 삭제 + 오더 + 스코어 + 자동 부율 원자적 처리)
+    replace_scope = collect_replace_scope(valid_data)
+    deleted_count = 0
+
     with transaction.atomic():
+        # 재업로드 교체: 이번 업로드에 포함된 (상영일자 × 영화 × 멀티)의 기존 스코어를 삭제.
+        # 멀티 단위로 통째로 지우므로 관/요금/회차가 바뀐 옛 행도, 이번 파일에서 빠진
+        # 극장의 옛 행도 남지 않는다. 파일에 없는 다른 멀티(롯데 등)는 건드리지 않는다.
+        for (movie_id, entry_date), kinds in replace_scope.items():
+            deleted, _ = _scope_filter(movie_id, entry_date, kinds).delete()
+            deleted_count += deleted
+
         _apply_order_changes(ols_to_create, orders_to_create, orders_to_update)
 
         # Score 저장 (중복 시 관객수 업데이트)
@@ -1144,6 +1258,7 @@ def save_confirmed_scores(data_list):
 
     return {
         "saved": len(scores_to_save),
+        "deleted": deleted_count,
         "rates_created": rate_result["created"],
         "rates_skipped_no_country": rate_result["skipped_no_country"],
     }

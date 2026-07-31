@@ -593,6 +593,8 @@ export function ManageSettlement() {
     const [confirmFilter, setConfirmFilter] = useState("전체");
     // 멀티(체인) 필터 (클라이언트측)
     const [multiFilter, setMultiFilter] = useState("전체");
+    // 직위(직영/위탁/기타) 구분 필터 (클라이언트측)
+    const [classFilter, setClassFilter] = useState("전체");
 
     useEffect(() => {
         if (theaterInput.length < 1) {
@@ -1126,13 +1128,23 @@ export function ManageSettlement() {
                 return r["멀티구분"] === multiFilter;
             });
         }
+        if (classFilter && classFilter !== "전체") {
+            rows = rows.filter((r) => {
+                if (r.is_subtotal) {
+                    // 소계 라벨 "[CGV 직영] 합계"의 구분이 선택값과 같으면 유지
+                    const m = /^\[[^\s\]]+\s+([^\]]+)\]/.exec(String(r["극장명"] || ""));
+                    return !!m && m[1].trim() === classFilter;
+                }
+                return r.classification === classFilter;
+            });
+        }
         if (confirmFilter === "확인" || confirmFilter === "미확인") {
             rows = rows.filter(
                 (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
             );
         }
         return rows;
-    }, [settlements, confirmFilter, multiFilter]);
+    }, [settlements, confirmFilter, multiFilter, classFilter]);
 
     const summaryData = useMemo(() => {
         // 합계 계산 시 소계 행(is_subtotal)은 제외
@@ -1327,6 +1339,16 @@ export function ManageSettlement() {
                         options={multiOptions}
                         value={multiFilter}
                         onChange={setMultiFilter}
+                        labelWidth="40px"
+                        allowClear={false}
+                    />
+                </div>
+                <div style={{ width: "170px" }}>
+                    <CustomSelect
+                        label="직위"
+                        options={["전체", "직영", "위탁", "기타"]}
+                        value={classFilter}
+                        onChange={setClassFilter}
                         labelWidth="40px"
                         allowClear={false}
                     />

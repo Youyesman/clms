@@ -852,6 +852,10 @@ def confirm_score_save(request):
     result = save_confirmed_scores(data_list)
 
     message = f"{result['saved']}건의 데이터가 저장되었습니다."
+    if result["deleted"]:
+        message = (
+            f"기존 {result['deleted']}건을 삭제하고 {result['saved']}건으로 교체했습니다."
+        )
     if result["rates_created"]:
         message += f" 부율 {result['rates_created']}건이 자동 생성되었습니다."
 
@@ -859,11 +863,19 @@ def confirm_score_save(request):
         {
             "message": message,
             "saved": result["saved"],
+            "deleted": result["deleted"],
             "rates_created": result["rates_created"],
             "rates_skipped_no_country": result["rates_skipped_no_country"],
         },
         status=200,
     )
+
+
+@api_view(["POST"])
+def preview_score_replace(request):
+    """확정 저장 시 삭제될 기존 스코어 규모를 미리 계산해 반환 (DB 미반영)."""
+    data_list = request.data.get("data", [])
+    return Response({"data": preview_replace_scope(data_list)}, status=200)
 
 
 @api_view(["POST"])

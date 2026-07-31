@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
@@ -62,6 +64,12 @@ const FilterBar = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: flex-end;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -281,11 +289,43 @@ export function RankingPage() {
         setSortKey(key);
     };
 
-    const { meta, rows } = data;
+    const { meta } = data;
+
+    // 극장 검색 (조회 결과 내에서 극장명으로 좁히기 — 순위/합계도 함께 재계산됨)
+    const [theaterSearch, setTheaterSearch] = useState("");
+
+    const rows = useMemo(() => {
+        const all = data.rows || [];
+        const q = theaterSearch.trim().toLowerCase();
+        if (!q) return all;
+        return all.filter((r) => (r.theater || "").toLowerCase().includes(q));
+    }, [data.rows, theaterSearch]);
 
     // 합계
     const totalVisitor = rows.reduce((s, r) => s + r.visitor, 0);
     const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+
+    /* ── 엑셀 다운로드 (화면 표시와 동일: 순위 + 합계 행 포함) ── */
+    const handleExcelDownload = () => {
+        const body: (string | number)[][] = rows.map((row, idx) => [
+            idx + 1,
+            row.theater,
+            row.visitor,
+            row.min_date === row.max_date ? row.min_date : `${row.min_date} ~ ${row.max_date}`,
+            row.revenue,
+        ]);
+        if (body.length > 0) body.push(["", "합계", totalVisitor, "-", totalRevenue]);
+
+        const n = downloadExcel(
+            `스코어_순위조회_${meta?.movie_title || ""}_${searchParams.date_from}~${searchParams.date_to}`,
+            {
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 집계기간: ${meta?.date_from || searchParams.date_from} ~ ${meta?.date_to || searchParams.date_to}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""} / 정렬: ${sortKey === "visitor" ? "누적 관객수" : "누적 매출액"}`,
+                headers: [["순위", "극장", "누적 관객수(명)", "상영기간", "누적 매출액(원)"]],
+                rows: body,
+            }
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
 
     return (
         <PageWrapper>
@@ -380,6 +420,17 @@ export function RankingPage() {
                         }}
                     />
                 </div>
+                <div>
+                    <CustomInput
+                        label="극장 검색"
+                        placeholder="극장명 입력"
+                        value={theaterSearch}
+                        setValue={setTheaterSearch}
+                    />
+                </div>
+                <ExcelSlot>
+                    <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                </ExcelSlot>
             </FilterBar>
 
             {meta && (

@@ -8,6 +8,8 @@ import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomMultiSelect } from "../../../../components/common/CustomMultiSelect";
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
+import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
@@ -84,6 +86,12 @@ const FilterBar = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: flex-end;
+`;
+
+// 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
+const ExcelSlot = styled.div`
+    margin-left: auto;
+    padding-bottom: 2px;
 `;
 
 const MovieInfo = styled.div`
@@ -289,7 +297,18 @@ export function SeatRatePage() {
         if (searchParams.movie_id) fetchData();
     }, [searchParams.movie_id, searchParams.date, selectedFormats, fetchData]);
 
-    const { meta, summary, detail } = data;
+    const { meta, summary } = data;
+
+    // 극장 검색 — 극장 단위 표인 '극장별 좌석판매율 상세'에만 적용된다.
+    // (상단 요약표는 멀티 단위 집계라 극장명으로 좁힐 대상이 아니다)
+    const [theaterSearch, setTheaterSearch] = useState("");
+
+    const detail = useMemo(() => {
+        const all = data.detail || [];
+        const q = theaterSearch.trim().toLowerCase();
+        if (!q) return all;
+        return all.filter((r) => (r.theater || "").toLowerCase().includes(q));
+    }, [data.detail, theaterSearch]);
 
     // 멀티별로 detail 그룹화 (합계 행 삽입용)
     const detailByMulti = useMemo(() => {
@@ -308,6 +327,59 @@ export function SeatRatePage() {
             ),
         [detailByMulti]
     );
+
+    /* ── 엑셀 다운로드 (요약표 + 상세표를 한 파일에) ── */
+    const handleExcelDownload = () => {
+        const summaryRows: (string | number)[][] = summary.map((row) => [
+            row.multi, row.visitor, row.seat_count,
+            row.seat_rate ?? "",
+            ...REGIONS.map((r) => row.regions?.[r] ?? ""),
+        ]);
+
+        const detailRows: (string | number)[][] = [];
+        multiKeys.forEach((multi) => {
+            const rows = detailByMulti[multi];
+            const sub = rows.reduce(
+                (a, r) => ({
+                    visitor: a.visitor + r.visitor, revenue: a.revenue + r.revenue,
+                    show: a.show + r.show_count, seat: a.seat + r.seat_count,
+                }),
+                { visitor: 0, revenue: 0, show: 0, seat: 0 }
+            );
+            rows.forEach((row) => {
+                detailRows.push([
+                    row.multi, row.rank, row.region, row.classification, row.theater,
+                    row.date, row.visitor, row.revenue, row.show_count, row.seat_count,
+                    row.seat_rate ?? "",
+                ]);
+            });
+            detailRows.push([
+                `${multi} 합계`, "", "", "", "", "",
+                sub.visitor, sub.revenue, sub.show, sub.seat,
+                sub.seat > 0 ? Math.round((sub.visitor / sub.seat) * 1000) / 10 : 0,
+            ]);
+        });
+
+        const n = downloadExcel(
+            `스코어_좌석판매율_${meta?.movie_title || ""}_${searchParams.date}`,
+            [
+                {
+                    caption: `[멀티별 좌석판매율 요약] ${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${meta?.date || searchParams.date}`,
+                    headers: [["영화관", "관객수(명)", "좌석수", "좌석판매율(%)", ...REGIONS]],
+                    rows: summaryRows,
+                },
+                {
+                    caption: `[극장별 좌석판매율 상세]${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
+                    headers: [[
+                        "멀티구분", "순위", "지역", "구분", "극장", "상영일",
+                        "관객수(명)", "매출액(원)", "상영횟수", "좌석수", "좌석판매율(%)",
+                    ]],
+                    rows: detailRows,
+                },
+            ]
+        );
+        if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
+    };
 
     return (
         <PageWrapper>
@@ -361,6 +433,17 @@ export function SeatRatePage() {
                         }}
                     />
                 </div>
+                <div>
+                    <CustomInput
+                        label="극장 검색"
+                        placeholder="극장명 입력"
+                        value={theaterSearch}
+                        setValue={setTheaterSearch}
+                    />
+                </div>
+                <ExcelSlot>
+                    <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                </ExcelSlot>
             </FilterBar>
 
             {meta && (
