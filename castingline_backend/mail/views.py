@@ -6,6 +6,7 @@ import zipfile
 
 from django.db.models import Count
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -21,7 +22,12 @@ from . import lotte_report
 from . import services
 from . import settlement_collector
 from . import xlsx_to_pdf
-from .models import CollectedSettlement, MailReadState, SettlementTargetMovie
+from .models import (
+    CollectedMailLog,
+    CollectedSettlement,
+    MailReadState,
+    SettlementTargetMovie,
+)
 from .serializers import (
     CollectedSettlementSerializer,
     SettlementTargetMovieSerializer,
@@ -76,9 +82,15 @@ def mail_messages(request):
             MailReadState.objects.filter(folder=folder, uid__in=uids)
             .values_list("uid", "is_read")
         )
+        # 정산서 수집(다운로드)까지 완료된 메일 표시용 (C001)
+        collected_uids = set(
+            CollectedMailLog.objects.filter(mail_folder=folder, mail_uid__in=uids)
+            .values_list("mail_uid", flat=True)
+        )
         for m in results:
             if m.get("uid") in overrides:
                 m["seen"] = overrides[m["uid"]]
+            m["collected"] = m.get("uid") in collected_uids
     return Response(data)
 
 
@@ -414,6 +426,11 @@ def settlement_download_zip(request):
             used.add(arc)
             zf.writestr(arc, data)
 
+    # zip 으로 받아간 파일들도 조회(회색) 표시 (C002)
+    CollectedSettlement.objects.filter(
+        pk__in=[r.pk for r in qs], viewed_at__isnull=True
+    ).update(viewed_at=timezone.now())
+
     # zip 파일명: "영화명-월" (월 없으면 영화명만)
     fname = f"{title}-{month}.zip" if month else f"{title}.zip"
     resp = HttpResponse(buf.getvalue(), content_type="application/zip")
@@ -462,9 +479,26 @@ def settlement_detail(request, pk):
         payload = obj.file.read()
     except Exception:
         return Response({"error": "저장된 파일을 읽을 수 없습니다."}, status=404)
+    # 다운로드한 파일은 목록에서 회색으로 표시 (C002)
+    if obj.viewed_at is None:
+        obj.viewed_at = timezone.now()
+        obj.save(update_fields=["viewed_at"])
     resp = HttpResponse(
         payload, content_type=obj.content_type or "application/octet-stream"
     )
     quoted = urllib.parse.quote(obj.filename)
     resp["Content-Disposition"] = f"attachment; filename*=UTF-8''{quoted}"
     return resp
+
+
+@api_view(["POST"])
+@_guard
+def settlement_mark_viewed(request):
+    """수집 파일 조회(다운로드/원본 메일 열람) 표시. body: {"ids": [..]} (C002)"""
+    ids = request.data.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return Response({"error": "ids 가 필요합니다."}, status=400)
+    updated = CollectedSettlement.objects.filter(
+        pk__in=ids, viewed_at__isnull=True
+    ).update(viewed_at=timezone.now())
+    return Response({"updated": updated})

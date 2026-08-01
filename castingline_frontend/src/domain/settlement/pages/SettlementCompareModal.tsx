@@ -84,6 +84,8 @@ interface ICompareResult {
     yyyyMm_source: "file" | "request";
     file_row_count: number;
     movies: IMovieSection[];
+    /** 계산 오류 등으로 대사가 불가했던 영화 목록 (K002) */
+    failed_movies?: { movie_title: string; reason: string }[];
     unmatched_file_movies: IUnmatchedMovie[];
     grand_totals: Record<string, IMetric>;
     grand_summary: ISummary & { movie_count: number };
@@ -247,6 +249,16 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     `비교 완료 — 영화 ${s.movie_count}편, 불일치 극장 ${s.diff}곳`
                 );
             }
+            // 대사 불가 영화가 있으면 사유를 알림 창으로 안내 (K002)
+            if (data.failed_movies?.length) {
+                showAlert(
+                    "대사 불가 영화",
+                    data.failed_movies
+                        .map((f) => `∙ <${f.movie_title}> — ${f.reason}`)
+                        .join("\n"),
+                    "error"
+                );
+            }
         } catch (e: any) {
             toast.error(e?.response?.data?.error || "비교에 실패했습니다.");
         } finally {
@@ -338,8 +350,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         }
     };
 
-    /** 날짜(To)만 파일 값으로 확정하는 API 호출 + 행 상태 갱신 (행별/일괄 공용, 토스트 없음) */
-    const postDateOnly = async (sec: IMovieSection, r: ICompareRow) => {
+    /** 날짜(To)만 파일 값으로 확정하는 API 호출 + 행 상태 갱신 (행별/일괄 공용, 토스트 없음).
+     *  autoConfirm=false 면 극장 자동 확인 처리를 하지 않는다 (일괄 조정용 — K001). */
+    const postDateOnly = async (sec: IMovieSection, r: ICompareRow, autoConfirm = true) => {
         if (!r.client_code || !result || !r.date_to.file) {
             throw new Error("거래처코드 또는 파일 날짜가 없어 적용할 수 없습니다.");
         }
@@ -347,6 +360,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         const ms = r.metrics;
         const res = await AxiosPost("settlement-adjustments", {
             yyyyMm: result.yyyyMm,
+            auto_confirm: autoConfirm,
             movie_id: sec.movie_id,
             client_code: r.client_code,
             screen_format: r.포맷 || "",
@@ -386,7 +400,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         const fileDate = r.date_to.file;
         updateRow(sec.movie_id, r, (row) => ({
             ...row,
-            확인: true, // 조정 저장 = 확인 처리 (백엔드 자동)
+            확인: autoConfirm ? true : row.확인, // 조정 저장 = 확인 처리 (일괄은 별도 확인 단계)
             adjustment: newAdj,
             date_to: { system: fileDate, file: fileDate, equal: true },
             equal:
@@ -585,23 +599,50 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         canAdjust(r) &&
         AMOUNT_METRICS.every((m) => Math.abs(r.metrics[m].diff) < 7);
 
-    /** 날짜만 적용 대상: 금액 일괄 조정에 안 걸리는 날짜(To) 불일치 행.
-     *  주로 이미 수동조정된 행의 날짜 차이가 여기에 해당하며, 일괄 조정 시 함께 처리된다. */
-    const canBulkDateApply = (r: ICompareRow) =>
+    /** 인원·금액이 모두 일치하는 행 (K001: '오류'로 분류되지 않은 행) */
+    const rowFullyMatched = (r: ICompareRow) =>
         r.status === "both" &&
+        r.metrics["인원"].diff === 0 &&
+        AMOUNT_METRICS.every((m) => (r.metrics[m].diff ?? 0) === 0);
+
+    /** 날짜만 적용 대상: 인원·금액은 맞는데 날짜(To)만 불일치한 행.
+     *  주로 이미 수동조정된 행의 날짜 차이가 여기에 해당하며, 일괄 조정 시 함께 처리된다.
+     *  (금액 차이가 남아 있는 행은 날짜도 건드리지 않는다 — K001) */
+    const canBulkDateApply = (r: ICompareRow) =>
+        rowFullyMatched(r) &&
         r.date_to?.equal === false &&
         !!r.date_to?.file &&
-        !!r.client_code &&
-        !canBulkAdjust(r);
+        !!r.client_code;
 
-    /** 일괄 조정 대상 수 (금액 조정 + 날짜만 적용 + 미확인) — 버튼 표시/카운트 공용 */
-    const bulkTargetCount = (rows: ICompareRow[]) =>
-        rows.filter(
+    /** 일괄 처리 후 오류가 남지 않는 행 — 이런 행만 확인 처리 대상 (K001).
+     *  인원 불일치·금액 7원 이상 차이 등 조정 안 되는 행은 미확인으로 남긴다. */
+    const rowOkAfterBulk = (r: ICompareRow) =>
+        rowFullyMatched(r) || canBulkAdjust(r);
+
+    /** 확인 처리 대상 극장코드 (영화 섹션 단위) — 오류 행이 하나라도 있는 극장은 제외 (K001) */
+    const confirmableCodes = (rows: ICompareRow[]) => {
+        const errorCodes = new Set<string>(
+            rows
+                .filter((r) => r.client_code && !rowOkAfterBulk(r))
+                .map((r) => r.client_code as string)
+        );
+        const codes = new Set<string>();
+        rows.forEach((r) => {
+            if (r.client_code && !r.확인 && !errorCodes.has(r.client_code)) codes.add(r.client_code);
+        });
+        return codes;
+    };
+
+    /** 일괄 조정 대상 수 (금액 조정 + 날짜만 적용 + 확인 가능 극장의 미확인) — 버튼 표시/카운트 공용 */
+    const bulkTargetCount = (rows: ICompareRow[]) => {
+        const codes = confirmableCodes(rows);
+        return rows.filter(
             (r) =>
                 canBulkAdjust(r) ||
                 canBulkDateApply(r) ||
-                (!!r.client_code && !r.확인)
+                (!!r.client_code && !r.확인 && codes.has(r.client_code))
         ).length;
+    };
 
     /** 일괄 조정 — 차이 나는 행을 파일 값으로 조정(금액 7원 미만 + 날짜)하고 전체 확인 처리.
      *  movieId를 주면 해당 영화만 (P002). 조정 못 하는 행(7원 이상/인원 불일치)은 알림 (P001). */
@@ -617,17 +658,13 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         const dateTargets = sections.flatMap((sec) =>
             sec.rows.filter(canBulkDateApply).map((r) => ({ sec, r }))
         );
-        // 조정과 함께 전체 확인 처리 — 미확인 극장 목록
+        // 조정과 함께 확인 처리 — 단, 인원/금액 오류(조정 불가) 행이 있는 극장은
+        // 확인하지 않고 미확인으로 남긴다 (K001)
         const confirmPerMovie = new Map<number, Set<string>>();
-        sections.forEach((sec) =>
-            sec.rows.forEach((r) => {
-                if (r.client_code && !r.확인) {
-                    if (!confirmPerMovie.has(sec.movie_id))
-                        confirmPerMovie.set(sec.movie_id, new Set());
-                    confirmPerMovie.get(sec.movie_id)!.add(r.client_code);
-                }
-            })
-        );
+        sections.forEach((sec) => {
+            const codes = confirmableCodes(sec.rows);
+            if (codes.size) confirmPerMovie.set(sec.movie_id, codes);
+        });
         const confirmTotal = Array.from(confirmPerMovie.values()).reduce(
             (a, s) => a + s.size,
             0
@@ -648,9 +685,9 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         const skipNote = (prefix: string) => {
             const parts: string[] = [];
             if (skipOver7.length)
-                parts.push(`금액 차이 7원 이상 ${skipOver7.length}행 (행별 '파일값으로 조정' 버튼으로만 가능)`);
+                parts.push(`금액 차이 7원 이상 ${skipOver7.length}행 (미확인 유지 — 행별 '파일값으로 조정' 버튼으로만 가능)`);
             if (skipVisitor.length)
-                parts.push(`인원 불일치 ${skipVisitor.length}행 (조정 불가 — 스코어 확인 필요)`);
+                parts.push(`인원 불일치 ${skipVisitor.length}행 (미확인 유지 — 스코어 확인 필요)`);
             return parts.length ? `${prefix} 제외: ${parts.join(", ")}` : "";
         };
         if (!targets.length && !dateTargets.length && !confirmTotal) {
@@ -679,6 +716,8 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     const items = targets.map(({ sec, r }) => ({
                         ...buildAdjustItem(sec, r),
                         note: `부금 대사 일괄 조정 (${sec.movie_title})`,
+                        // 오류 행이 남는 극장이 자동 확인되지 않도록 — 확인은 아래에서 별도 처리 (K001)
+                        auto_confirm: false,
                     }));
                     const res = await AxiosPost("settlement-adjustments", {
                         yyyyMm: result.yyyyMm,
@@ -702,7 +741,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                     `${sec.movie_id}|${r.client_code}|${r.포맷 || ""}`
                                 );
                                 if (!s || !canBulkAdjust(r)) return r;
-                                r = { ...r, 확인: true }; // 조정 저장 = 확인 처리 (백엔드 자동)
+                                // 확인 여부는 아래 별도 확인 단계에서 반영 (오류 극장은 미확인 유지 — K001)
                                 const adj: IAdjustment = {
                                     id: s.id,
                                     supply_delta: s.supply_delta,
@@ -757,7 +796,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 let dateFail = 0;
                 for (const { sec, r } of dateTargets) {
                     try {
-                        await postDateOnly(sec, r);
+                        await postDateOnly(sec, r, false);
                         dateOk += 1;
                     } catch {
                         dateFail += 1;

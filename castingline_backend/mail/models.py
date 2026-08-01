@@ -93,6 +93,8 @@ class CollectedSettlement(models.Model):
     file = models.FileField(upload_to=settlement_upload_path)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    # 사용자가 다운로드하거나 원본 메일을 조회한 시각 — 목록에서 회색 표시용 (C002)
+    viewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-mail_date", "-id"]

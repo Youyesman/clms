@@ -38,6 +38,8 @@ export interface ICollectedSettlement {
     content_type: string;
     size: number;
     created_at: string;
+    /** 다운로드/원본 메일 조회 시각 — 있으면 목록에서 회색 표시 (C002) */
+    viewed_at: string | null;
 }
 
 export interface IScanResult {
@@ -137,6 +139,12 @@ export const deleteCollected = (id: number) =>
 export const bulkDeleteCollected = (ids: number[]) =>
     AxiosPost("settlement/collected/bulk-delete", { ids }).then(
         (r) => r.data as { deleted: number }
+    );
+
+/** 수집 파일 조회(다운로드/원본 메일 열람) 표시 — 목록 회색 표기용 (C002). */
+export const markCollectedViewed = (ids: number[]) =>
+    AxiosPost("settlement/collected/mark-viewed", { ids }).then(
+        (r) => r.data as { updated: number }
     );
 
 const downloadZip = async (qs: URLSearchParams) => {

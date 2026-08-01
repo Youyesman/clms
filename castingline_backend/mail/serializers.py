@@ -46,4 +46,5 @@ class CollectedSettlementSerializer(serializers.ModelSerializer):
             "content_type",
             "size",
             "created_at",
+            "viewed_at",
         ]

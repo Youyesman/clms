@@ -28,7 +28,7 @@ const TableWrapper = styled.div`
 `;
 
 /** 2. 메인 컴포넌트 **/
-export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie, handleAddMovie, handleBulkDelete, selectedMovieIds, onSelectionChange, filters }) {
+export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie, handleAddMovie, handleBulkDelete, selectedMovieIds, onSelectionChange, filters, refreshToken }) {
     const toast = useToast();
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -37,9 +37,10 @@ export function MovieList({ movies, setMovies, selectedMovie, handleSelectMovie,
     const [pageSize] = useState(20);
     const [totalCount, setTotalCount] = useState(0);
 
+    // 최초 로딩 + 대표 영화 수정 후 하위 영화 행 갱신 (F001)
     useEffect(() => {
         fetchSortedMovies(sortKey, sortOrder, page);
-    }, []);
+    }, [refreshToken]);
 
     useEffect(() => {
         fetchSortedMovies(sortKey, sortOrder, 1);

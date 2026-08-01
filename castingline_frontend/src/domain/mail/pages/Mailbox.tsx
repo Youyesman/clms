@@ -73,6 +73,12 @@ export const Mailbox = () => {
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+    // 목록(최신순)에서 가장 최근에 수집 완료된 메일 — '여기까지 다운로드 완료' 표시 위치 (C001)
+    const firstCollectedUid = useMemo(
+        () => list.find((m) => m.collected)?.uid,
+        [list]
+    );
+
     // ── 폴더 목록 ──
     useEffect(() => {
         fetchFolders()
@@ -315,32 +321,44 @@ export const Mailbox = () => {
                             <Empty>메일이 없습니다.</Empty>
                         ) : (
                             list.map((m) => (
-                                <Row
-                                    key={m.uid}
-                                    $active={selectedUid === m.uid}
-                                    $unread={!m.seen}
-                                    onClick={() => openMessage(m.uid)}
-                                    onContextMenu={(e) => onRowContextMenu(e, m)}
-                                >
-                                    <RowIcon>
-                                        {m.seen ? (
-                                            <EnvelopeSimpleOpen size={18} />
-                                        ) : (
-                                            <EnvelopeSimple size={18} weight="fill" />
-                                        )}
-                                    </RowIcon>
-                                    <RowMain>
-                                        <RowTop>
-                                            <span className="from">{m.from}</span>
-                                            <span className="date">
-                                                {fmtDate(m.date)}
-                                            </span>
-                                        </RowTop>
-                                        <RowSubject className="subject">
-                                            {m.subject || "(제목 없음)"}
-                                        </RowSubject>
-                                    </RowMain>
-                                </Row>
+                                <div key={m.uid}>
+                                    {/* 목록은 최신순 — 가장 최근 수집 완료 메일 위에 구분선 (C001) */}
+                                    {m.uid === firstCollectedUid && (
+                                        <CollectedDivider>
+                                            여기까지 다운로드 완료
+                                        </CollectedDivider>
+                                    )}
+                                    <Row
+                                        $active={selectedUid === m.uid}
+                                        $unread={!m.seen}
+                                        onClick={() => openMessage(m.uid)}
+                                        onContextMenu={(e) => onRowContextMenu(e, m)}
+                                    >
+                                        <RowIcon>
+                                            {m.seen ? (
+                                                <EnvelopeSimpleOpen size={18} />
+                                            ) : (
+                                                <EnvelopeSimple size={18} weight="fill" />
+                                            )}
+                                        </RowIcon>
+                                        <RowMain>
+                                            <RowTop>
+                                                <span className="from">{m.from}</span>
+                                                <span className="date">
+                                                    {m.collected && (
+                                                        <CollectedBadge>
+                                                            수집완료
+                                                        </CollectedBadge>
+                                                    )}{" "}
+                                                    {fmtDate(m.date)}
+                                                </span>
+                                            </RowTop>
+                                            <RowSubject className="subject">
+                                                {m.subject || "(제목 없음)"}
+                                            </RowSubject>
+                                        </RowMain>
+                                    </Row>
+                                </div>
                             ))
                         )}
                     </ListScroll>
@@ -675,6 +693,38 @@ const Row = styled.div<{ $active: boolean; $unread: boolean }>`
 const RowIcon = styled.div`
     color: #94a3b8;
     padding-top: 2px;
+    flex-shrink: 0;
+`;
+/* 가장 최근 수집 완료 메일 위에 표시되는 구분선 (C001) */
+const CollectedDivider = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #16a34a;
+    background: #f0fdf4;
+    border-bottom: 1px solid #bbf7d0;
+    &::before,
+    &::after {
+        content: "";
+        flex: 1;
+        border-top: 1px dashed #86efac;
+    }
+`;
+/* 수집(다운로드) 완료된 메일 뱃지 (C001) */
+const CollectedBadge = styled.span`
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #16a34a;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    white-space: nowrap;
     flex-shrink: 0;
 `;
 const RowMain = styled.div`

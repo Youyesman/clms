@@ -29,6 +29,11 @@ urlpatterns = [
     ),
     path("settlement/collected/", views.settlement_list, name="settlement-collected"),
     path(
+        "settlement/collected/mark-viewed/",
+        views.settlement_mark_viewed,
+        name="settlement-collected-mark-viewed",
+    ),
+    path(
         "settlement/collected/bulk-delete/",
         views.settlement_bulk_delete,
         name="settlement-collected-bulk-delete",

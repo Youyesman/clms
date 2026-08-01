@@ -119,12 +119,17 @@ class MovieSerializer(serializers.ModelSerializer):
     ]
 
     def _propagate_to_sub_movies(self, primary):
-        from django.db.models.functions import Trim
+        from django.db.models import F, Value
+        from django.db.models.functions import Replace
 
         base_title = primary.title_ko.split("(")[0].strip() if primary.title_ko else ""
+        # 레거시 코드는 내부 공백이 섞여 있어(예: "C 2026 001") Trim으로는 매칭이
+        # 안 된다. 정산 계산과 동일하게 공백 전체 제거 후 비교한다.
         subs = (
-            Movie.objects.annotate(trimmed_code=Trim("primary_movie_code"))
-            .filter(trimmed_code=primary.movie_code.strip())
+            Movie.objects.annotate(
+                clean_parent_code=Replace(F("primary_movie_code"), Value(" "), Value(""))
+            )
+            .filter(clean_parent_code=primary.movie_code.replace(" ", ""))
             .exclude(pk=primary.pk)
         )
         for sub in subs:

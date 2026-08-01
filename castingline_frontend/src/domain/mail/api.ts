@@ -14,6 +14,8 @@ export interface IMailListItem {
     date: string;
     seen: boolean;
     size: number;
+    /** 정산서 수집(다운로드)까지 완료된 메일 여부 (C001) */
+    collected?: boolean;
 }
 
 export interface IMailListResponse {

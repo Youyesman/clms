@@ -42,6 +42,7 @@ import {
     downloadCollected,
     downloadMovieZip,
     downloadSelectedZip,
+    markCollectedViewed,
     IMovieSearchItem,
     ISettlementTarget,
     ICollectedSettlement,
@@ -400,6 +401,15 @@ const MailboxTab = ({
         return list;
     }, [list, filter, collectedByUid]);
 
+    // 목록(최신순)에서 가장 최근에 수집(다운로드)까지 완료된 메일 —
+    // '여기까지 다운로드 완료' 구분선 표시 위치 (C001)
+    const lastCollectedUid = useMemo(
+        () =>
+            filteredList.find((m) => m.collected || collectedByUid.has(m.uid))
+                ?.uid,
+        [filteredList, collectedByUid]
+    );
+
     const selectedRecs = selectedUid ? collectedByUid.get(selectedUid) || [] : [];
     // 첨부 index -> 수집 레코드[] (한 첨부가 여러 영화로 수집될 수 있음)
     const selectedRecsByIdx = new Map<number, ICollectedSettlement[]>();
@@ -544,8 +554,14 @@ const MailboxTab = ({
                             filteredList.map((m) => {
                                 const recs = collectedByUid.get(m.uid);
                                 return (
+                                    <div key={m.uid}>
+                                    {/* 가장 최근 수집 완료 메일 위 구분선 (C001) */}
+                                    {m.uid === lastCollectedUid && (
+                                        <CollectedDivider>
+                                            여기까지 다운로드 완료
+                                        </CollectedDivider>
+                                    )}
                                     <MailRow
-                                        key={m.uid}
                                         $active={selectedUid === m.uid}
                                         onClick={() => setSelectedUid(m.uid)}
                                     >
@@ -568,6 +584,7 @@ const MailboxTab = ({
                                             </span>
                                         </div>
                                     </MailRow>
+                                    </div>
                                 );
                             })}
                     </MailList>
@@ -855,6 +872,17 @@ const BrowseTab = ({
             return next;
         });
 
+    // 다운로드/원본 메일 조회한 파일을 목록에서 회색으로 표시 (C002)
+    const markViewedLocal = (ids: number[]) => {
+        const now = new Date().toISOString();
+        const idSet = new Set(ids);
+        setItems((prev) =>
+            prev.map((it) =>
+                idSet.has(it.id) && !it.viewed_at ? { ...it, viewed_at: now } : it
+            )
+        );
+    };
+
     const [bulkDownloading, setBulkDownloading] = useState(false);
     const onBulkDownload = async () => {
         const ids = Array.from(selected);
@@ -862,6 +890,7 @@ const BrowseTab = ({
         setBulkDownloading(true);
         try {
             await downloadSelectedZip(ids);
+            markViewedLocal(ids);
         } catch {
             toast.error("선택 다운로드에 실패했습니다.");
         } finally {
@@ -1048,6 +1077,9 @@ const BrowseTab = ({
                                                         list.map((it) => it.id)
                                                     );
                                                 }
+                                                markViewedLocal(
+                                                    list.map((it) => it.id)
+                                                );
                                             } catch {
                                                 toast.error(
                                                     "일괄 다운로드 실패"
@@ -1104,7 +1136,17 @@ const BrowseTab = ({
                                 </thead>
                                 <tbody>
                                     {list.map((it) => (
-                                        <tr key={it.id}>
+                                        <tr
+                                            key={it.id}
+                                            className={
+                                                it.viewed_at ? "viewed" : undefined
+                                            }
+                                            title={
+                                                it.viewed_at
+                                                    ? "다운로드/원본 조회한 파일"
+                                                    : undefined
+                                            }
+                                        >
                                             <td className="center">
                                                 <input
                                                     type="checkbox"
@@ -1130,25 +1172,34 @@ const BrowseTab = ({
                                             <td className="center">
                                                 <IconActions>
                                                     <SourceBtn
-                                                        onClick={() =>
+                                                        onClick={() => {
                                                             setMailModal({
                                                                 folder: it.mail_folder,
                                                                 uid: it.mail_uid,
-                                                            })
-                                                        }
+                                                            });
+                                                            // 원본 메일 조회도 회색 표시 대상 (C002)
+                                                            markCollectedViewed([
+                                                                it.id,
+                                                            ]).catch(() => {});
+                                                            markViewedLocal([it.id]);
+                                                        }}
                                                         title="원본 메일 보기"
                                                     >
                                                         <ArrowSquareOut />
                                                     </SourceBtn>
                                                     <IconBtn
                                                         onClick={() =>
-                                                            downloadCollected(
-                                                                it
-                                                            ).catch(() =>
-                                                                toast.error(
-                                                                    "다운로드 실패"
+                                                            downloadCollected(it)
+                                                                .then(() =>
+                                                                    markViewedLocal([
+                                                                        it.id,
+                                                                    ])
                                                                 )
-                                                            )
+                                                                .catch(() =>
+                                                                    toast.error(
+                                                                        "다운로드 실패"
+                                                                    )
+                                                                )
                                                         }
                                                         title="다운로드"
                                                     >
@@ -1750,6 +1801,25 @@ const MailList = styled.div`
         font-size: 13px;
     }
 `;
+/* 가장 최근 수집 완료 메일 위에 표시되는 구분선 (C001) */
+const CollectedDivider = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #16a34a;
+    background: #f0fdf4;
+    border-bottom: 1px solid #bbf7d0;
+    &::before,
+    &::after {
+        content: "";
+        flex: 1;
+        border-top: 1px dashed #86efac;
+    }
+`;
+
 const MailRow = styled.div<{ $active: boolean }>`
     padding: 9px 12px;
     border-bottom: 1px solid #f1f5f9;
@@ -2000,6 +2070,14 @@ const Table = styled.table`
     }
     tbody tr.off td {
         color: #94a3b8;
+    }
+    /* 다운로드/원본 조회한 파일은 회색 표시 (C002) */
+    tbody tr.viewed td,
+    tbody tr.viewed td.name {
+        color: #94a3b8;
+    }
+    tbody tr.viewed td.name {
+        font-weight: 500;
     }
     .name {
         font-weight: 600;

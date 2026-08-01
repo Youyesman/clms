@@ -748,15 +748,27 @@ class SettlementCompareView(SettlementListView):
                 continue
             rows_by_primary.setdefault(primary.id, {"movie": primary, "rows": []})["rows"].append(row)
 
-        # 4. 영화별 비교 실행
+        # 4. 영화별 비교 실행 — 한 영화가 계산 오류로 대사 불가여도 전체를 죽이지
+        #    않고, 그 영화만 사유와 함께 '대사 불가' 목록으로 내려보낸다 (K002)
         movie_sections = []
+        failed_movies = []
         grand_totals = {m: {"system": 0, "file": 0} for m in self.METRICS}
         grand_summary = {"equal": 0, "diff": 0, "file_only": 0, "system_only": 0, "theater_count": 0}
         for primary_id, group in sorted(rows_by_primary.items(),
                                         key=lambda kv: kv[1]["movie"].title_ko or ""):
-            section = self._compare_one_movie(
-                yyyy_mm, group["movie"], group["rows"], excel_chains, norm_theater,
-                show_adjustment_info=bool(getattr(request.user, "is_superuser", False)))
+            try:
+                section = self._compare_one_movie(
+                    yyyy_mm, group["movie"], group["rows"], excel_chains, norm_theater,
+                    show_adjustment_info=bool(getattr(request.user, "is_superuser", False)))
+            except Exception as e:
+                title = group["movie"].title_ko or f"영화 #{primary_id}"
+                reason = str(e).strip() or type(e).__name__
+                # 자주 나는 원인은 알아보기 쉬운 문구로 바꿔준다
+                low = reason.lower()
+                if "rate" in low or "부율" in reason or "NoneType" in reason:
+                    reason = f"부율 설정 오류로 계산 불가 (부율 관리에서 '{title}' 부율/종료일을 확인해주세요) — {reason}"
+                failed_movies.append({"movie_title": title, "reason": reason})
+                continue
             movie_sections.append(section)
             for m in self.METRICS:
                 grand_totals[m]["system"] += section["totals"][m]["system"]
@@ -774,6 +786,7 @@ class SettlementCompareView(SettlementListView):
             "yyyyMm_source": yyyy_mm_source,
             "file_row_count": len(all_rows),
             "movies": movie_sections,
+            "failed_movies": failed_movies,
             "unmatched_file_movies": sorted(unmatched.values(), key=lambda x: x["movie"]),
             "grand_totals": grand_totals,
             "grand_summary": grand_summary,
@@ -1292,10 +1305,13 @@ class SettlementAdjustmentView(APIView):
             screen_format=(str(data.get("screen_format") or "")).strip(),
             defaults=defaults,
         )
-        # 조정을 저장했다는 것 = 그 극장 내역을 확인했다는 것 (사용자 확정)
-        SettlementConfirm.objects.get_or_create(
-            yyyymm=yyyy_mm, movie_id=movie_id, client=client,
-            defaults={"source": "조정", "confirmed_by": username})
+        # 조정을 저장했다는 것 = 그 극장 내역을 확인했다는 것 (사용자 확정).
+        # 단, 일괄 조정처럼 오류 행이 남는 극장을 미확인으로 남겨야 하는 흐름은
+        # auto_confirm=false 로 자동 확인을 끄고 확인 API를 따로 호출한다 (K001).
+        if data.get("auto_confirm", True):
+            SettlementConfirm.objects.get_or_create(
+                yyyymm=yyyy_mm, movie_id=movie_id, client=client,
+                defaults={"source": "조정", "confirmed_by": username})
         return obj, None
 
     def post(self, request):

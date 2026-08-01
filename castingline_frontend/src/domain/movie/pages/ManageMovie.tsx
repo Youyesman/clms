@@ -56,6 +56,7 @@ export function ManageMovie() {
     const [selectedMovie, setSelectedMovie] = useState<any>(null);
     const [formData, setFormData] = useState<any>({});
     const [selectedMovieIds, setSelectedMovieIds] = useState<number[]>([]); // ✅ 체크박스 선택용
+    const [listRefreshToken, setListRefreshToken] = useState(0); // 대표영화 수정 시 하위영화 행 갱신용
 
     /** ✅ 검색 필터 상태 **/
     const [searchParams, setSearchParams] = useState({
@@ -105,6 +106,8 @@ export function ManageMovie() {
             .then((res) => {
                 setMovies((prev) => prev.map((m) => (m.id === selectedMovie.id ? res.data : m)));
                 setSelectedMovie(res.data);
+                // 대표 영화 수정은 하위 영화에도 반영되므로 목록을 다시 불러온다 (F001)
+                if (res.data.is_primary_movie) setListRefreshToken((v) => v + 1);
                 toast.success("영화 정보가 수정되었습니다.");
             })
             .catch((error) => toast.error(handleBackendErrors(error)));
@@ -171,6 +174,7 @@ export function ManageMovie() {
                         selectedMovieIds={selectedMovieIds}
                         onSelectionChange={setSelectedMovieIds}
                         filters={activeFilters} // ✅ 필터 전달
+                        refreshToken={listRefreshToken}
                     />
                 </LeftSection>
 
