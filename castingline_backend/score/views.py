@@ -2263,7 +2263,9 @@ def score_settlement_detail(request):
         movie_id__in=movie_ids,
         client_id__in=client_ids_set,
         start_date__lte=date_to_obj,
-        end_date__gte=date_from_obj,
+    ).filter(
+        # 종료일 미지정(무기한) 부율도 포함
+        Q(end_date__gte=date_from_obj) | Q(end_date__isnull=True)
     ))
     rate_map_d = defaultdict(list)
     for r in rates_qs:
@@ -2284,7 +2286,8 @@ def score_settlement_detail(request):
     def get_rate_value(c_id, mid, entry_date, aud_name, client_info):
         # 해당 포맷(하위영화) 자체 부율만 사용 (대표영화·하드코딩 폴백 없음)
         for r in rate_map_d.get((c_id, mid), []):
-            if r.start_date <= entry_date <= r.end_date:
+            # 종료일이 비어 있으면 무기한 부율로 취급 (NULL 비교 크래시 방지)
+            if r.start_date <= entry_date and (r.end_date is None or entry_date <= r.end_date):
                 tr_val = theater_rate_map.get((r.id, aud_name))
                 return tr_val if tr_val is not None else r.share_rate
         # 포맷 부율이 없으면 설정된 기본부율(DefaultRate)만, 그것도 없으면 None → 계산값 비움
@@ -2665,7 +2668,9 @@ def score_supply_price(request):
         movie_id=movie_id,
         client_id__in=client_ids_set,
         start_date__lte=date_to_obj,
-        end_date__gte=date_from_obj,
+    ).filter(
+        # 종료일 미지정(무기한) 부율도 포함
+        Q(end_date__gte=date_from_obj) | Q(end_date__isnull=True)
     ))
     rate_map_d = defaultdict(list)
     for r in rates_qs:
@@ -2685,7 +2690,8 @@ def score_supply_price(request):
 
     def get_rate_value(c_id, entry_date, aud_name, client_info):
         for r in rate_map_d.get(c_id, []):
-            if r.start_date <= entry_date <= r.end_date:
+            # 종료일이 비어 있으면 무기한 부율로 취급 (NULL 비교 크래시 방지)
+            if r.start_date <= entry_date and (r.end_date is None or entry_date <= r.end_date):
                 tr_val = theater_rate_map.get((r.id, aud_name))
                 return tr_val if tr_val is not None else r.share_rate
         return default_rate_map.get(

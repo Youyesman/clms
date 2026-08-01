@@ -143,7 +143,10 @@ class SettlementListView(APIView):
         rates = Rate.objects.filter(movie_id__in=all_related_movie_ids, client_id__in=client_ids).filter(
             Q(start_date__year=yyyy, start_date__month=mm) | Q(end_date__year=yyyy, end_date__month=mm) |
             Q(start_date__lte=datetime(yyyy, mm, 1), end_date__gte=datetime(
-                yyyy, mm, calendar.monthrange(yyyy, mm)[1]))
+                yyyy, mm, calendar.monthrange(yyyy, mm)[1])) |
+            # 종료일 미지정(무기한) 부율도 포함
+            Q(start_date__lte=datetime(yyyy, mm, calendar.monthrange(yyyy, mm)[1]),
+              end_date__isnull=True)
         )
         rate_map = {}
         for r in rates:
@@ -335,7 +338,8 @@ class SettlementListView(APIView):
     def _get_cached_rate(self, c_id, m_id, date, aud_name, r_map, tr_map, dr_map, client):
         # 해당 포맷(하위영화)에 설정된 부율만 사용 (상영관 예외 우선)
         for r in r_map.get((c_id, m_id), []):
-            if r.start_date <= date <= r.end_date:
+            # 종료일이 비어 있으면 무기한 부율로 취급 (NULL 비교 크래시 방지)
+            if r.start_date <= date and (r.end_date is None or date <= r.end_date):
                 tr_val = tr_map.get((r.id, aud_name))
                 return tr_val if tr_val is not None else r.share_rate
         # 포맷 부율이 없으면 기본부율(DefaultRate)만, 그것도 없으면 None → 화면 빈칸
@@ -1048,7 +1052,10 @@ class SettlementCompareView(SettlementListView):
         rates = Rate.objects.filter(movie_id__in=movie_ids, client_id__in=client_ids).filter(
             Q(start_date__year=yyyy, start_date__month=mm) | Q(end_date__year=yyyy, end_date__month=mm) |
             Q(start_date__lte=datetime(yyyy, mm, 1), end_date__gte=datetime(
-                yyyy, mm, calendar.monthrange(yyyy, mm)[1]))
+                yyyy, mm, calendar.monthrange(yyyy, mm)[1])) |
+            # 종료일 미지정(무기한) 부율도 포함
+            Q(start_date__lte=datetime(yyyy, mm, calendar.monthrange(yyyy, mm)[1]),
+              end_date__isnull=True)
         )
         rate_map = {}
         for r in rates:
