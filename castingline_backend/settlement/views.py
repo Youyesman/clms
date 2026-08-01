@@ -240,7 +240,18 @@ class SettlementListView(APIView):
                     if fmt_matched:
                         candidates = fmt_matched
                 if candidates:
-                    tgt = max(candidates, key=lambda it: it["영화사 지급금"])
+                    # 같은 극장·포맷이 부율/기금면제 차이로 여러 행으로 나뉘는 경우,
+                    # 수정 시점에 저장된 원본 금액과 일치하는 행에 우선 적용한다.
+                    # (지급금 최대 행에만 붙이면 사용자가 수정한 행이 아닌 행이 바뀜)
+                    orig_matched = [
+                        it for it in candidates
+                        if adj.supply_original is not None
+                        and it.get("공급가액") == adj.supply_original
+                        and it.get("부가세") == adj.vat_original
+                        and it.get("영화사 지급금") == adj.payout_original
+                    ]
+                    tgt = (orig_matched[0] if orig_matched
+                           else max(candidates, key=lambda it: it["영화사 지급금"]))
                     tgt["공급가액"] += adj.supply_delta
                     tgt["부가세"] += adj.vat_delta
                     tgt["영화사 지급금"] += adj.payout_delta

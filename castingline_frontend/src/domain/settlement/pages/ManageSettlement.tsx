@@ -334,6 +334,13 @@ function AmountEditModal({
     // 영화사 지급금 = 공급가액 + 부가세 (자동 계산)
     const payoutCalc = num(supply) + num(vat);
 
+    // 조정 전 계산값(base) — 이미 조정된 행을 다시 수정할 때도 델타는 base 기준으로
+    // 저장해야 한다 (조정 레코드는 upsert로 델타가 통째로 교체되므로).
+    const oldDelta: any = row["조정액"] || {};
+    const baseSupply = (row["공급가액"] || 0) - (oldDelta["공급가액"] || 0);
+    const baseVat = (row["부가세"] || 0) - (oldDelta["부가세"] || 0);
+    const basePayout = (row["영화사 지급금"] || 0) - (oldDelta["영화사 지급금"] || 0);
+
     const save = async () => {
         const ns = num(supply), nv = num(vat);
         if ([ns, nv].some(Number.isNaN)) {
@@ -348,12 +355,14 @@ function AmountEditModal({
                 movie_id: Number(movieId),
                 client_code: row["거래처코드"],
                 screen_format: row["포맷버킷"] || "",
-                supply_delta: ns - (row["공급가액"] || 0),
-                vat_delta: nv - (row["부가세"] || 0),
-                payout_delta: np - (row["영화사 지급금"] || 0),
-                supply_original: row["공급가액"] ?? null,
-                vat_original: row["부가세"] ?? null,
-                payout_original: row["영화사 지급금"] ?? null,
+                supply_delta: ns - baseSupply,
+                vat_delta: nv - baseVat,
+                payout_delta: np - basePayout,
+                // 원본은 조정 전 계산값 — 서버가 같은 극장·포맷의 여러 행 중
+                // 어느 행의 조정인지 이 값으로 식별한다
+                supply_original: baseSupply,
+                vat_original: baseVat,
+                payout_original: basePayout,
                 note: "정산 관리 직접 수정",
                 // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
                 auto_confirm: false,
@@ -378,12 +387,12 @@ function AmountEditModal({
             <div className="row">
                 <label>공급가액</label>
                 <input value={supply} onChange={(e) => setSupply(e.target.value)} />
-                <span className="orig">계산값 {(row["공급가액"] ?? 0).toLocaleString()}</span>
+                <span className="orig">계산값 {baseSupply.toLocaleString()}</span>
             </div>
             <div className="row">
                 <label>부가세</label>
                 <input value={vat} onChange={(e) => setVat(e.target.value)} />
-                <span className="orig">계산값 {(row["부가세"] ?? 0).toLocaleString()}</span>
+                <span className="orig">계산값 {baseVat.toLocaleString()}</span>
             </div>
             <div className="row">
                 <label>영화사 지급금</label>
@@ -392,7 +401,7 @@ function AmountEditModal({
                     disabled
                     title="공급가액 + 부가세 자동 계산"
                 />
-                <span className="orig">계산값 {(row["영화사 지급금"] ?? 0).toLocaleString()}</span>
+                <span className="orig">계산값 {basePayout.toLocaleString()}</span>
             </div>
             <div className="btns">
                 <button className="cancel" onClick={onClose} disabled={saving}>
@@ -688,7 +697,12 @@ export function ManageSettlement() {
 
     /** 조정이 적용될 행 인덱스 — 백엔드 적용 규칙과 동일:
      *  같은 거래처 중 포맷버킷이 일치하는 행 우선, 없으면 전체에서 지급금 최대 행 */
-    const findAdjustTargetIdx = (list: any[], clientCode: string, screenFormat: string) => {
+    const findAdjustTargetIdx = (
+        list: any[],
+        clientCode: string,
+        screenFormat: string,
+        saved?: any
+    ) => {
         const cands = list
             .map((r, i) => ({ r, i }))
             .filter(
@@ -702,6 +716,21 @@ export function ManageSettlement() {
         const fmt = screenFormat || "";
         const fmtCands = fmt ? cands.filter(({ r }) => (r["포맷버킷"] || "") === fmt) : [];
         const pool = fmtCands.length ? fmtCands : cands;
+        // 같은 극장·포맷이 여러 행일 때는 사용자가 실제로 수정한 행을 찾는다:
+        // ① 이미 이 조정이 붙어 있는 행(재수정) ② 저장된 원본 금액과 일치하는 행
+        if (saved) {
+            const byId = pool.find(({ r }) => r["조정ID"] === saved.id);
+            if (byId) return byId.i;
+            if (saved.supply_original != null) {
+                const byOrig = pool.find(
+                    ({ r }) =>
+                        r["공급가액"] === saved.supply_original &&
+                        r["부가세"] === saved.vat_original &&
+                        r["영화사 지급금"] === saved.payout_original
+                );
+                if (byOrig) return byOrig.i;
+            }
+        }
         return pool.reduce((best, cur) =>
             cur.r["영화사 지급금"] > best.r["영화사 지급금"] ? cur : best
         ).i;
@@ -717,7 +746,9 @@ export function ManageSettlement() {
 
     /** 금액 수정 저장 결과를 재조회 없이 목록에 즉시 반영 (F001) */
     const applyAmountSavedLocally = (saved: any) => {
-        const ti = findAdjustTargetIdx(settlements, saved.client_code, saved.screen_format || "");
+        const ti = findAdjustTargetIdx(
+            settlements, saved.client_code, saved.screen_format || "", saved
+        );
         if (ti < 0) {
             refreshSettlements(); // 대상 행을 못 찾으면 서버 기준으로 갱신
             return;
