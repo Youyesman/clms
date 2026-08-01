@@ -619,28 +619,39 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
     const rowOkAfterBulk = (r: ICompareRow) =>
         rowFullyMatched(r) || canBulkAdjust(r);
 
-    /** 확인 처리 대상 극장코드 (영화 섹션 단위) — 오류 행이 하나라도 있는 극장은 제외 (K001) */
-    const confirmableCodes = (rows: ICompareRow[]) => {
+    /** 섹션의 확인/해제 대상 극장코드 (K001)
+     *  - confirm: 오류 행이 없는 극장의 미확인 코드 → 확인 처리
+     *  - unconfirm: 오류 행이 있는데 확인돼 있는 극장 코드 → 미확인으로 되돌림
+     *    (이전 일괄 실행 등으로 잘못 확인된 오류 극장도 버튼 한 번으로 정리되도록) */
+    const sectionConfirmCodes = (rows: ICompareRow[]) => {
         const errorCodes = new Set<string>(
             rows
                 .filter((r) => r.client_code && !rowOkAfterBulk(r))
                 .map((r) => r.client_code as string)
         );
-        const codes = new Set<string>();
+        const confirm = new Set<string>();
+        const unconfirm = new Set<string>();
         rows.forEach((r) => {
-            if (r.client_code && !r.확인 && !errorCodes.has(r.client_code)) codes.add(r.client_code);
+            if (!r.client_code) return;
+            if (errorCodes.has(r.client_code)) {
+                if (r.확인) unconfirm.add(r.client_code);
+            } else if (!r.확인) {
+                confirm.add(r.client_code);
+            }
         });
-        return codes;
+        return { confirm, unconfirm };
     };
 
-    /** 일괄 조정 대상 수 (금액 조정 + 날짜만 적용 + 확인 가능 극장의 미확인) — 버튼 표시/카운트 공용 */
+    /** 일괄 조정 대상 수 (금액 조정 + 날짜만 적용 + 확인/해제 대상) — 버튼 표시/카운트 공용 */
     const bulkTargetCount = (rows: ICompareRow[]) => {
-        const codes = confirmableCodes(rows);
+        const { confirm, unconfirm } = sectionConfirmCodes(rows);
         return rows.filter(
             (r) =>
                 canBulkAdjust(r) ||
                 canBulkDateApply(r) ||
-                (!!r.client_code && !r.확인 && codes.has(r.client_code))
+                (!!r.client_code &&
+                    ((!r.확인 && confirm.has(r.client_code)) ||
+                        (r.확인 && unconfirm.has(r.client_code))))
         ).length;
     };
 
@@ -659,13 +670,20 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
             sec.rows.filter(canBulkDateApply).map((r) => ({ sec, r }))
         );
         // 조정과 함께 확인 처리 — 단, 인원/금액 오류(조정 불가) 행이 있는 극장은
-        // 확인하지 않고 미확인으로 남긴다 (K001)
+        // 확인하지 않고 미확인으로 남긴다. 이미 확인돼 있는 오류 극장은 확인을
+        // 해제해서 미확인으로 되돌린다 (K001)
         const confirmPerMovie = new Map<number, Set<string>>();
+        const unconfirmPerMovie = new Map<number, Set<string>>();
         sections.forEach((sec) => {
-            const codes = confirmableCodes(sec.rows);
-            if (codes.size) confirmPerMovie.set(sec.movie_id, codes);
+            const { confirm, unconfirm } = sectionConfirmCodes(sec.rows);
+            if (confirm.size) confirmPerMovie.set(sec.movie_id, confirm);
+            if (unconfirm.size) unconfirmPerMovie.set(sec.movie_id, unconfirm);
         });
         const confirmTotal = Array.from(confirmPerMovie.values()).reduce(
+            (a, s) => a + s.size,
+            0
+        );
+        const unconfirmTotal = Array.from(unconfirmPerMovie.values()).reduce(
             (a, s) => a + s.size,
             0
         );
@@ -690,7 +708,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                 parts.push(`인원 불일치 ${skipVisitor.length}행 (미확인 유지 — 스코어 확인 필요)`);
             return parts.length ? `${prefix} 제외: ${parts.join(", ")}` : "";
         };
-        if (!targets.length && !dateTargets.length && !confirmTotal) {
+        if (!targets.length && !dateTargets.length && !confirmTotal && !unconfirmTotal) {
             toast.info(
                 "일괄 조정/확인할 대상이 없습니다." + (skipNote(" /") || "")
             );
@@ -701,6 +719,7 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
         if (targets.length) detailParts.push(`금액+날짜 조정 ${targets.length}건`);
         if (dateTargets.length) detailParts.push(`날짜만 적용 ${dateTargets.length}건`);
         if (confirmTotal) detailParts.push(`확인 처리 ${confirmTotal}곳`);
+        if (unconfirmTotal) detailParts.push(`오류 극장 확인 해제 ${unconfirmTotal}곳`);
         showAlert(
             "파일값으로 일괄 조정",
             `${scopeLabel}차이 나는 행을 전부 파일(정산서) 값으로 조정하고 확인 처리하시겠습니까? (${detailParts.join(
@@ -842,6 +861,45 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     }
                 }
 
+                // 이미 확인돼 있는 오류 극장은 확인 해제 → 미확인으로 (K001)
+                let unconfFail = false;
+                if (unconfirmTotal) {
+                    try {
+                        await AxiosPost("settlement-confirms", {
+                            yyyyMm: result.yyyyMm,
+                            confirmed: false,
+                            source: "대사",
+                            items: Array.from(unconfirmPerMovie.entries()).map(
+                                ([movie_id, codes]) => ({
+                                    movie_id,
+                                    client_codes: Array.from(codes),
+                                })
+                            ),
+                        });
+                        setResult((prev) => {
+                            if (!prev) return prev;
+                            return {
+                                ...prev,
+                                movies: prev.movies.map((s) => {
+                                    const codes = unconfirmPerMovie.get(s.movie_id);
+                                    return codes
+                                        ? {
+                                              ...s,
+                                              rows: s.rows.map((row) =>
+                                                  row.client_code && codes.has(row.client_code)
+                                                      ? { ...row, 확인: false }
+                                                      : row
+                                              ),
+                                          }
+                                        : s;
+                                }),
+                            };
+                        });
+                    } catch {
+                        unconfFail = true;
+                    }
+                }
+
                 const doneParts: string[] = [];
                 if (targets.length)
                     doneParts.push(`금액 조정 ${amtSaved}건${amtFail ? ` (실패 ${amtFail})` : ""}`);
@@ -849,7 +907,13 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                     doneParts.push(`날짜 적용 ${dateOk}건${dateFail ? ` (실패 ${dateFail})` : ""}`);
                 if (confirmTotal)
                     doneParts.push(confFail ? "확인 처리 실패" : `확인 처리 ${confirmTotal}곳`);
-                if (amtFail || dateFail || confFail) {
+                if (unconfirmTotal)
+                    doneParts.push(
+                        unconfFail
+                            ? "오류 극장 확인 해제 실패"
+                            : `오류 극장 확인 해제 ${unconfirmTotal}곳 (미확인 유지)`
+                    );
+                if (amtFail || dateFail || confFail || unconfFail) {
                     toast.warning(`일괄 조정 결과: ${doneParts.join(", ")}`);
                 } else {
                     toast.success(`일괄 조정 완료 — ${doneParts.join(", ")}`);
