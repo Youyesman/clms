@@ -2209,11 +2209,14 @@ def score_settlement_detail(request):
         common_filter &= Q(client__classification=theater_type)
 
     # DB 집계: (movie_id, client_id, fare, entry_date, auditorium) → sum(visitor)
+    # 음수 인원(환불 등) 행은 합계에서 제외 — 지정 부금 집계와 기준 통일
     qs = list(
         Score.objects
         .filter(common_filter)
+        .annotate(visitor_int=Cast("visitor", IntegerField()))
+        .filter(visitor_int__gte=0)
         .values("movie_id", "client_id", "fare", "entry_date", "auditorium")
-        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+        .annotate(total_visitor=Sum("visitor_int"))
         .order_by("entry_date")
     )
 
@@ -2611,11 +2614,14 @@ def score_supply_price(request):
         common_filter &= Q(client_id=client_id_param)
 
     # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
+    # 음수 인원(환불 등) 행은 합계에서 제외 — 지정 부금 집계와 기준 통일
     qs = list(
         Score.objects
         .filter(common_filter)
+        .annotate(visitor_int=Cast("visitor", IntegerField()))
+        .filter(visitor_int__gte=0)
         .values("client_id", "fare", "entry_date", "auditorium")
-        .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
+        .annotate(total_visitor=Sum("visitor_int"))
         .order_by("entry_date")
     )
 

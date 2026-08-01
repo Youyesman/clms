@@ -9,6 +9,7 @@
 """
 
 import re
+import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -24,10 +25,16 @@ _NORM_RE = re.compile(r"[^0-9a-z가-힣]")
 
 
 def _norm(s):
-    """소문자화 + 영숫자/한글 외 문자(공백·특수문자) 제거. 매칭 비교용."""
+    """소문자화 + 영숫자/한글 외 문자(공백·특수문자) 제거. 매칭 비교용.
+
+    macOS 메일 등이 보내는 NFD(자소 분리) 한글 파일명은 '가-힣' 범위에 걸리지 않아
+    한글이 통째로 지워지므로, 먼저 NFC 로 결합해 비교한다.
+    (예: '백룸.pdf'(NFD) 가 정규화 후 'pdf' 만 남아 매칭 실패하던 문제)
+    """
     if not s:
         return ""
-    return _NORM_RE.sub("", str(s).lower())
+    s = unicodedata.normalize("NFC", str(s))
+    return _NORM_RE.sub("", s.lower())
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -173,6 +180,25 @@ def _match_text(subject, body, targets):
     return None
 
 
+def _match_subject_all(subject, targets):
+    """제목에 포함된 '모든' 대상 영화를 [(target_info, raw_keyword)] 로 반환.
+
+    '[눈동자/백룸/비긴어게인] 6월 부금정산서' 처럼 한 메일이 여러 영화 정산서를
+    담고 있으면 영화별로 모두 저장하기 위함. (본문은 영화 목록 표가 통째로 인용되는
+    경우가 많아 오매칭 위험이 커서 첫 매칭만 쓰는 기존 방식 유지)
+    """
+    subj_n = _norm(subject)
+    if not subj_n:
+        return []
+    out = []
+    for info in targets:
+        for raw, kw in info["keywords"]:
+            if kw in subj_n:
+                out.append((info, raw))
+                break  # 한 영화당 한 번만
+    return out
+
+
 # 자동 수집(폴백) 대상이 되는 문서 확장자. 이미지(png/jpg 등)는 정산서 본문이 아니므로 제외.
 _DOC_EXTS = (
     ".pdf", ".xls", ".xlsx", ".xlsm", ".doc", ".docx",
@@ -184,11 +210,17 @@ _DOC_EXTS = (
 #       (그 자체가 영화명이 아닌 잡파일이므로 폴백 대상에서 빠지는 게 맞음).
 _NAME_NOISE_RE = re.compile(
     "|".join([
-        r"부금\s*계산서", r"부금", r"계산서", r"정산\s*내역", r"정산서", r"정산", r"명세서",
-        r"송부", r"전달", r"요청", r"상영작", r"위탁관", r"상영",
+        r"부금\s*계산서", r"월\s*부금", r"부금", r"계산서",
+        r"정산\s*내역", r"정산\s*표", r"정산서", r"정산", r"명세서",
+        r"발생\s*내역", r"내역", r"보고",
+        r"송부", r"전달", r"요청", r"상영작", r"위탁관", r"상영", r"영화",
         r"디지털", r"atmos", r"dolby", r"screen\s*x", r"스크린\s*엑스", r"imax",
         r"\d+\s*dx", r"\d+\s*d",            # 4DX/2D/3D
-        r"주식회사", r"캐스팅라인", r"최종본?", r"수정본?", r"사본", r"copy", r"final",
+        # 회사/체인명 — 영화명이 아니므로 제거 (예: 'CJ CGV 부금정산서.xlsx' 가
+        # '고유명 있음'으로 오판되어 제목의 영화명 폴백이 막히는 문제 방지)
+        r"주식회사", r"캐스팅라인", r"케스팅라인", r"롯데\s*시네마", r"롯데",
+        r"메가\s*박스", r"씨네\s*큐", r"CGV", r"CJ",
+        r"최종본?", r"수정본?", r"사본", r"copy", r"final", r"scan",
         r"\d{2,4}\s*년", r"\d{1,2}\s*월", r"\d{1,2}\s*일", r"\d+",   # 날짜/숫자
     ]),
     re.I,
@@ -204,6 +236,15 @@ def _is_document(filename):
     return (filename or "").lower().endswith(_DOC_EXTS)
 
 
+def _filename_residue(filename):
+    """파일명에서 정산서 상용어·날짜·숫자·괄호를 제거하고 남는 고유명(정규화). 없으면 ''."""
+    # NFD(자소 분리) 파일명은 상용어 제거 정규식이 걸리지 않으므로 먼저 NFC 결합
+    s = unicodedata.normalize("NFC", filename or "").rsplit(".", 1)[0]
+    s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", s)  # 괄호 안(관/포맷/회사) 제거
+    s = _NAME_NOISE_RE.sub(" ", s)
+    return _norm(s)
+
+
 def _filename_has_name(filename):
     """파일명에서 정산서 상용어·날짜·숫자·괄호를 제거하고도 의미있는 글자가 남는지.
 
@@ -213,10 +254,7 @@ def _filename_has_name(filename):
     기준은 1글자 이상: '란 12.3' 같은 짧은 제목은 숫자 제거 후 '란' 1글자만 남는데,
     2글자 기준에서는 폴백이 열려 제목/본문의 다른 영화(예: '피나')로 오매칭됐다.
     """
-    s = (filename or "").rsplit(".", 1)[0]
-    s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", s)  # 괄호 안(관/포맷/회사) 제거
-    s = _NAME_NOISE_RE.sub(" ", s)
-    return len(_norm(s)) >= 1
+    return len(_filename_residue(filename)) >= 1
 
 
 def _parse_date(iso):
@@ -376,6 +414,7 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
         "matched": 0,
         "saved": 0,
         "saved_unassigned": 0,
+        "reclassified": 0,
         "skipped_duplicate": 0,
         "skipped_already_collected": 0,
         "matched_no_attachment": 0,
@@ -391,6 +430,14 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
     # (mail_uid 는 IntegerField 이므로 int 집합)
     already_collected_uids = set(
         CollectedMailLog.objects.filter(mail_folder=folder)
+        .values_list("mail_uid", flat=True)
+    )
+
+    # '미지정 영화'로만 수집된 메일은 재스캔에서 다시 매칭을 시도한다.
+    # (수집 당시 대상 영화가 미등록이었다가 나중에 등록된 경우, 영화가 확정되면
+    #  미지정 수집분을 정식 영화로 재분류)
+    unassigned_uids = set(
+        CollectedSettlement.objects.filter(mail_folder=folder, movie__isnull=True)
         .values_list("mail_uid", flat=True)
     )
 
@@ -420,7 +467,10 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
     for uid in uids_in_range:
         if stats["scanned"] >= max_messages:
             break
-        if _as_uid_int(uid) in already_collected_uids:
+        uid_int = _as_uid_int(uid)
+        # 미지정으로만 수집된 메일은 이력이 있어도 재분류를 위해 다시 처리
+        reclassify = uid_int in unassigned_uids
+        if uid_int in already_collected_uids and not reclassify:
             stats["skipped_already_collected"] += 1
             continue
         stats["scanned"] += 1
@@ -453,9 +503,16 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
         #    파일명에 (대상이 아니더라도) 영화명이 있으면 그 첨부는 다른 영화의 것이므로
         #    제목/본문으로 엉뚱하게 배정하지 않는다. (예: '은혼 6월.pdf' 를 본문의 '눈동자'로
         #    잘못 수집하던 문제 방지)
-        th = _match_text(msg.get("subject", ""), body, targets)
-        if th:
-            info, raw_kw, where = th
+        #    제목은 '[눈동자/백룸]' 처럼 여러 영화가 있을 수 있으므로 매칭되는 모든
+        #    영화에 저장하고, 본문은 오매칭 위험이 커서 첫 매칭 한 편만 사용한다.
+        subj_matches = _match_subject_all(msg.get("subject", ""), targets)
+        th = None if subj_matches else _match_text("", body, targets)
+        if subj_matches or th:
+            if subj_matches:
+                fallback = [(info, raw_kw, "subject") for info, raw_kw in subj_matches]
+            else:
+                info, raw_kw, where = th
+                fallback = [(info, raw_kw, where)]
             if not attachments:
                 stats["matched"] += 1
                 stats["matched_no_attachment"] += 1
@@ -467,15 +524,35 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
                 fn = att.get("filename", "")
                 if not _is_document(fn):
                     continue  # 이미지 등은 정산서 본문이 아니므로 폴백 제외
-                if _filename_has_name(fn):
-                    continue  # 파일명에 영화명/고유명이 있음 → 제목/본문 폴백 미적용
-                assignments[idx] = [(info["movie"], info["title"], raw_kw, where)]
+                residue = _filename_residue(fn)
+                if residue:
+                    # 파일명에 고유명이 남아 있으면 원칙적으로 폴백 금지(다른 영화의 파일일
+                    # 수 있음). 단, 그 고유명이 매칭된 영화 제목/별칭의 일부(축약 표기,
+                    # 예: '은혼' ⊂ '신극장판은혼:요시와라대염상')라면 해당 영화로 배정한다.
+                    subset = [
+                        (info, raw_kw, where)
+                        for info, raw_kw, where in fallback
+                        if any(residue in kw for _, kw in info["keywords"])
+                    ]
+                    if not subset:
+                        continue
+                    assignments[idx] = [
+                        (info["movie"], info["title"], raw_kw, where)
+                        for info, raw_kw, where in subset
+                    ]
+                else:
+                    assignments[idx] = [
+                        (info["movie"], info["title"], raw_kw, where)
+                        for info, raw_kw, where in fallback
+                    ]
 
         # 3) 어떤 대상 영화에도 매칭되지 않은 메일: 문서 첨부가 있으면 '미지정 영화'로 모아 수집.
         #    이렇게 하면 미수집으로 남아 눈으로 훑어야 했던 메일이 '수집 파일' 화면에
         #    한 그룹으로 쌓여 일괄 다운로드/확인할 수 있다.
         unassigned_only = False
         if not assignments:
+            if reclassify:
+                continue  # 재분류 대상인데 여전히 매칭 없음 → 미지정 상태 유지
             doc_indexes = [
                 att["index"] for att in attachments if _is_document(att.get("filename", ""))
             ]
@@ -484,6 +561,20 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
             unassigned_only = True
             for idx in doc_indexes:
                 assignments[idx] = [(None, UNASSIGNED_MOVIE_TITLE, "", "unassigned")]
+
+        # 재분류: 영화가 확정된 첨부는 기존 '미지정' 수집분을 지우고 정식 영화로 대체
+        if reclassify and not unassigned_only:
+            olds = CollectedSettlement.objects.filter(
+                mail_folder=folder, mail_uid=uid_int, movie__isnull=True,
+                attachment_index__in=list(assignments.keys()),
+            )
+            for old in olds:
+                try:
+                    old.file.delete(save=False)
+                except Exception:
+                    pass
+                old.delete()
+                stats["reclassified"] += 1
 
         stats["matched"] += 1
         dt = _parse_date(msg.get("date"))

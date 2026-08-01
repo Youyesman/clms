@@ -159,6 +159,13 @@ class SettlementListView(APIView):
         # 데이터 집계
         aggregated_data = {}
         for score in scores:
+            # 음수 인원(환불 등) 행은 정산 합계에서 제외 — 지정 부금 집계와 기준 통일
+            try:
+                if int(score.visitor or 0) < 0:
+                    continue
+            except (ValueError, TypeError):
+                continue
+
             client = score.client
             c_id = client.id
             entry_date = score.entry_date
@@ -1487,6 +1494,11 @@ class SettlementExcelExportView(SettlementListView):
             data_rows.append(row)
 
         excel.add_rows(data_rows)
+
+        # 지역~종사업장번호(A~G열)는 가운데 정렬
+        for row_cells in excel.ws.iter_rows(min_row=2, min_col=1, max_col=7):
+            for cell in row_cells:
+                cell.alignment = excel.center_align
 
         # 합계 행 스타일 추가 적용 (굵게 + 배경색), 헤더 행이 1행이므로 데이터는 2행~
         for idx in subtotal_row_indices:
