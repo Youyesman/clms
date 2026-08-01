@@ -306,7 +306,7 @@ const EditModalBody = styled.div`
     }
 `;
 
-/** 정산 금액 직접 수정 — 저장 시 수동조정(차액)으로 기록되고 해당 극장은 자동 확인 처리.
+/** 정산 금액 직접 수정 — 저장 시 수동조정(차액)으로 기록된다. 확인여부는 바꾸지 않는다 (K002).
  *  저장 응답(조정 레코드)을 onSaved로 넘겨 부모가 재조회 없이 목록에 즉시 반영한다. */
 function AmountEditModal({
     yyyyMm,
@@ -355,8 +355,10 @@ function AmountEditModal({
                 vat_original: row["부가세"] ?? null,
                 payout_original: row["영화사 지급금"] ?? null,
                 note: "정산 관리 직접 수정",
+                // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
+                auto_confirm: false,
             });
-            toast.success("저장했습니다 — 수동조정으로 반영되고 확인 처리됩니다.");
+            toast.success("저장했습니다 — 수동조정으로 반영됩니다. (확인여부는 그대로)");
             onClose();
             onSaved(res.data);
         } catch (e: any) {
@@ -371,7 +373,7 @@ function AmountEditModal({
             <div className="hint">
                 {row["극장명"]}
                 {row["상영타입"] ? ` · ${row["상영타입"]}` : ""} — 수정 금액은 계산값과의
-                차액이 <b>수동조정</b>으로 저장되며, 해당 극장은 <b>확인 처리</b>됩니다.
+                차액이 <b>수동조정</b>으로 저장됩니다. (확인여부는 바뀌지 않습니다)
             </div>
             <div className="row">
                 <label>공급가액</label>
@@ -468,6 +470,8 @@ function BulkDateModal({
                     screen_format: r["포맷버킷"] || "",
                     date_to: dateTo,
                     date_to_original: r["날짜조정"]?.["원본"] ?? (r["날짜(To)"] || ""),
+                    // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
+                    auto_confirm: false,
                 })),
             });
             const results = res.data?.results || [];
@@ -574,6 +578,8 @@ export function ManageSettlement() {
     const { openModal, closeModal } = useGlobalModal();
     const { showAlert } = useAppAlert();
     const [settlements, setSettlements] = useState<any[]>([]);
+    // 클릭한 행 전체 하이라이트 — 어느 칸을 잡았는지 한눈에 보이게 (K003)
+    const [selectedRow, setSelectedRow] = useState<any>(null);
     const [movieOptions, setMovieOptions] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [movieLoading, setMovieLoading] = useState(false);
@@ -740,10 +746,7 @@ export function ManageSettlement() {
                     list[si][k] = (list[si][k] || 0) + net[k];
                 });
             }
-            // 조정 저장 = 해당 극장 자동 확인 (백엔드와 동일)
-            list.forEach((r) => {
-                if (!r.is_subtotal && r["거래처코드"] === saved.client_code) r["확인"] = true;
-            });
+            // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
             return list;
         });
     };
@@ -760,9 +763,7 @@ export function ManageSettlement() {
                 const row = list[ti];
                 row["날짜(To)"] = saved.date_to_override;
                 row["날짜조정"] = { 원본: saved.date_to_original || "", 조정ID: saved.id };
-                list.forEach((r) => {
-                    if (!r.is_subtotal && r["거래처코드"] === saved.client_code) r["확인"] = true;
-                });
+                // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
             });
             return list;
         });
@@ -1412,6 +1413,12 @@ export function ManageSettlement() {
                         // 서버가 브랜드/직영/지역 순 정렬 + 소계 행을 만들어 주므로
                         // 클라이언트 정렬 금지 (정렬 상태가 남아 특정 행이 상단 고정되는 문제 방지)
                         sortable={false}
+                        // 행 클릭 시 줄 전체 하이라이트, 같은 행 다시 클릭하면 해제 (K003)
+                        selectedItem={selectedRow}
+                        onSelectItem={(item: any) => {
+                            if (item?.is_subtotal) return;
+                            setSelectedRow((prev: any) => (prev === item ? null : item));
+                        }}
                         // Key를 더 고유하게 만들어 리액트 엔진의 혼동 방지
                         getRowKey={(item: any, idx: number) =>
                             item.is_subtotal
