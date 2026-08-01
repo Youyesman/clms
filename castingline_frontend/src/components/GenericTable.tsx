@@ -254,6 +254,7 @@ export function GenericTable({
   selectedIds = [],
   onSelectionChange,
   hidePagination,
+  sortable = true,
 }: any) {
   const tableRef = useRef<HTMLTableElement>(null);
 
@@ -267,6 +268,7 @@ export function GenericTable({
 
   // 내부 정렬 핸들러
   const handleSortClick = (key: string) => {
+    if (!sortable) return;
     if (isExternalSort) {
       onSortChange(key);
     } else {
@@ -373,19 +375,21 @@ export function GenericTable({
                   key={header.key}
                   $stickyLeft={header.stickyLeft}
                   $width={header.width}
+                  style={sortable ? undefined : { cursor: "default" }}
                   onClick={() => handleSortClick(header.key)}
                 >
                   <div className="header-content">
                     {header.label}
-                    {sortKey === header.key ? (
-                      sortOrder === "asc" ? (
-                        <CaretUp size={12} weight="bold" />
+                    {sortable &&
+                      (sortKey === header.key ? (
+                        sortOrder === "asc" ? (
+                          <CaretUp size={12} weight="bold" />
+                        ) : (
+                          <CaretDown size={12} weight="bold" />
+                        )
                       ) : (
-                        <CaretDown size={12} weight="bold" />
-                      )
-                    ) : (
-                      <ArrowsDownUp size={10} color="#64748b" />
-                    )}
+                        <ArrowsDownUp size={10} color="#64748b" />
+                      ))}
                   </div>
                 </StyledTH>
               ))}

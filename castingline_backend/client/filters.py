@@ -20,6 +20,7 @@ class ClientFilter(django_filters.FilterSet):
             "operational_status": ["exact"],
             "classification": ["exact"],
             "theater_kind": ["exact"],
+            "settlement_department": ["exact"],
         }
 
     def filter_name(self, queryset, name, value):

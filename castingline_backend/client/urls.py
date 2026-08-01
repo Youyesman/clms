@@ -17,6 +17,16 @@ urlpatterns = [
         TheaterMapDistributorListView.as_view(),
         name="theater-map-distributors",
     ),
+    path(
+        "settlement-departments/",
+        SettlementDepartmentView.as_view(),
+        name="settlement-departments",
+    ),
+    path(
+        "settlement-departments/<int:pk>/",
+        SettlementDepartmentDetailView.as_view(),
+        name="settlement-department-detail",
+    ),
     path('client-excel-export/',
          ClientExcelExportView.as_view(), name='client-excel'),
     path('theaters-excel-export/',

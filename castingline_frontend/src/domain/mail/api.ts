@@ -1,4 +1,4 @@
-import { AxiosGet } from "../../axios/Axios";
+import { AxiosGet, AxiosPost } from "../../axios/Axios";
 
 export interface IMailFolder {
     name: string; // IMAP 원본(utf7) — 표시용 아님
@@ -64,6 +64,10 @@ export const fetchMessageDetail = (folder: string, uid: number) =>
     AxiosGet(`mail/messages/${uid}/?folder=${enc(folder)}`).then(
         (r) => r.data as IMailDetail
     );
+
+/** 읽음/안읽음 표시 저장 (IMAP seen 의 로컬 오버라이드). */
+export const setMailReadState = (folder: string, uid: number, isRead: boolean) =>
+    AxiosPost("mail/messages/read-state/", { folder, uid, is_read: isRead });
 
 const fetchAttachmentBlob = async (
     folder: string,

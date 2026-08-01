@@ -24,6 +24,8 @@ from xml.etree import ElementTree as ET
 import requests
 from openpyxl import Workbook
 
+from .score_account_filter import filter_accounts
+
 BASE = "https://www.kobis.or.kr"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _SS = "{urn:schemas-microsoft-com:office:spreadsheet}"
@@ -222,15 +224,20 @@ def crawl_one_account(name, user, password, aprv_no, start_dt, end_dt,
     return res
 
 
-def crawl_all_accounts(start_dt, end_dt, includes, excludes, max_workers=4):
+def crawl_all_accounts(start_dt, end_dt, includes, excludes, max_workers=4,
+                       allowed_names=None):
     """모든 배급사 계정 수집 → summary 리스트 (계정 순서 유지).
+
+    allowed_names 가 주어지면(None 아님) 해당 배급사/제작사 계정만 수집한다.
 
     각 항목: {name, ok, error, movies:[{movieCd, movieNm, theaters, visitors,
              filename, xlsx(bytes|None), error}]}
     """
     end_dt = end_dt or start_dt
     _validate_period(start_dt, end_dt)
-    accounts = get_accounts()
+    accounts = filter_accounts(get_accounts(), allowed_names)
+    if not accounts:
+        return []
     order = {a["name"]: i for i, a in enumerate(accounts)}
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:

@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("mail/folders/", views.mail_folders, name="mail-folders"),
     path("mail/messages/", views.mail_messages, name="mail-messages"),
+    path("mail/messages/read-state/", views.mail_read_state, name="mail-read-state"),
     path("mail/lotte-report/", views.mail_lotte_report, name="mail-lotte-report"),
     path("mail/messages/<int:uid>/", views.mail_message_detail, name="mail-message-detail"),
     path(

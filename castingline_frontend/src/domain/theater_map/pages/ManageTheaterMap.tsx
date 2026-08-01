@@ -62,6 +62,7 @@ export function ManageTheaterMap() {
 
     const [currentMaps, setCurrentMaps] = useState<any[]>([]);
     const [selectedPair, setSelectedPair] = useState<any>(null);
+    const [appliedDistName, setAppliedDistName] = useState<string>("");
 
     // 배급사 목록 초기 로드
     useEffect(() => {
@@ -111,6 +112,7 @@ export function ManageTheaterMap() {
             const res = await AxiosGet(`theater-maps/?${params.toString()}`);
             setCurrentMaps(res.data.results || []);
             setTotalCount(res.data.count || 0);
+            setAppliedDistName(selectedDistName);
         } catch (error) {
             console.error(error);
             toast.error("조회 중 오류가 발생했습니다.");
@@ -261,7 +263,25 @@ export function ManageTheaterMap() {
                 <CommonSectionCard flex={1.2}>
                     <CommonListHeader
                         title="극장명 매핑 현황"
-                        subtitle={`(${totalCount})`}
+                        subtitle={
+                            <>
+                                {`(${totalCount})`}
+                                {appliedDistName && (
+                                    <b
+                                        style={{
+                                            marginLeft: 8,
+                                            padding: "2px 8px",
+                                            borderRadius: 4,
+                                            backgroundColor: "#eff6ff",
+                                            border: "1px solid #bfdbfe",
+                                            color: "#1d4ed8",
+                                            fontWeight: 700,
+                                        }}>
+                                        {appliedDistName}
+                                    </b>
+                                )}
+                            </>
+                        }
                         actions={
                             <CustomIconButton
                                 disabled={!selectedDistId}

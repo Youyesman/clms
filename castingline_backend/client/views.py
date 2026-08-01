@@ -1,5 +1,5 @@
 from django.db.models.functions import Collate
-from .models import Client, Theater
+from .models import Client, Theater, SettlementDepartment
 from .serializers import *
 from rest_framework import viewsets, permissions
 from rest_framework.authentication import TokenAuthentication
@@ -574,3 +574,74 @@ class TheaterMapExcelExportView(APIView):
         # 6. 응답 반환
         filename = f"TheaterMap_Export_{datetime.now().strftime('%Y%m%d')}"
         return excel.to_response(filename)
+
+# ── 부금처 목록 관리 ──
+def _serialize_settlement_department(d):
+    return {
+        "id": d.id,
+        "name": d.name,
+        "sort_order": d.sort_order,
+        "client_count": getattr(d, "client_count", 0),
+    }
+
+
+class SettlementDepartmentView(APIView):
+    """부금처 목록/추가.
+    GET  /Api/settlement-departments/  - 전체 목록 (사용 중인 거래처 수 포함)
+    POST /Api/settlement-departments/  - 추가
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        departments = SettlementDepartment.objects.all()
+        counts = dict(
+            Client.objects.exclude(settlement_department__isnull=True)
+            .exclude(settlement_department="")
+            .values_list("settlement_department")
+            .annotate(cnt=Count("id"))
+            .values_list("settlement_department", "cnt")
+        )
+        result = []
+        for d in departments:
+            d.client_count = counts.get(d.name, 0)
+            result.append(_serialize_settlement_department(d))
+        return Response(result)
+
+    def post(self, request):
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response(
+                {"error": "부금처명을 입력하세요."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if SettlementDepartment.objects.filter(name=name).exists():
+            return Response(
+                {"error": "이미 등록된 부금처입니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        last = SettlementDepartment.objects.order_by("-sort_order").first()
+        next_order = (last.sort_order + 1) if last else 0
+        obj = SettlementDepartment.objects.create(name=name, sort_order=next_order)
+        return Response(
+            _serialize_settlement_department(obj), status=status.HTTP_201_CREATED
+        )
+
+
+class SettlementDepartmentDetailView(APIView):
+    """부금처 삭제.
+    DELETE /Api/settlement-departments/<pk>/
+    (목록에서만 제거되며, 거래처에 이미 저장된 부금처 값은 유지된다)
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def delete(self, request, pk):
+        try:
+            obj = SettlementDepartment.objects.get(pk=pk)
+        except SettlementDepartment.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

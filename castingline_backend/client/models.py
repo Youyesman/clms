@@ -94,6 +94,24 @@ class Client(TimeStampedModel):
         return f"{self.client_name} - {self.theater_name}"
 
 
+class SettlementDepartment(models.Model):
+    """
+    부금처 목록.
+    하드코딩 대신 DB로 관리 — 거래처 관리 화면에서 추가/삭제한다.
+    """
+
+    name = models.CharField(max_length=255, unique=True, verbose_name="부금처명")
+    sort_order = models.IntegerField(default=0, verbose_name="정렬순서")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        verbose_name = "부금처"
+
+    def __str__(self):
+        return self.name
+
+
 class Theater(TimeStampedModel):
     client = models.ForeignKey(
         Client,

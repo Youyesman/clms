@@ -21,7 +21,7 @@ from . import lotte_report
 from . import services
 from . import settlement_collector
 from . import xlsx_to_pdf
-from .models import CollectedSettlement, SettlementTargetMovie
+from .models import CollectedSettlement, MailReadState, SettlementTargetMovie
 from .serializers import (
     CollectedSettlementSerializer,
     SettlementTargetMovieSerializer,
@@ -64,9 +64,37 @@ def mail_messages(request):
     page = request.query_params.get("page", 1)
     page_size = request.query_params.get("page_size", 30)
     try:
-        return Response(services.list_messages(folder, page, page_size))
+        data = services.list_messages(folder, page, page_size)
     except Exception as e:
         return Response({"error": f"메일 목록 조회 실패: {e}"}, status=502)
+
+    # 로컬 읽음 상태(MailReadState)가 있으면 IMAP seen 값을 덮어쓴다.
+    results = data.get("results") or []
+    if results:
+        uids = [m["uid"] for m in results if m.get("uid") is not None]
+        overrides = dict(
+            MailReadState.objects.filter(folder=folder, uid__in=uids)
+            .values_list("uid", "is_read")
+        )
+        for m in results:
+            if m.get("uid") in overrides:
+                m["seen"] = overrides[m["uid"]]
+    return Response(data)
+
+
+@api_view(["POST"])
+@_guard
+def mail_read_state(request):
+    """메일 읽음/안읽음 표시 저장. body: {folder, uid, is_read}"""
+    folder = request.data.get("folder") or "INBOX"
+    uid = request.data.get("uid")
+    is_read = request.data.get("is_read")
+    if uid is None or is_read is None:
+        return Response({"error": "uid, is_read 가 필요합니다."}, status=400)
+    MailReadState.objects.update_or_create(
+        folder=folder, uid=int(uid), defaults={"is_read": bool(is_read)}
+    )
+    return Response({"folder": folder, "uid": int(uid), "is_read": bool(is_read)})
 
 
 @api_view(["GET"])

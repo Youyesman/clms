@@ -858,6 +858,12 @@ def confirm_score_save(request):
         )
     if result["rates_created"]:
         message += f" 부율 {result['rates_created']}건이 자동 생성되었습니다."
+    # 극장으로 분류되지 않은 거래처(배급사/제작사/매입처)로 매핑된 행은 저장에서 제외한다.
+    if result.get("skipped_non_theater"):
+        names = ", ".join(result["skipped_non_theater"])
+        message += (
+            f" 극장으로 분류되지 않은 거래처에는 스코어를 업로드할 수 없습니다: {names}"
+        )
 
     return Response(
         {
@@ -866,6 +872,7 @@ def confirm_score_save(request):
             "deleted": result["deleted"],
             "rates_created": result["rates_created"],
             "rates_skipped_no_country": result["rates_skipped_no_country"],
+            "skipped_non_theater": result.get("skipped_non_theater", []),
         },
         status=200,
     )

@@ -11,6 +11,11 @@ from order.models import OrderList, Order
 from datetime import datetime, date
 
 
+# 스코어를 올릴 수 없는 거래처 구분. 극장이 아닌 거래처(배급사/제작사/매입처)는
+# 극장명이 같더라도 스코어 매칭/저장 대상에서 제외한다.
+NON_THEATER_CLIENT_TYPES = ["배급사", "제작사", "매입처"]
+
+
 # 제목 매칭용 정규화: 공백 + 특수문자(-, :, ~, ·, 콤마 등) 제거 후 소문자.
 # 예) "신극장판 은혼-요시와라 대염상" 과 "신극장판은혼:요시와라대염상" 이 같아진다.
 _TITLE_NORM_RE = re.compile(r"[\s\-:~·,.\'\"’“”!?/\\|()\[\]{}&+_=]+")
@@ -57,6 +62,11 @@ class BulkMatcher:
             clients = Client.objects.exclude(theater_kind__in=exclude_kinds)
         else:
             clients = Client.objects.filter(theater_kind=theater_kind)
+
+        # 스코어는 '극장' 거래처에만 들어갈 수 있다. 배급사/제작사/매입처는 이름이 같아도
+        # 매칭 후보에서 제외한다. (예: 배급사 '에무시네마 앤 카페' 가 극장으로 오인 매칭)
+        # 거래처 구분이 비어있는 옛 극장 데이터는 계속 매칭되도록 exclude 형태로 거른다.
+        clients = clients.exclude(client_type__in=NON_THEATER_CLIENT_TYPES)
 
         self.relaxed_aud = bool(exclude_kinds)
         self.name_to_clients = {}  # 정규화이름 -> [Client 객체 리스트]
@@ -1090,13 +1100,18 @@ def collect_replace_scope(data_list):
     if not client_ids:
         return {}
 
+    # 극장이 아닌 거래처(배급사/제작사/매입처)는 저장 대상이 아니므로 삭제 범위에서도 뺀다.
     kind_of = dict(
-        Client.objects.filter(id__in=client_ids).values_list("id", "theater_kind")
+        Client.objects.filter(id__in=client_ids)
+        .exclude(client_type__in=NON_THEATER_CLIENT_TYPES)
+        .values_list("id", "theater_kind")
     )
 
     scope = {}
     for i in data_list:
         if not i.get("movie_id") or not i.get("client_id"):
+            continue
+        if i["client_id"] not in kind_of:
             continue
         kind = kind_of.get(i["client_id"])
         scope.setdefault((i["movie_id"], i["entry_date"]), set()).add(kind or None)
@@ -1173,18 +1188,37 @@ def save_confirmed_scores(data_list):
     빠진 극장이 있어도 옛 행이 남지 않는다.
 
     반환: {"saved": 저장 건수, "deleted": 삭제 건수, "rates_created": 부율 생성 건수,
-           "rates_skipped_no_country": [영화명]}
+           "rates_skipped_no_country": [영화명],
+           "skipped_non_theater": [극장으로 분류되지 않아 제외된 거래처명]}
     """
     from .auto_rate import auto_create_rates
 
     # 1. 유효 데이터 필터링 (영화와 극장이 모두 매칭된 데이터만)
     valid_data = [i for i in data_list if i.get("movie_id") and i.get("client_id")]
+
+    # 1-1. 안전장치: 극장으로 분류되지 않은 거래처(배급사/제작사/매입처)에는 스코어를 저장하지 않는다.
+    # 매칭 단계(BulkMatcher)에서 이미 걸러지지만, 수동 극장 매핑 등으로 들어온 값도 여기서 막는다.
+    skipped_non_theater = []
+    if valid_data:
+        non_theater = dict(
+            Client.objects.filter(
+                id__in={i["client_id"] for i in valid_data},
+                client_type__in=NON_THEATER_CLIENT_TYPES,
+            ).values_list("id", "client_name")
+        )
+        if non_theater:
+            valid_data = [i for i in valid_data if i["client_id"] not in non_theater]
+            skipped_non_theater = sorted(
+                {name or "" for name in non_theater.values()}
+            )
+
     if not valid_data:
         return {
             "saved": 0,
             "deleted": 0,
             "rates_created": 0,
             "rates_skipped_no_country": [],
+            "skipped_non_theater": skipped_non_theater,
         }
 
     # 2. 오더(OrderList/Order) 변경분 준비
@@ -1261,4 +1295,5 @@ def save_confirmed_scores(data_list):
         "deleted": deleted_count,
         "rates_created": rate_result["created"],
         "rates_skipped_no_country": rate_result["skipped_no_country"],
+        "skipped_non_theater": skipped_non_theater,
     }

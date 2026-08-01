@@ -1409,6 +1409,9 @@ export function ManageSettlement() {
                     <GenericTable
                         headers={headers}
                         data={displayedSettlements}
+                        // 서버가 브랜드/직영/지역 순 정렬 + 소계 행을 만들어 주므로
+                        // 클라이언트 정렬 금지 (정렬 상태가 남아 특정 행이 상단 고정되는 문제 방지)
+                        sortable={false}
                         // Key를 더 고유하게 만들어 리액트 엔진의 혼동 방지
                         getRowKey={(item: any, idx: number) =>
                             item.is_subtotal

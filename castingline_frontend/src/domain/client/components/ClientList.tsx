@@ -39,6 +39,8 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
         if (filter.classification && filter.classification !== "전체")
             params.append("classification", filter.classification);
         if (filter.multi && filter.multi !== "전체") params.append("theater_kind", filter.multi);
+        if (filter.settlementDepartment && filter.settlementDepartment !== "전체")
+            params.append("settlement_department", filter.settlementDepartment);
 
         if (sortKey) {
             const ordering = sortOrder === "desc" ? `-${sortKey}` : sortKey;

@@ -10,6 +10,8 @@ export interface ScoreFilterDate {
     date: string;      // 단일날짜 페이지용 (ScorePage, CriteriaPage, SeatRatePage)
     dateFrom: string;  // 범위 시작 (DailyStatusPage, RankingPage)
     dateTo: string;    // 범위 끝
+    yyyy: string;      // 조회 연도 (메뉴 간 연동)
+    movieId: string;   // 선택 영화 (메뉴 간 연동)
 }
 
 export const ScoreFilterState = atom<ScoreFilterDate>({
@@ -18,5 +20,7 @@ export const ScoreFilterState = atom<ScoreFilterDate>({
         date: yesterday(),
         dateFrom: yesterday(),
         dateTo: yesterday(),
+        yyyy: new Date().getFullYear().toString(),
+        movieId: "",
     },
 });

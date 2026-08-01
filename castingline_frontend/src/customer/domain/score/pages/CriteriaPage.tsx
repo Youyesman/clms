@@ -119,8 +119,16 @@ const GrandTotalRow = styled.tr`
         color: #1e40af !important;
         background: #dbeafe !important;
         font-size: 13px;
+        /* 스크롤 없이 항상 보이도록 하단 고정 */
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
+        border-top: 1px solid #93c5fd;
     }
 `;
+
+/* 숫자 콤마 표기 (0/빈값은 공백) */
+const fmt = (n: any) => (n ? Number(n).toLocaleString("ko-KR") : "");
 
 /* ── 컴포넌트 ── */
 export function CriteriaPage() {
@@ -130,8 +138,8 @@ export function CriteriaPage() {
     const [data, setData] = useState<any>({ meta: null, rows: [] });
 
     const [searchParams, setSearchParams] = useState({
-        yyyy: new Date().getFullYear().toString(),
-        movie_id: "",
+        yyyy: scoreFilter.yyyy,
+        movie_id: scoreFilter.movieId,
         region: "전체",
         multi: "전체",
         theater_type: "전체",
@@ -166,13 +174,17 @@ export function CriteriaPage() {
         AxiosGet(`score/movies-by-year/`, { params: { year } })
             .then((res) => {
                 setMoviesList(res.data || []);
-                setSearchParams((p) => ({ ...p, movie_id: "" }));
-                setFormatOptions([]); setSelectedFormats([]);
             })
             .catch((err) => toast.error(handleBackendErrors(err)));
     }, [toast]);
 
     useEffect(() => { fetchMoviesByYear(searchParams.yyyy); }, [searchParams.yyyy, fetchMoviesByYear]);
+
+    // 다른 메뉴에서 넘어온 영화 선택이 있으면 포맷 목록도 같이 로드
+    useEffect(() => {
+        if (searchParams.movie_id) fetchMovieFormats(searchParams.movie_id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // 데이터 조회
     const fetchData = useCallback(() => {
@@ -335,7 +347,12 @@ export function CriteriaPage() {
                             label="연도"
                             options={yearOptions}
                             value={searchParams.yyyy}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, yyyy: v }))}
+                            onChange={(v) => {
+                                setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                setFormatOptions([]);
+                                setSelectedFormats([]);
+                            }}
                         />
                     </div>
                     <div>
@@ -347,6 +364,7 @@ export function CriteriaPage() {
                             value={searchParams.movie_id}
                             onChange={(val) => {
                                 setSearchParams((p) => ({ ...p, movie_id: val }));
+                                setScoreFilter((f) => ({ ...f, movieId: val }));
                                 fetchMovieFormats(val);
                             }}
                         />
@@ -443,11 +461,11 @@ export function CriteriaPage() {
                                 return (
                                     <SubtotalRow key={`sub-${idx}`}>
                                         <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{s || ""}</td>)}
-                                        <td>{row.daily_total || ""}</td>
-                                        <td>{row.prev_day || ""}</td>
-                                        <td>{row.prev_week || ""}</td>
-                                        <td>{row.cumulative || ""}</td>
+                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                        <td>{fmt(row.daily_total)}</td>
+                                        <td>{fmt(row.prev_day)}</td>
+                                        <td>{fmt(row.prev_week)}</td>
+                                        <td>{fmt(row.cumulative)}</td>
                                     </SubtotalRow>
                                 );
                             }
@@ -455,11 +473,11 @@ export function CriteriaPage() {
                                 return (
                                     <SubtotalRow key={`tsub-${idx}`}>
                                         <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{s || ""}</td>)}
-                                        <td>{row.daily_total || ""}</td>
-                                        <td>{row.prev_day || ""}</td>
-                                        <td>{row.prev_week || ""}</td>
-                                        <td>{row.cumulative || ""}</td>
+                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                        <td>{fmt(row.daily_total)}</td>
+                                        <td>{fmt(row.prev_day)}</td>
+                                        <td>{fmt(row.prev_week)}</td>
+                                        <td>{fmt(row.cumulative)}</td>
                                     </SubtotalRow>
                                 );
                             }
@@ -467,11 +485,11 @@ export function CriteriaPage() {
                                 return (
                                     <GrandTotalRow key={`grand-${idx}`}>
                                         <td colSpan={7} style={{ textAlign: "center" }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{s || ""}</td>)}
-                                        <td>{row.daily_total || ""}</td>
-                                        <td>{row.prev_day || ""}</td>
-                                        <td>{row.prev_week || ""}</td>
-                                        <td>{row.cumulative || ""}</td>
+                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                        <td>{fmt(row.daily_total)}</td>
+                                        <td>{fmt(row.prev_day)}</td>
+                                        <td>{fmt(row.prev_week)}</td>
+                                        <td>{fmt(row.cumulative)}</td>
                                     </GrandTotalRow>
                                 );
                             }
@@ -485,14 +503,14 @@ export function CriteriaPage() {
                                     <td>{row.format}</td>
                                     <td>{row.theater}</td>
                                     <td>{row.auditorium}</td>
-                                    <td>{row.fare}</td>
+                                    <td>{fmt(row.fare)}</td>
                                     {row.sessions.map((s: number, i: number) => (
-                                        <td key={i}>{s || ""}</td>
+                                        <td key={i}>{fmt(s)}</td>
                                     ))}
-                                    <td style={{ fontWeight: 600 }}>{row.daily_total || ""}</td>
-                                    <td>{row.prev_day || ""}</td>
-                                    <td>{row.prev_week || ""}</td>
-                                    <td>{row.cumulative || ""}</td>
+                                    <td style={{ fontWeight: 600 }}>{fmt(row.daily_total)}</td>
+                                    <td>{fmt(row.prev_day)}</td>
+                                    <td>{fmt(row.prev_week)}</td>
+                                    <td>{fmt(row.cumulative)}</td>
                                 </tr>
                             );
                         })}

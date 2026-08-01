@@ -18,6 +18,7 @@ import {
     fetchFolders,
     fetchMessages,
     fetchMessageDetail,
+    setMailReadState,
     downloadAttachment,
     fetchAttachmentFile,
     downloadLotteReport,
@@ -107,11 +108,45 @@ export const Mailbox = () => {
         loadList(folder, page);
     }, [folder, page, loadList]);
 
+    // ── 읽음/안읽음 표시 ──
+    const markReadState = (uid: number, isRead: boolean) => {
+        // 낙관적 갱신 + 서버 저장 (실패해도 화면 동작엔 지장 없음)
+        setList((prev) =>
+            prev.map((m) => (m.uid === uid ? { ...m, seen: isRead } : m))
+        );
+        setMailReadState(folder, uid, isRead).catch(() => {});
+    };
+
+    // ── 우클릭 컨텍스트 메뉴 ──
+    const [contextMenu, setContextMenu] = useState<{
+        x: number;
+        y: number;
+        uid: number;
+        seen: boolean;
+    } | null>(null);
+
+    useEffect(() => {
+        if (!contextMenu) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setContextMenu(null);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [contextMenu]);
+
+    const onRowContextMenu = (e: React.MouseEvent, m: IMailListItem) => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY, uid: m.uid, seen: m.seen });
+    };
+
     // ── 메일 상세 ──
     const openMessage = (uid: number) => {
         setSelectedUid(uid);
         setDetail(null);
         setDetailLoading(true);
+        // 클릭(조회)한 메일은 읽음으로 표시
+        const row = list.find((m) => m.uid === uid);
+        if (row && !row.seen) markReadState(uid, true);
         fetchMessageDetail(folder, uid)
             .then(setDetail)
             .catch((e) =>
@@ -285,6 +320,7 @@ export const Mailbox = () => {
                                     $active={selectedUid === m.uid}
                                     $unread={!m.seen}
                                     onClick={() => openMessage(m.uid)}
+                                    onContextMenu={(e) => onRowContextMenu(e, m)}
                                 >
                                     <RowIcon>
                                         {m.seen ? (
@@ -300,7 +336,9 @@ export const Mailbox = () => {
                                                 {fmtDate(m.date)}
                                             </span>
                                         </RowTop>
-                                        <RowSubject>{m.subject || "(제목 없음)"}</RowSubject>
+                                        <RowSubject className="subject">
+                                            {m.subject || "(제목 없음)"}
+                                        </RowSubject>
                                     </RowMain>
                                 </Row>
                             ))
@@ -457,6 +495,35 @@ export const Mailbox = () => {
                     )}
                 </DetailPane>
             </Body>
+
+            {/* ── 우클릭 컨텍스트 메뉴 (읽음/안읽음 표시) ── */}
+            {contextMenu && (
+                <>
+                    <ContextMenuOverlay onClick={() => setContextMenu(null)} />
+                    <ContextMenuContainer
+                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                    >
+                        <ContextMenuItem
+                            onClick={() => {
+                                markReadState(contextMenu.uid, !contextMenu.seen);
+                                setContextMenu(null);
+                            }}
+                        >
+                            {contextMenu.seen ? (
+                                <>
+                                    <EnvelopeSimple size={14} weight="bold" />
+                                    안읽음으로 표시
+                                </>
+                            ) : (
+                                <>
+                                    <EnvelopeSimpleOpen size={14} weight="bold" />
+                                    읽음으로 표시
+                                </>
+                            )}
+                        </ContextMenuItem>
+                    </ContextMenuContainer>
+                </>
+            )}
         </Wrapper>
     );
 };
@@ -591,6 +658,19 @@ const Row = styled.div<{ $active: boolean; $unread: boolean }>`
     &:hover {
         background: ${({ $active }) => ($active ? "#eff6ff" : "#f8fafc")};
     }
+
+    /* 이미 조회(읽음)한 메일은 회색으로 표시 */
+    ${({ $unread }) =>
+        !$unread &&
+        `
+        .from {
+            color: #94a3b8 !important;
+            font-weight: 500 !important;
+        }
+        .subject {
+            color: #94a3b8 !important;
+        }
+    `}
 `;
 const RowIcon = styled.div`
     color: #94a3b8;
@@ -627,6 +707,37 @@ const RowSubject = styled.div`
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+`;
+const ContextMenuOverlay = styled.div`
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+`;
+const ContextMenuContainer = styled.div`
+    position: fixed;
+    z-index: 1001;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    padding: 4px;
+    min-width: 160px;
+`;
+const ContextMenuItem = styled.button`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #334155;
+    border-radius: 6px;
+    cursor: pointer;
+    &:hover {
+        background: #f1f5f9;
+    }
 `;
 const DetailPane = styled.div`
     display: flex;

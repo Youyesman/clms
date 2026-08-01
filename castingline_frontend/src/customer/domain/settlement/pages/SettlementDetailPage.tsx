@@ -281,6 +281,11 @@ const TotalRow = styled.tr`
         color: #1e40af !important;
         background: #dbeafe !important;
         font-size: 11px;
+        /* 스크롤 없이 항상 보이도록 하단 고정 */
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
+        border-top: 1px solid #93c5fd;
     }
 `;
 

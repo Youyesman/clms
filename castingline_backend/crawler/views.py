@@ -969,6 +969,7 @@ import base64 as _base64
 import urllib.parse as _urlparse
 from django.http import HttpResponse
 from crawler.megabox_score import crawl_megabox_score, crawl_all_accounts
+from crawler.score_account_filter import resolve_allowed_company_names
 
 
 class MegaboxScoreCrawlView(APIView):
@@ -1032,8 +1033,11 @@ class MegaboxScoreAllView(APIView):
         if not start:
             return Response({"error": "start(상영일)은 필수입니다."},
                             status=status.HTTP_400_BAD_REQUEST)
+        # 영화명 키워드가 있으면 영화 관리에 등록된 배급사/제작사 계정만 로그인
+        allowed_names = resolve_allowed_company_names(includes)
         try:
-            summary = crawl_all_accounts(start, end, includes, excludes)
+            summary = crawl_all_accounts(start, end, includes, excludes,
+                                         allowed_names=allowed_names)
         except Exception as e:
             return Response({"error": f"메가박스 크롤 실패: {e}"},
                             status=status.HTTP_502_BAD_GATEWAY)
@@ -1169,8 +1173,11 @@ class CineQScoreAllView(APIView):
         if not start:
             return Response({"error": "start(상영일)은 필수입니다."},
                             status=status.HTTP_400_BAD_REQUEST)
+        # 영화명 키워드가 있으면 영화 관리에 등록된 배급사/제작사 계정만 로그인
+        allowed_names = resolve_allowed_company_names(includes)
         try:
-            summary = crawl_cineq_all_accounts(start, end, includes, excludes)
+            summary = crawl_cineq_all_accounts(start, end, includes, excludes,
+                                               allowed_names=allowed_names)
         except Exception as e:
             return Response({"error": f"씨네큐 크롤 실패: {e}"},
                             status=status.HTTP_502_BAD_GATEWAY)
@@ -1309,8 +1316,11 @@ class KobisScoreAllView(APIView):
         if not start:
             return Response({"error": "start(상영일)은 필수입니다."},
                             status=status.HTTP_400_BAD_REQUEST)
+        # 영화명 키워드가 있으면 영화 관리에 등록된 배급사/제작사 계정만 로그인
+        allowed_names = resolve_allowed_company_names(includes)
         try:
-            summary = crawl_kobis_all_accounts(start, end, includes, excludes)
+            summary = crawl_kobis_all_accounts(start, end, includes, excludes,
+                                               allowed_names=allowed_names)
         except Exception as e:
             return Response({"error": f"KOBIS 수집 실패: {e}"},
                             status=status.HTTP_502_BAD_GATEWAY)

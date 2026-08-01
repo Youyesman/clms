@@ -201,6 +201,7 @@ def _date_range(start_de, end_de, max_days=31):
 from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: E402
 
 from .cineq_accounts import CINEQ_ACCOUNTS  # noqa: E402
+from .score_account_filter import filter_accounts  # noqa: E402
 
 
 def get_accounts():
@@ -248,8 +249,11 @@ def _safe_name(s):
     return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
 
 
-def crawl_all_accounts(start_de, end_de, includes, excludes, max_workers=10):
+def crawl_all_accounts(start_de, end_de, includes, excludes, max_workers=10,
+                       allowed_names=None):
     """모든 배급사 계정 크롤 → 배급사별 개별 엑셀.
+
+    allowed_names 가 주어지면(None 아님) 해당 배급사/제작사 계정만 크롤한다.
 
     반환: summary 리스트. 각 항목:
       {name, ok, error, row_count, movies, filename, xlsx(bytes 또는 None)}
@@ -260,7 +264,9 @@ def crawl_all_accounts(start_de, end_de, includes, excludes, max_workers=10):
     excludes = [e for e in (excludes or []) if e]
     dates = _date_range(start_de, end_de)
 
-    accounts = get_accounts()
+    accounts = filter_accounts(get_accounts(), allowed_names)
+    if not accounts:
+        return []
     order = {a["name"]: i for i, a in enumerate(accounts)}
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:

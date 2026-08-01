@@ -95,4 +95,47 @@ class MovieSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
 
         instance.save()
+
+        if instance.is_primary_movie and (instance.movie_code or "").strip():
+            self._propagate_to_sub_movies(instance)
+
         return instance
+
+    # 대표 영화 수정 시 하위 영화(프린트)에 동일 반영. [상영 및 일정] 필드는 제외.
+    SUB_MOVIE_SYNC_FIELDS = [
+        "title_en",
+        "running_time_minutes",
+        "rating",
+        "genre",
+        "country",
+        "director",
+        "cast",
+        "distributor",
+        "distributor_2",
+        "distributor_3",
+        "production_company",
+        "production_company_2",
+        "production_company_3",
+    ]
+
+    def _propagate_to_sub_movies(self, primary):
+        from django.db.models.functions import Trim
+
+        base_title = primary.title_ko.split("(")[0].strip() if primary.title_ko else ""
+        subs = (
+            Movie.objects.annotate(trimmed_code=Trim("primary_movie_code"))
+            .filter(trimmed_code=primary.movie_code.strip())
+            .exclude(pk=primary.pk)
+        )
+        for sub in subs:
+            for field in self.SUB_MOVIE_SYNC_FIELDS:
+                setattr(sub, field, getattr(primary, field))
+
+            # 제목은 기본 제목만 동기화하고 하위 영화의 포맷 접미사는 유지
+            if base_title:
+                suffix = ""
+                if sub.title_ko and "(" in sub.title_ko:
+                    suffix = " (" + sub.title_ko.split("(", 1)[1]
+                sub.title_ko = base_title + suffix
+
+            sub.save()

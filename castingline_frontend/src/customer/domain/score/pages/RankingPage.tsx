@@ -150,6 +150,11 @@ const TotalRow = styled.tr`
     td {
         color: #1e40af !important;
         background: #dbeafe !important;
+        /* 스크롤 없이 항상 보이도록 하단 고정 */
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
+        border-top: 1px solid #93c5fd;
     }
 `;
 
@@ -170,8 +175,8 @@ export function RankingPage() {
     const [sortKey, setSortKey] = useState<SortKey>("visitor");
 
     const [searchParams, setSearchParams] = useState({
-        yyyy: new Date().getFullYear().toString(),
-        movie_id: "",
+        yyyy: scoreFilter.yyyy,
+        movie_id: scoreFilter.movieId,
         region: "전체",
         multi: "전체",
         theater_type: "전체",
@@ -204,9 +209,6 @@ export function RankingPage() {
             AxiosGet(`score/movies-by-year/`, { params: { year } })
                 .then((res) => {
                     setMoviesList(res.data || []);
-                    setSearchParams((p) => ({ ...p, movie_id: "" }));
-                    setFormatOptions([]);
-                    setSelectedFormats([]);
                 })
                 .catch((err) => toast.error(handleBackendErrors(err)));
         },
@@ -233,6 +235,12 @@ export function RankingPage() {
     useEffect(() => {
         fetchMoviesByYear(searchParams.yyyy);
     }, [searchParams.yyyy, fetchMoviesByYear]);
+
+    // 다른 메뉴에서 넘어온 영화 선택이 있으면 포맷 목록도 같이 로드
+    useEffect(() => {
+        if (searchParams.movie_id) fetchMovieFormats(searchParams.movie_id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const fetchData = useCallback(() => {
         if (!searchParams.movie_id) return;
@@ -338,9 +346,12 @@ export function RankingPage() {
                         label="연도"
                         options={yearOptions}
                         value={searchParams.yyyy}
-                        onChange={(v) =>
-                            setSearchParams((p) => ({ ...p, yyyy: v }))
-                        }
+                        onChange={(v) => {
+                            setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                            setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                            setFormatOptions([]);
+                            setSelectedFormats([]);
+                        }}
                     />
                 </div>
                 <div>
@@ -355,6 +366,7 @@ export function RankingPage() {
                         value={searchParams.movie_id}
                         onChange={(val) => {
                             setSearchParams((p) => ({ ...p, movie_id: val }));
+                            setScoreFilter((f) => ({ ...f, movieId: val }));
                             fetchMovieFormats(val);
                         }}
                     />

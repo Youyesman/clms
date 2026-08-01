@@ -12,7 +12,9 @@ import { Theater } from "../components/Theater";
 import { ClientList } from "../components/ClientList";
 import { Rate } from "../components/Fare";
 import { ClientDetail } from "../components/ClientDetail";
+import { SettlementDepartmentSettings } from "../components/SettlementDepartmentSettings";
 import { useAppAlert } from "../../../atom/alertUtils";
+import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { OPERATIONAL_STATUS_OPTIONS, CLIENT_TYPES, MANAGEMENT_TYPES, THEATER_KINDS } from "../../../constant/Constants";
 import dayjs from "dayjs";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
@@ -94,7 +96,29 @@ export function ManageClient() {
         status: "true", // 기본값 "true" (사용)
         classification: "전체",
         multi: "전체",
+        settlementDepartment: "전체",
     });
+
+    // 부금처 목록 (DB 관리)
+    const { openModal } = useGlobalModal();
+    const [settlementDepartments, setSettlementDepartments] = useState<string[]>([]);
+
+    const loadSettlementDepartments = () => {
+        AxiosGet("settlement-departments/")
+            .then((res) => setSettlementDepartments(res.data.map((d: any) => d.name)))
+            .catch(() => setSettlementDepartments([]));
+    };
+
+    useEffect(() => {
+        loadSettlementDepartments();
+    }, []);
+
+    const openSettlementSettings = () => {
+        openModal(<SettlementDepartmentSettings onChanged={loadSettlementDepartments} />, {
+            title: "부금처 목록 관리",
+            width: "560px",
+        });
+    };
 
     // ✅ 컴포넌트용 필터 변경 핸들러
     const handleFilterUpdate = (name: string, value: string) => {
@@ -290,7 +314,10 @@ export function ManageClient() {
             if (filter.multi && filter.multi !== "전체") {
                 params.append("theater_kind", filter.multi);
             }
-            
+            if (filter.settlementDepartment && filter.settlementDepartment !== "전체") {
+                params.append("settlement_department", filter.settlementDepartment);
+            }
+
             const res = await AxiosGet(`client-excel-export/?${params.toString()}`, {
                 responseType: "blob",
             });
@@ -361,6 +388,13 @@ export function ManageClient() {
                     onChange={(v) => handleFilterUpdate("multi", v)}
                     size="sm"
                 />
+                <CustomSelect
+                    label="부금처"
+                    options={["전체", ...settlementDepartments]}
+                    value={filter.settlementDepartment}
+                    onChange={(v) => handleFilterUpdate("settlementDepartment", v)}
+                    size="sm"
+                />
             </CommonFilterBar>
 
             <MainGrid>
@@ -416,6 +450,8 @@ export function ManageClient() {
                         handleInputChange={handleInputChange}
                         handleUpdateClient={handleUpdateClient}
                         handleBulkUpdateSettlement={handleBulkUpdateSettlement}
+                        settlementDepartments={settlementDepartments}
+                        onOpenSettlementSettings={openSettlementSettings}
                     />
                 </RightSection>
             </MainGrid>

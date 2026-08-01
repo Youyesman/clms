@@ -254,6 +254,10 @@ const GrandTotalRow = styled.tr`
         font-weight: 700;
         font-size: 11px;
         border-top: 2px solid #1d4ed8 !important;
+        /* 스크롤 없이 항상 보이도록 하단 고정 */
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
     }
     &:hover td {
         background: #1e3a8a !important;

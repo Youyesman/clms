@@ -143,3 +143,31 @@ class CollectedMailLog(models.Model):
 
     def __str__(self):
         return f"{self.mail_folder}#{self.mail_uid}"
+
+
+class MailReadState(models.Model):
+    """메일함 화면에서의 읽음/안읽음 표시 상태 (IMAP \\Seen 플래그의 로컬 오버라이드).
+
+    IMAP 은 읽기 전용(PEEK)으로만 접근하므로 앱에서 메일을 열어도 서버의 \\Seen 은
+    바뀌지 않는다. 대신 열람/우클릭 조작을 이 표에 기록하고, 목록 조회 시
+    오버라이드가 있으면 IMAP seen 값 대신 이 값을 쓴다.
+    """
+
+    folder = models.CharField(max_length=255)
+    uid = models.IntegerField()
+    is_read = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["folder", "uid"],
+                name="uniq_mail_read_state",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["folder", "uid"]),
+        ]
+
+    def __str__(self):
+        return f"{self.folder}#{self.uid} read={self.is_read}"

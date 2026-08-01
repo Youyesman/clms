@@ -2,9 +2,9 @@ import React from "react";
 import styled from "styled-components";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
-import { DiscIcon, FloppyDisk, FloppyDiskIcon } from "@phosphor-icons/react";
+import { DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
-import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, RATE_EXCEPTION_TYPES, REGION_CODES, SETTLEMENT_DEPARTMENTS, THEATER_KINDS } from "../../../constant/Constants";
+import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, RATE_EXCEPTION_TYPES, REGION_CODES, THEATER_KINDS } from "../../../constant/Constants";
 import { useToast } from "../../../components/common/CustomToast";
 import { AxiosPatch } from "../../../axios/Axios";
 import { useAppAlert } from "../../../atom/alertUtils";
@@ -74,7 +74,7 @@ const InlineRow = styled.div`
     gap: 8px;
     grid-column: span 1; /* 또는 레이아웃에 맞춰 조정 */
 `;
-export function ClientDetail({ selectedClient, formData, setFormData, handleInputChange, handleUpdateClient, handleBulkUpdateSettlement }) {
+export function ClientDetail({ selectedClient, formData, setFormData, handleInputChange, handleUpdateClient, handleBulkUpdateSettlement, settlementDepartments, onOpenSettlementSettings }) {
     const toast = useToast()
     const { showAlert } = useAppAlert()
     const updateField = (name: string, value: any) => {
@@ -152,12 +152,19 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                                         label="부금처"
                                         value={formData.settlement_department || ""}
                                         onChange={(v) => updateField("settlement_department", v)}
-                                        options={SETTLEMENT_DEPARTMENTS}
+                                        options={settlementDepartments || []}
                                         size="sm"
                                     />
                                 </div>
                                 <CustomIconButton
+                                    onClick={onOpenSettlementSettings}
+                                    title="부금처 목록 관리"
+                                >
+                                    <Gear />
+                                </CustomIconButton>
+                                <CustomIconButton
                                     onClick={handleBulkUpdateSettlement}
+                                    title="부금처 정보 일괄 저장"
                                 >
                                     <FloppyDiskIcon ></FloppyDiskIcon >
                                 </CustomIconButton>

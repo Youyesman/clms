@@ -9,20 +9,6 @@ export const LEGAL_ENTITY_TYPES = ["법인", "개인"]
 /** 지역 구분 */
 export const REGION_CODES = ["서울", "경강", "경남", "경북", "충청", "호남"]
 
-/** 부금처 목록 */
-export const SETTLEMENT_DEPARTMENTS = [
-    "CGV 직영",
-    "롯데 직영",
-    "메가박스 직영",
-    "시네마케이",
-    "알엔알",
-    "삼광필름",
-    "포스시네마",
-    "작은영화관 주식회사",
-    "JT미디어",
-    "지원"
-]
-
 /** 운영 상태: true=영업중, false=폐관 */
 export const OPERATIONAL_STATUS_OPTIONS = [
     { label: "사용", value: "true" },
