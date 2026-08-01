@@ -1,0 +1,46 @@
+name: Daily DB Backup
+
+# 매일 KST 03:00 (UTC 18:00) 운영 DB를 서버에서 pg_dump 하고,
+# 서버에 14일 롤링 보관 + 러너로 내려받아 GitHub 아티팩트(3일)로 오프사이트 보관.
+# 수동 실행: Actions 탭 → Daily DB Backup → Run workflow
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run pg_dump on server (14-day rolling)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            chmod +x /home/clms/deployment/backup_db.sh
+            /home/clms/deployment/backup_db.sh
+
+      - name: Download dump to runner
+        env:
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SERVER: ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}
+        run: |
+          mkdir -p ~/.ssh backup
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy \
+            "$SERVER:/home/clms/backups/latest.dump" \
+            "backup/clms_db_new_$(TZ=Asia/Seoul date +%Y%m%d).dump"
+          ls -lh backup/
+
+      # 오프사이트 사본 — 덤프가 커서(약 90MB/일) 보관일을 짧게 유지 (저장 용량 한도 대비)
+      - name: Upload artifact (off-site copy, 3 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: clms-db-backup-${{ github.run_number }}
+          path: backup/
+          retention-days: 3
