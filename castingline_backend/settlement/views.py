@@ -250,6 +250,28 @@ class SettlementListView(APIView):
                         and it.get("부가세") == adj.vat_original
                         and it.get("영화사 지급금") == adj.payout_original
                     ]
+                    amount_delta_exists = bool(adj.supply_delta or adj.vat_delta
+                                               or adj.payout_delta)
+                    if (not orig_matched and adj.supply_original is not None
+                            and amount_delta_exists):
+                        # 원본 금액이 어떤 행과도 안 맞음 = 조정 이후 부율/스코어가
+                        # 바뀌어 기준이 깨진 조정. 금액을 조용히 얹지 않고 적용을
+                        # 중지하고 경고만 표시한다 (해제 후 재수정 유도).
+                        tgt = max(candidates, key=lambda it: it["영화사 지급금"])
+                        if adj.date_to_override:  # 날짜 확정은 부율과 무관하므로 유지
+                            tgt["날짜(To)"] = adj.date_to_override.strftime("%Y-%m-%d")
+                            if show_adjustment_info:
+                                tgt["날짜조정"] = {
+                                    "원본": adj.date_to_original or "",
+                                    "조정ID": adj.id,
+                                }
+                        if show_adjustment_info:
+                            tgt["조정경고"] = {
+                                "조정ID": adj.id,
+                                "사유": ("조정 후 부율·스코어가 바뀌어 계산값이 달라졌습니다. "
+                                        "이 조정은 적용되지 않았습니다 — 해제 후 다시 수정해주세요."),
+                            }
+                        continue
                     tgt = (orig_matched[0] if orig_matched
                            else max(candidates, key=lambda it: it["영화사 지급금"]))
                     tgt["공급가액"] += adj.supply_delta

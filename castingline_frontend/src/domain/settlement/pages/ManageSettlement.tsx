@@ -822,6 +822,34 @@ export function ManageSettlement() {
         );
     };
 
+    /** 부율·스코어 변경으로 적용이 중지된 조정(조정경고) 해제 — 금액은 이미 미적용이라
+     *  로컬에서는 경고 표시만 지운다 */
+    const handleRemoveStaleAdjustment = (row: any) => {
+        const warn = row?.["조정경고"];
+        if (!warn?.["조정ID"]) return;
+        showAlert(
+            "적용 중지된 조정 해제",
+            `'${row["극장명"]}'의 금액 수동조정을 해제할까요?\n(부율·스코어 변경으로 현재 적용되지 않은 조정입니다. 필요하면 해제 후 다시 수정해주세요.)`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete(`settlement-adjustments/${warn["조정ID"]}`, "amount");
+                    toast.success("조정을 해제했습니다. 필요하면 다시 수정해주세요.");
+                    setSettlements((prev) =>
+                        prev.map((r) =>
+                            !r.is_subtotal && r["조정경고"]?.["조정ID"] === warn["조정ID"]
+                                ? { ...r, 조정경고: undefined }
+                                : r
+                        )
+                    );
+                } catch (e: any) {
+                    toast.error(e?.response?.data?.error || "해제에 실패했습니다.");
+                }
+            },
+            true
+        );
+    };
+
     /** 수동조정 해제 — scope: "date"=날짜 확정만, "amount"=금액 조정만, 없으면 전체.
      *  해제 결과는 재조회 없이 목록에 즉시 반영 (스크롤 유지, F001) */
     const handleRemoveAdjustment = (row: any, scope?: "date" | "amount") => {
@@ -1090,6 +1118,54 @@ export function ManageSettlement() {
                 )
                     return "";
                 if (row["지역"] === "전체 총계") return "";
+                // 부율·스코어 변경으로 적용이 중지된 조정: 경고 태그 + 해제/재수정 (K002 후속)
+                if (row["조정경고"]) {
+                    return (
+                        <span title={row["조정경고"]["사유"]}>
+                            <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 11 }}>
+                                ⚠ 기준 변경
+                            </span>
+                            <button
+                                title="적용 중지된 금액 조정 해제 (날짜 확정은 유지)"
+                                style={{
+                                    marginLeft: 5,
+                                    padding: "1px 6px",
+                                    fontSize: 11,
+                                    border: "1px solid #fecaca",
+                                    borderRadius: 4,
+                                    background: "#fff",
+                                    color: "#dc2626",
+                                    cursor: "pointer",
+                                }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveStaleAdjustment(row);
+                                }}
+                            >
+                                해제
+                            </button>
+                            <button
+                                title="현재 계산값 기준으로 다시 수정 (기존 조정을 대체)"
+                                style={{
+                                    marginLeft: 4,
+                                    padding: "1px 6px",
+                                    fontSize: 11,
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: 4,
+                                    background: "#fff",
+                                    color: "#334155",
+                                    cursor: "pointer",
+                                }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAmountEdit(row);
+                                }}
+                            >
+                                수정
+                            </button>
+                        </span>
+                    );
+                }
                 // 금액이 수동조정된 행: 태그 + 금액 조정만 해제 (날짜 확정은 유지)
                 if (row.is_adjusted) {
                     return (
