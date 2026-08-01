@@ -199,7 +199,8 @@ interface Props {
 }
 
 // dirtyMatrix: fare → show → newValue (로컬에서 편집한 값만 추적)
-type DirtyMatrix = Record<number, Record<number, number>>;
+// null = 빈칸(기존 스코어 삭제), 0 = 명시적 0명 스코어 저장 (A001)
+type DirtyMatrix = Record<number, Record<number, number | null>>;
 
 export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSelectedScore }: Props) {
     const { openModal } = useGlobalModal();
@@ -237,8 +238,13 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     }, [selectedScore]);
 
     // 서버 매트릭스 계산
-    const { serverMatrix, filteredScores } = useMemo(() => {
-        if (!selectedScore) return { serverMatrix: {} as Record<number, Record<number, number>>, filteredScores: [] as ScoreItem[] };
+    const { serverMatrix, serverHasRow, filteredScores } = useMemo(() => {
+        if (!selectedScore)
+            return {
+                serverMatrix: {} as Record<number, Record<number, number>>,
+                serverHasRow: {} as Record<number, Record<number, boolean>>,
+                filteredScores: [] as ScoreItem[],
+            };
         const targetClientId = getID(selectedScore.client);
         const targetMovieId = getID(selectedScore.movie);
 
@@ -252,23 +258,27 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         );
 
         const m: Record<number, Record<number, number>> = {};
+        // 0명 스코어 행도 '값이 있는 칸'으로 표시하기 위한 존재 여부 맵 (A001)
+        const has: Record<number, Record<number, boolean>> = {};
         filtered.forEach((score) => {
             const f = Number(score.fare);
             const s = String(score.show_count) === "특회" ? 0 : Number(score.show_count) || 0;
             if (!m[f]) m[f] = {};
             m[f][s] = (m[f][s] || 0) + Number(score.visitor || 0);
+            if (!has[f]) has[f] = {};
+            has[f][s] = true;
         });
-        return { serverMatrix: m, filteredScores: filtered };
+        return { serverMatrix: m, serverHasRow: has, filteredScores: filtered };
     }, [selectedScore, allScores]);
 
     // 표시용 매트릭스: 서버 + dirty 오버레이
     const displayMatrix = useMemo(() => {
-        const result: Record<number, Record<number, number>> = {};
+        const result: Record<number, Record<number, number | null>> = {};
         // 서버 데이터 복사
         for (const fare of Object.keys(serverMatrix)) {
             result[Number(fare)] = { ...serverMatrix[Number(fare)] };
         }
-        // dirty 오버레이
+        // dirty 오버레이 (null = 빈칸/삭제)
         for (const fare of Object.keys(dirtyMatrix)) {
             if (!result[Number(fare)]) result[Number(fare)] = {};
             for (const show of Object.keys(dirtyMatrix[Number(fare)])) {
@@ -338,12 +348,19 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     // 로컬 셀 값 변경 (API 호출 없음)
     const applyLocalEdit = useCallback((cell: { fare: number; show: number }, valueStr: string) => {
         const trimmed = valueStr.trim();
-        const newVal = trimmed === "" ? 0 : Number(trimmed);
+        // 빈칸 = 기존 스코어 삭제(null), "0" = 명시적 0명 스코어 저장 (A001)
+        const newVal: number | null = trimmed === "" ? null : Number(trimmed);
         const serverVal = serverMatrix[cell.fare]?.[cell.show] ?? 0;
+        const hasRow = !!serverHasRow[cell.fare]?.[cell.show];
 
         setEditingCell(null);
 
-        if (newVal === serverVal) {
+        const unchanged =
+            newVal === null
+                ? !hasRow
+                : newVal === serverVal && (hasRow || newVal !== 0);
+
+        if (unchanged) {
             // 서버 값과 같으면 dirty에서 제거
             setDirtyMatrix((prev) => {
                 const next = { ...prev };
@@ -364,7 +381,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 [cell.fare]: { ...(prev[cell.fare] || {}), [cell.show]: newVal },
             }));
         }
-    }, [serverMatrix]);
+    }, [serverMatrix, serverHasRow]);
 
     // 방향키 이동
     const moveSelection = useCallback((direction: string) => {
@@ -410,9 +427,11 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                     (s) => Number(s.fare) === fare && (String(s.show_count) === searchShow || Number(s.show_count) === show)
                 );
 
-                if (newVal === 0 && existing?.id) {
-                    deleteIds.push(existing.id);
-                } else if (newVal !== 0) {
+                if (newVal === null) {
+                    // 빈칸으로 지운 셀 → 기존 스코어 삭제
+                    if (existing?.id) deleteIds.push(existing.id);
+                } else {
+                    // 0명 포함 저장 — 마지막 상영일 표기용 0명 스코어 반영 (A001)
                     items.push({
                         client: getID(selectedScore.client),
                         movie: getID(selectedScore.movie),
@@ -488,12 +507,14 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 setEditValue(e.key);
             } else if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                const val = displayMatrix[selectedCell.fare]?.[selectedCell.show] ?? 0;
+                // displayMatrix에 값이 있는 칸만 프리필 (0명 스코어는 "0"으로 — A001)
+                const cur = displayMatrix[selectedCell.fare]?.[selectedCell.show];
                 setEditingCell(selectedCell);
-                setEditValue(val !== 0 ? String(val) : "");
+                setEditValue(cur === undefined || cur === null ? "" : String(cur));
             } else if (e.key === "Backspace" || e.key === "Delete") {
                 e.preventDefault();
-                applyLocalEdit(selectedCell, "0");
+                // 빈칸 = 기존 스코어 삭제 (0 입력과 구분 — A001)
+                applyLocalEdit(selectedCell, "");
             }
         };
         window.addEventListener("keydown", handleKeyDown);
@@ -579,10 +600,18 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                     <tr key={fare}>
                                         <td>{fare.toLocaleString()}</td>
                                         {showCounts.map((n) => {
-                                            const val = showMap[n] ?? 0;
+                                            const dirtyVal = dirtyMatrix[fare]?.[n];
+                                            const cellIsDirty = dirtyVal !== undefined;
+                                            const hasRow = !!serverHasRow[fare]?.[n];
+                                            // null = 빈 칸. 0명 스코어(행 존재)는 0으로 표시 (A001)
+                                            const cellVal: number | null = cellIsDirty
+                                                ? dirtyVal
+                                                : hasRow
+                                                ? serverMatrix[fare]?.[n] ?? 0
+                                                : null;
+                                            const val = cellVal ?? 0;
                                             const isEditing = editingCell?.fare === fare && editingCell.show === n;
                                             const isSelected = selectedCell?.fare === fare && selectedCell?.show === n;
-                                            const cellIsDirty = dirtyMatrix[fare]?.[n] !== undefined;
                                             return (
                                                 <EditableCell
                                                     key={n}
@@ -590,14 +619,14 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                                     $isHighlight={
                                                         selectedCell?.fare === fare || selectedCell?.show === n
                                                     }
-                                                    $hasValue={val !== 0}
+                                                    $hasValue={cellVal !== null}
                                                     $isNegative={val < 0}
                                                     $isDirty={cellIsDirty}
                                                     onClick={() => setSelectedCell({ fare, show: n })}
                                                     onDoubleClick={() => {
                                                         setSelectedCell({ fare, show: n });
                                                         setEditingCell({ fare, show: n });
-                                                        setEditValue(val !== 0 ? String(val) : "");
+                                                        setEditValue(cellVal !== null ? String(cellVal) : "");
                                                     }}>
                                                     {isEditing ? (
                                                         <InlineInput
@@ -648,7 +677,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                                                                 }
                                                             }}
                                                         />
-                                                    ) : val !== 0 ? (
+                                                    ) : cellVal !== null ? (
                                                         val.toLocaleString()
                                                     ) : (
                                                         ""

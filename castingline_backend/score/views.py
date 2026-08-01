@@ -2209,12 +2209,11 @@ def score_settlement_detail(request):
         common_filter &= Q(client__classification=theater_type)
 
     # DB 집계: (movie_id, client_id, fare, entry_date, auditorium) → sum(visitor)
-    # 음수 인원(환불 등) 행은 합계에서 제외 — 지정 부금 집계와 기준 통일
+    # 음수 인원(환불) 행도 합계에 반영 (S001)
     qs = list(
         Score.objects
         .filter(common_filter)
         .annotate(visitor_int=Cast("visitor", IntegerField()))
-        .filter(visitor_int__gte=0)
         .values("movie_id", "client_id", "fare", "entry_date", "auditorium")
         .annotate(total_visitor=Sum("visitor_int"))
         .order_by("entry_date")
@@ -2314,19 +2313,15 @@ def score_settlement_detail(request):
                 dist_theater_name_map[m.theater_id] = m.distributor_theater_name
 
     def get_system_name(cid):
+        # 거래처 관리의 거래처명(client_name)을 그대로 표기 — 부금정산과 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         info = clients.get(cid, {})
-        name = info.get("excel_theater_name") or info.get("theater_name") or info.get("client_name") or ""
-        # 롯데·메가박스는 극장명에 브랜드 접두사가 없는 경우 자동 추가
-        kind = info.get("theater_kind") or ""
-        for prefix in ["롯데", "메가박스"]:
-            if prefix in kind and name:
-                stripped = name.strip()
-                # (폐관) 접두사 제거 후 브랜드명 포함 여부 확인
-                base = stripped[len("(폐관)"):].strip() if stripped.startswith("(폐관)") else stripped
-                if not base.startswith(prefix):
-                    name = prefix + name
-                break
-        return name
+        return (
+            info.get("client_name")
+            or info.get("theater_name")
+            or info.get("excel_theater_name")
+            or ""
+        )
 
     # Python 집계: 포맷 선택 시 (client_id, movie_id, share_rate_str, is_fund_exempt) 단위
     aggregated = {}
@@ -2497,7 +2492,7 @@ def score_settlement_search(request):
         "year": m.release_date.year if m.release_date else None,
     } for m in movie_qs[:20]]
 
-    # ── 극장명 (표시명: excel_theater_name → theater_name → client_name) ──
+    # ── 극장명 (표시명: client_name → theater_name → excel_theater_name) ──
     theaters = []
     seen = set()
 
@@ -2506,18 +2501,14 @@ def score_settlement_search(request):
             seen.add(name)
             theaters.append(name)
 
-    # 롯데·메가박스 브랜드 접두사 자동 추가 (정산 테이블 get_system_name 과 동일)
+    # 거래처명(client_name) 기준 표기 — 정산 테이블 get_system_name 과 동일 (F001)
     def display_name(c):
-        name = c.get("excel_theater_name") or c.get("theater_name") or c.get("client_name") or ""
-        kind = c.get("theater_kind") or ""
-        for prefix in ["롯데", "메가박스"]:
-            if prefix in kind and name:
-                stripped = name.strip()
-                base = stripped[len("(폐관)"):].strip() if stripped.startswith("(폐관)") else stripped
-                if not base.startswith(prefix):
-                    name = prefix + name
-                break
-        return name
+        return (
+            c.get("client_name")
+            or c.get("theater_name")
+            or c.get("excel_theater_name")
+            or ""
+        )
 
     # 배급사 사용자: 배급사별 극장명 우선
     if is_distributor:
@@ -2617,12 +2608,11 @@ def score_supply_price(request):
         common_filter &= Q(client_id=client_id_param)
 
     # DB 집계: (client_id, fare, entry_date, auditorium) → sum(visitor)
-    # 음수 인원(환불 등) 행은 합계에서 제외 — 지정 부금 집계와 기준 통일
+    # 음수 인원(환불) 행도 합계에 반영 (S001)
     qs = list(
         Score.objects
         .filter(common_filter)
         .annotate(visitor_int=Cast("visitor", IntegerField()))
-        .filter(visitor_int__gte=0)
         .values("client_id", "fare", "entry_date", "auditorium")
         .annotate(total_visitor=Sum("visitor_int"))
         .order_by("entry_date")

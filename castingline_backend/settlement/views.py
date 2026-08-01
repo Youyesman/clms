@@ -162,10 +162,9 @@ class SettlementListView(APIView):
         # 데이터 집계
         aggregated_data = {}
         for score in scores:
-            # 음수 인원(환불 등) 행은 정산 합계에서 제외 — 지정 부금 집계와 기준 통일
+            # 음수 인원(환불) 행도 정산 합계에 반영 (S001). 파싱 불가 행만 제외.
             try:
-                if int(score.visitor or 0) < 0:
-                    continue
+                int(score.visitor or 0)
             except (ValueError, TypeError):
                 continue
 
@@ -1591,9 +1590,9 @@ class SpecialSettlementListView(APIView):
             # visitor(CharField)를 int로 변환하여 전달 (데이터가 비어있을 경우 0)
             result_data = []
             for s in scores:
+                # 음수 인원(환불)도 반영 — isdigit()은 "-1"을 걸러내므로 쓰지 않는다 (S001)
                 try:
-                    visitor_count = int(
-                        s['visitor']) if s['visitor'] and s['visitor'].isdigit() else 0
+                    visitor_count = int(s['visitor'] or 0)
                 except (ValueError, TypeError):
                     visitor_count = 0
 
@@ -1661,8 +1660,10 @@ class SpecialSettlementExcelView(APIView):
         grouped = {}
         for s in scores:
             c_name = s['c_name'] or "미등록 극장"
-            fare_val = int(
-                s['fare']) if s['fare'] and s['fare'].isdigit() else 0
+            try:
+                fare_val = int(s['fare'] or 0)
+            except (ValueError, TypeError):
+                fare_val = 0
             key = (c_name, fare_val)
 
             if key not in grouped:
@@ -1671,8 +1672,11 @@ class SpecialSettlementExcelView(APIView):
                 grouped[key]['total_visitor'] = 0
 
             date_str = s['entry_date'].strftime("%Y-%m-%d")
-            visitor_cnt = int(
-                s['visitor']) if s['visitor'] and s['visitor'].isdigit() else 0
+            # 음수 인원(환불)도 반영 (S001)
+            try:
+                visitor_cnt = int(s['visitor'] or 0)
+            except (ValueError, TypeError):
+                visitor_cnt = 0
 
             grouped[key][date_str] += visitor_cnt
             grouped[key]['total_visitor'] += visitor_cnt
