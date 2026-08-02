@@ -1,5 +1,6 @@
 import React from "react";
 import styled from "styled-components";
+import { ui } from "../../styles/uiTokens";
 
 /**
  * CommonSectionCard
@@ -11,12 +12,10 @@ import styled from "styled-components";
 const CardContainer = styled.div<{ $flex?: string | number; $height?: string; $padding?: string }>`
     display: flex;
     flex-direction: column;
-    background-color: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    box-shadow: 
-        0 4px 6px -1px rgba(0, 0, 0, 0.1), 
-        0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background-color: ${ui.color.surface};
+    border: 1px solid ${ui.color.border};
+    border-radius: ${ui.radius.md};
+    box-shadow: ${ui.shadow.xs};
     overflow: hidden;
     
     flex: ${({ $flex }) => $flex || "none"};

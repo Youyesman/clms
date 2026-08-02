@@ -72,11 +72,11 @@ const PageWrapper = styled.div`
 const FilterBar = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 14px 20px;
+    border-radius: 6px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 `;
 
 const FilterRow = styled.div`
@@ -92,23 +92,33 @@ const SearchWrapper = styled.div`
     flex-direction: column;
 `;
 
+/* 필터 칩과 같은 규격 (styles/chipStyles.ts 기준) */
 const SearchInput = styled.input`
-    height: 32px;
+    height: 30px;
     padding: 0 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    font-size: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 20px;
     width: 200px;
     outline: none;
+    transition: border-color 0.12s ease;
+    &:hover {
+        border-color: #cbd5e1;
+    }
     &:focus {
         border-color: #2563eb;
+        box-shadow: 0 0 0 3px #eff6ff;
+    }
+    &::placeholder {
+        color: #94a3b8;
     }
 `;
 
 const SearchLabel = styled.div`
-    font-size: 11px;
+    font-size: 12px;
     color: #64748b;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
     font-weight: 600;
 `;
 
@@ -120,7 +130,7 @@ const SuggestionList = styled.ul`
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     list-style: none;
     padding: 4px 0;
     margin: 2px 0 0;
@@ -133,7 +143,7 @@ const SuggestionItem = styled.li`
     padding: 6px 12px;
     font-size: 12px;
     cursor: pointer;
-    color: #334155;
+    color: #475569;
     &:hover {
         background: #f1f5f9;
     }
@@ -145,15 +155,16 @@ const SuggestionItem = styled.li`
 `;
 
 const SearchBtn = styled.button`
-    height: 32px;
-    padding: 0 16px;
+    height: 30px;
+    padding: 0 14px;
     background: #2563eb;
-    color: white;
+    color: #ffffff;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
+    transition: background-color 0.12s ease;
     &:hover {
         background: #1d4ed8;
     }
@@ -165,7 +176,7 @@ const FieldWrapper = styled.div<{ $error?: boolean }>`
     position: relative; /* 에러 문구 absolute 배치 기준 */
     & > * {
         border-color: ${({ $error }) =>
-            $error ? "#ef4444 !important" : "inherit"};
+            $error ? "#dc2626 !important" : "inherit"};
     }
 `;
 
@@ -175,8 +186,8 @@ const ErrorMsg = styled.div`
     top: 100%;
     left: 2px;
     margin-top: 2px;
-    font-size: 10px;
-    color: #ef4444;
+    font-size: 11px;
+    color: #dc2626;
     white-space: nowrap;
 `;
 
@@ -226,7 +237,7 @@ const StyledTable = styled.table`
     th {
         background: #f1f5f9;
         font-weight: 700;
-        color: #334155;
+        color: #475569;
         position: sticky;
         top: 0;
         z-index: 2;
@@ -243,13 +254,13 @@ const StyledTable = styled.table`
 const ThGroup = styled.th`
     background: #e2e8f0 !important;
     color: #1e293b !important;
-    font-size: 10px;
+    font-size: 11px;
     padding: 3px 6px !important;
 `;
 
 const GrandTotalRow = styled.tr`
     td {
-        background: #1e40af !important;
+        background: #1d4ed8 !important;
         color: #ffffff !important;
         font-weight: 700;
         font-size: 11px;
@@ -260,13 +271,16 @@ const GrandTotalRow = styled.tr`
         z-index: 3;
     }
     &:hover td {
-        background: #1e3a8a !important;
+        background: #1d4ed8 !important;
     }
 `;
 
 const EmptyTd = styled.td`
-    padding: 40px !important;
+    padding: 28px 16px !important;
     color: #94a3b8 !important;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 const SortTh = styled.th<{ $sortable?: boolean }>`
@@ -294,7 +308,7 @@ const TheaterChip = styled.div`
     gap: 6px;
     padding: 0 10px;
     background: #eff6ff;
-    border: 1px solid #93c5fd;
+    border: 1px solid #bfdbfe;
     border-radius: 4px;
     font-size: 12px;
     color: #1d4ed8;
@@ -307,12 +321,12 @@ const ClearBtn = styled.button`
     border: none;
     cursor: pointer;
     color: #94a3b8;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1;
     padding: 0;
     display: flex;
     align-items: center;
-    &:hover { color: #ef4444; }
+    &:hover { color: #dc2626; }
 `;
 
 /* ── 컴포넌트 ── */
@@ -609,7 +623,7 @@ export function SupplyPricePage() {
                 {/* Row 1: 영화 검색 자동완성 + 극장명 검색 */}
                 <FilterRow>
                     <SearchWrapper ref={searchWrapperRef}>
-                        <SearchLabel>SEARCH (영화명)</SearchLabel>
+                        <SearchLabel>영화명 검색</SearchLabel>
                         <SearchInput
                             placeholder="영화명 검색..."
                             value={searchInput}
@@ -638,7 +652,7 @@ export function SupplyPricePage() {
                     </SearchWrapper>
 
                     <SearchWrapper ref={theaterWrapperRef}>
-                        <SearchLabel>SEARCH (극장명)</SearchLabel>
+                        <SearchLabel>극장명 검색</SearchLabel>
                         {selectedTheater ? (
                             <TheaterChip>
                                 {selectedTheater.name}
@@ -689,7 +703,6 @@ export function SupplyPricePage() {
                 <FilterRow>
                     <FieldWrapper $error={validationErrors.yyyy}>
                         <CustomSelect
-                            style={{ width: "160px" }}
                             label="연도 *"
                             options={yearOptions}
                             value={searchParams.yyyy}
@@ -699,8 +712,7 @@ export function SupplyPricePage() {
                                 setValidationErrors((e) => ({ ...e, yyyy: false }));
                                 setFormatOptions([]);
                                 setSelectedFormats([]);
-                            }}
-                        />
+                            }} variant="chip" />
                         {validationErrors.yyyy && (
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}
@@ -722,8 +734,7 @@ export function SupplyPricePage() {
                                 setSettlementFilter((f) => ({ ...f, movieId: val, movieTitle: title }));
                                 setValidationErrors((e) => ({ ...e, movie_id: false }));
                                 fetchMovieFormats(val);
-                            }}
-                        />
+                            }} variant="chip" />
                         {validationErrors.movie_id && (
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}
@@ -736,8 +747,7 @@ export function SupplyPricePage() {
                             value={selectedFormats}
                             onChange={setSelectedFormats}
                             disabled={formatOptions.length === 0}
-                            radioPerGroup={false}
-                        />
+                            radioPerGroup={false} variant="chip" />
                     </div>
 
                     <div>
@@ -747,8 +757,7 @@ export function SupplyPricePage() {
                             value={searchParams.region}
                             onChange={(v) =>
                                 setSearchParams((p) => ({ ...p, region: v }))
-                            }
-                        />
+                            } variant="chip" />
                     </div>
 
                     <div>
@@ -758,8 +767,7 @@ export function SupplyPricePage() {
                             value={searchParams.multi}
                             onChange={(v) =>
                                 setSearchParams((p) => ({ ...p, multi: v }))
-                            }
-                        />
+                            } variant="chip" />
                     </div>
 
                     <div>
@@ -769,8 +777,7 @@ export function SupplyPricePage() {
                             value={searchParams.theater_type}
                             onChange={(v) =>
                                 setSearchParams((p) => ({ ...p, theater_type: v }))
-                            }
-                        />
+                            } variant="chip" />
                     </div>
 
                     <FieldWrapper $error={validationErrors.date_from}>
@@ -782,8 +789,7 @@ export function SupplyPricePage() {
                                 setSearchParams((p) => ({ ...p, date_from: v }));
                                 setValidationErrors((e) => ({ ...e, date_from: false }));
                                 setSettlementFilter((f) => ({ ...f, dateFrom: v }));
-                            }}
-                        />
+                            }} variant="chip" />
                         {validationErrors.date_from && (
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}
@@ -798,8 +804,7 @@ export function SupplyPricePage() {
                                 setSearchParams((p) => ({ ...p, date_to: v }));
                                 setValidationErrors((e) => ({ ...e, date_to: false }));
                                 setSettlementFilter((f) => ({ ...f, dateTo: v }));
-                            }}
-                        />
+                            }} variant="chip" />
                         {validationErrors.date_to && (
                             <ErrorMsg>필수 입력값입니다</ErrorMsg>
                         )}

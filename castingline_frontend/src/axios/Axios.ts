@@ -44,7 +44,7 @@ function showSessionExpiredModal() {
     Object.assign(overlay.style, {
         position: "fixed", inset: "0", zIndex: "99999",
         display: "flex", alignItems: "center", justifyContent: "center",
-        background: "rgba(0, 0, 0, 0.5)",
+        background: "rgba(15, 23, 42, 0.5)",
         backdropFilter: "blur(4px)",
         fontFamily: '"Pretendard", "Apple SD Gothic Neo", sans-serif',
         animation: "fadeInModal 0.25s ease-out",
@@ -52,36 +52,36 @@ function showSessionExpiredModal() {
 
     const card = document.createElement("div");
     Object.assign(card.style, {
-        background: "#fff", borderRadius: "12px", padding: "40px 36px",
+        background: "#ffffff", borderRadius: "12px", padding: "40px 36px",
         maxWidth: "400px", width: "90%", textAlign: "center",
-        boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
-        border: "1px solid #e5e7eb",
+        boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+        border: "1px solid #e2e8f0",
     });
 
     const title = document.createElement("div");
     title.textContent = "세션이 만료되었습니다";
     Object.assign(title.style, {
-        fontSize: "20px", fontWeight: "700", color: "#111827",
+        fontSize: "20px", fontWeight: "700", color: "#0f172a",
         marginBottom: "12px",
     });
 
     const desc = document.createElement("div");
     desc.textContent = "보안을 위해 자동으로 로그아웃 되었습니다. 다시 로그인 해주세요.";
     Object.assign(desc.style, {
-        fontSize: "14px", color: "#6b7280", lineHeight: "1.6",
+        fontSize: "14px", color: "#64748b", lineHeight: "1.6",
         marginBottom: "32px", wordBreak: "keep-all",
     });
 
     const btn = document.createElement("button");
     btn.textContent = "로그인 페이지로 이동";
     Object.assign(btn.style, {
-        width: "100%", padding: "14px", border: "1px solid #111827",
-        borderRadius: "6px", background: "#111827", color: "#fff",
+        width: "100%", padding: "14px", border: "1px solid #0f172a",
+        borderRadius: "6px", background: "#0f172a", color: "#ffffff",
         fontSize: "15px", fontWeight: "600", cursor: "pointer",
         transition: "background 0.2s",
     });
-    btn.onmouseenter = () => { btn.style.background = "#1f2937"; };
-    btn.onmouseleave = () => { btn.style.background = "#111827"; };
+    btn.onmouseenter = () => { btn.style.background = "#1e293b"; };
+    btn.onmouseleave = () => { btn.style.background = "#0f172a"; };
     btn.onclick = () => { window.location.href = "/login"; };
 
     card.appendChild(title);

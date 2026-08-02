@@ -47,7 +47,7 @@ const InfoBanner = styled.div`
         flex-direction: column;
         gap: 2px;
         .label { font-size: 11px; color: #64748b; font-weight: 700; }
-        .title { font-size: 15px; color: #0f172a; font-weight: 800; }
+        .title { font-size: 14px; color: #0f172a; font-weight: 800; }
     }
 `;
 
@@ -66,7 +66,7 @@ const SectionHeader = styled.div`
     gap: 8px;
     margin-bottom: 4px;
     &::before {
-        content: ''; width: 3px; height: 13px; background: #3b82f6; border-radius: 2px;
+        content: ''; width: 3px; height: 13px; background: #2563eb; border-radius: 6px;
     }
 `;
 

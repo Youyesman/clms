@@ -23,9 +23,9 @@ const Container = styled.div`
 
 const DropZone = styled.div<{ $isDragging: boolean }>`
     height: 180px;
-    border: 2px dashed ${({ $isDragging }) => ($isDragging ? "#2563eb" : "#cbd5e1")};
+    border: 1.5px dashed ${({ $isDragging }) => ($isDragging ? "#2563eb" : "#cbd5e1")};
     background-color: ${({ $isDragging }) => ($isDragging ? "#eff6ff" : "#f8fafc")};
-    border-radius: 8px;
+    border-radius: 6px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -41,7 +41,7 @@ const PreviewWrapper = styled.div`
     max-height: 450px;
     overflow-y: auto;
     border: 1px solid #e2e8f0;
-    border-radius: 4px;
+    border-radius: 6px;
 `;
 
 const PreviewTable = styled.table`
@@ -49,27 +49,32 @@ const PreviewTable = styled.table`
     /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 12px;
+    font-size: 12.5px;
     thead {
         position: sticky;
         top: 0;
-        background: #f1f5f9;
+        background: #f8fafc;
         z-index: 10;
     }
+    th {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+    }
     th, td {
-        padding: 8px;
-        border-right: 1px solid #e2e8f0;
+        padding: 8px 10px;
+        border-right: 1px solid #f1f5f9;
         border-bottom: 1px solid #e2e8f0;
         text-align: left;
     }
     /* 매칭 에러 행 */
     tr.error {
-        background-color: #fff1f2;
+        background-color: #fef2f2;
     }
     /* ✅ 마이너스 관객 행 강조 */
     tr.minus-error {
         background-color: #fef2f2; 
-        border-left: 4px solid #ef4444; 
+        border-left: 4px solid #dc2626; 
     }
 `;
 
@@ -96,7 +101,7 @@ const FilterBar = styled.div`
 
     label {
         cursor: pointer;
-        font-weight: 700;
+        font-weight: 600;
         display: flex;
         align-items: center;
         gap: 4px;
@@ -111,7 +116,7 @@ const ActionFooter = styled.div`
 `;
 
 const ErrorText = styled.span`
-    color: #ef4444;
+    color: #dc2626;
     font-size: 11px;
     font-weight: 700;
 `;
@@ -122,7 +127,7 @@ const ReplaceWarning = styled.div`
     border: 1px solid #fecaca;
     border-radius: 4px;
     background: #fef2f2;
-    color: #991b1b;
+    color: #b91c1c;
 
     strong {
         display: block;
@@ -133,14 +138,14 @@ const ReplaceWarning = styled.div`
 
     p {
         margin: 0;
-        font-size: 11.5px;
+        font-size: 12.5px;
         line-height: 1.6;
     }
 
     ul {
         margin: 6px 0 0;
         padding-left: 16px;
-        font-size: 11.5px;
+        font-size: 12.5px;
         line-height: 1.6;
     }
 `;
@@ -148,12 +153,12 @@ const ReplaceWarning = styled.div`
 const FixButton = styled.button`
     margin-left: 6px;
     padding: 1px 6px;
-    font-size: 10.5px;
-    font-weight: 800;
+    font-size: 11px;
+    font-weight: 700;
     color: #ffffff;
-    background: #ef4444;
+    background: #dc2626;
     border: none;
-    border-radius: 3px;
+    border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
     &:hover { background: #dc2626; }
@@ -165,8 +170,8 @@ const ErrorBanner = styled.div`
     gap: 8px;
     padding: 10px 14px;
     background: #fef2f2;
-    border: 1px solid #fca5a5;
-    border-left: 4px solid #ef4444;
+    border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626;
     border-radius: 4px;
     color: #dc2626;
     font-size: 13px;
@@ -184,7 +189,7 @@ const TotalRow = styled.tr`
 
 const OrderSection = styled.div`
     border: 1px solid #e2e8f0;
-    border-radius: 4px;
+    border-radius: 6px;
     overflow: hidden;
 `;
 
@@ -215,9 +220,9 @@ const OrderBadge = styled.span<{ $kind: "create" | "update" | "unchanged" }>`
     font-weight: 800;
     white-space: nowrap;
     background: ${({ $kind }) =>
-        $kind === "create" ? "#ecfdf5" : $kind === "update" ? "#eff6ff" : "#f1f5f9"};
+        $kind === "create" ? "#f0fdf4" : $kind === "update" ? "#eff6ff" : "#f1f5f9"};
     color: ${({ $kind }) =>
-        $kind === "create" ? "#059669" : $kind === "update" ? "#2563eb" : "#64748b"};
+        $kind === "create" ? "#16a34a" : $kind === "update" ? "#2563eb" : "#64748b"};
     border: 1px solid
         ${({ $kind }) =>
             $kind === "create" ? "#a7f3d0" : $kind === "update" ? "#bfdbfe" : "#e2e8f0"};
@@ -231,17 +236,20 @@ const OrderTableWrap = styled.div`
 `;
 
 const StyledButton = styled.button<{ $primary?: boolean; $disabled?: boolean }>`
-    padding: 8px ${({ $primary }) => ($primary ? "24px" : "16px")};
+    height: 32px;
+    padding: 0 16px;
     background: ${({ $primary, $disabled }) => ($disabled ? "#cbd5e1" : $primary ? "#2563eb" : "#ffffff")};
     color: ${({ $primary }) => ($primary ? "#ffffff" : "#475569")};
     border: ${({ $primary }) => ($primary ? "none" : "1px solid #cbd5e1")};
-    border-radius: 4px;
-    font-weight: 800;
-    font-size: 13px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
     cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-    transition: all 0.2s;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+    /* opacity로 흐리게 하는 대신 실제 색을 바꿉니다 — 다른 버튼과 동일 */
     &:hover:not(:disabled) {
-        opacity: 0.9;
+        background: ${({ $primary }) => ($primary ? "#1d4ed8" : "#f8fafc")};
+        border-color: ${({ $primary }) => ($primary ? "none" : "#94a3b8")};
     }
 `;
 
@@ -624,7 +632,7 @@ export function ScoreExcelUploader({
                     <FilterBar>
                         <div className="filter-group">
                             {/* ✅ 마이너스 관객수 확인 필터 (왼쪽 배치) */}
-                            <label style={{ color: showMinusOnly ? "#ef4444" : "inherit" }}>
+                            <label style={{ color: showMinusOnly ? "#dc2626" : "inherit" }}>
                                 <input
                                     type="checkbox"
                                     checked={showMinusOnly}
@@ -634,7 +642,7 @@ export function ScoreExcelUploader({
                                 마이너스 관객 확인 ({minusCount}건)
                             </label>
 
-                            <label style={{ color: showOnlyErrors ? "#ef4444" : "inherit" }}>
+                            <label style={{ color: showOnlyErrors ? "#dc2626" : "inherit" }}>
                                 <input
                                     type="checkbox"
                                     checked={showOnlyErrors}
@@ -683,11 +691,11 @@ export function ScoreExcelUploader({
                                             <tr key={idx} className={`${isError ? "error" : ""} ${isMinusVisitor ? "minus-error" : ""}`}>
                                                 <td style={{ textAlign: "center" }}>
                                                     {isError ? (
-                                                        <WarningCircle size={18} color="#ef4444" />
+                                                        <WarningCircle size={18} color="#dc2626" />
                                                     ) : isMinusVisitor ? (
-                                                        <MinusCircle size={18} color="#ef4444" weight="fill" />
+                                                        <MinusCircle size={18} color="#dc2626" weight="fill" />
                                                     ) : (
-                                                        <CheckCircle size={18} color="#10b981" />
+                                                        <CheckCircle size={18} color="#16a34a" />
                                                     )}
                                                 </td>
                                                 <td>
@@ -727,7 +735,7 @@ export function ScoreExcelUploader({
                                                 {/* ✅ 관객수 텍스트 빨간색 강조 */}
                                                 <td style={{
                                                     fontWeight: 700,
-                                                    color: isMinusVisitor ? "#ef4444" : "#2563eb"
+                                                    color: isMinusVisitor ? "#dc2626" : "#2563eb"
                                                 }}>
                                                     {row.visitor}
                                                 </td>
@@ -836,7 +844,7 @@ export function ScoreExcelUploader({
                         </StyledButton>
                     </ActionFooter>
                     {hasMatchError && (
-                        <div style={{ color: "#ef4444", fontSize: "12px", textAlign: "right" }}>
+                        <div style={{ color: "#dc2626", fontSize: "12px", textAlign: "right" }}>
                             ※ 매칭되지 않은 데이터(빨간색 행)가 있으면 저장할 수 없습니다.
                         </div>
                     )}

@@ -48,7 +48,7 @@ const Indicator = styled.div<{ $index: number; $count: number }>`
 
     background-color: #ffffff;
     border-radius: 6px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 
     transform: translateX(${({ $index }) => $index * 100}%);
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -70,7 +70,7 @@ const TabButton = styled.button<{ $active: boolean }>`
 
     font-size: 14px;
     font-weight: ${({ $active }) => ($active ? 600 : 400)};
-    color: ${({ $active }) => ($active ? "#222" : "#777")};
+    color: ${({ $active }) => ($active ? "#0f172a" : "#64748b")};
 
     cursor: pointer;
     white-space: nowrap;
@@ -78,7 +78,7 @@ const TabButton = styled.button<{ $active: boolean }>`
     transition: color 0.15s ease, transform 0.1s ease;
 
     &:hover {
-        color: #333;
+        color: #1e293b;
     }
 
     &:active {

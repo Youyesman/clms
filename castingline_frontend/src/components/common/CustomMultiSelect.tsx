@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import styled, { keyframes } from "styled-components";
 import { CaretDown, Check } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
+import { ui } from "../../styles/uiTokens";
+import { filterChipBox, filterChipLabel, filterChipValue, filterChipCaret } from "../../styles/chipStyles";
 
 /* ---------- 애니메이션 ---------- */
 const fadeIn = keyframes`
@@ -17,7 +19,7 @@ const Wrapper = styled.div`
     gap: 4px;
 `;
 
-const SelectButton = styled.div<{ $open?: boolean; $disabled?: boolean }>`
+const SelectButton = styled.div<{ $open?: boolean; $disabled?: boolean; $chip?: boolean; $applied?: boolean }>`
     display: inline-flex;
     height: 32px;
     background: ${({ $disabled }) => ($disabled ? "#f1f5f9" : "white")};
@@ -30,9 +32,16 @@ const SelectButton = styled.div<{ $open?: boolean; $disabled?: boolean }>`
     opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 
     &:hover { border-color: ${({ $open, $disabled }) => ($disabled ? "#cbd5e1" : $open ? "#0f172a" : "#94a3b8")}; }
+
+    /* 칩 모드 — 모양은 styles/chipStyles.ts에서 공통 관리 */
+    ${({ $chip }) => $chip && filterChipBox}
+    ${({ $chip, $open, $applied }) =>
+        $chip && $open &&
+        `border-color: ${$applied ? ui.color.primary : ui.color.borderStrong};
+         background: ${$applied ? ui.color.primarySoft : ui.color.surfaceMuted};`}
 `;
 
-const InternalLabelBox = styled.div`
+const InternalLabelBox = styled.div<{ $chip?: boolean; $applied?: boolean }>`
     height: 100%;
     min-width: fit-content;
     padding: 0 12px;
@@ -44,12 +53,14 @@ const InternalLabelBox = styled.div`
     font-size: 12px;
     font-weight: 700;
     color: #475569;
-    border-radius: 3px 0 0 3px;
+    border-radius: 4px 0 0 3px;
     white-space: nowrap;
     flex-shrink: 0;
+
+    ${({ $chip }) => $chip && filterChipLabel}
 `;
 
-const ValueDisplay = styled.div<{ $isPlaceholder?: boolean }>`
+const ValueDisplay = styled.div<{ $isPlaceholder?: boolean; $chip?: boolean; $applied?: boolean }>`
     flex: 1;
     padding: 0 10px;
     font-size: 13px;
@@ -59,32 +70,36 @@ const ValueDisplay = styled.div<{ $isPlaceholder?: boolean }>`
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 60px;
+
+    ${({ $chip }) => $chip && filterChipValue}
 `;
 
 const Badge = styled.span`
     background: #2563eb;
-    color: #fff;
+    color: #ffffff;
     font-size: 11px;
     font-weight: 700;
     padding: 1px 7px;
-    border-radius: 10px;
+    border-radius: 8px;
     margin-right: 6px;
     flex-shrink: 0;
 `;
 
-const CaretIcon = styled(CaretDown) <{ $open?: boolean }>`
+const CaretIcon = styled(CaretDown) <{ $open?: boolean; $applied?: boolean; $chip?: boolean }>`
     color: #64748b;
     transition: transform 0.2s ease;
     margin-right: 10px;
     flex-shrink: 0;
     ${({ $open }) => $open && `transform: rotate(180deg);`}
+    ${({ $chip }) => $chip && `margin-right: 0; margin-left: 5px;`}
+    ${({ $applied }) => $applied && filterChipCaret}
 `;
 
 const Dropdown = styled.div`
     position: absolute;
     padding: 12px 16px;
     background: white;
-    box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.15);
+    box-shadow: 0px 8px 24px rgba(15, 23, 42, 0.15);
     border-radius: 8px;
     border: 1px solid #cbd5e1;
     z-index: 10000;
@@ -132,15 +147,15 @@ const OptionItem = styled.div<{ $selected?: boolean }>`
     cursor: pointer;
     white-space: nowrap;
 
-    &:hover { background: ${({ $selected }) => ($selected ? "#dbeafe" : "#f8fafc")}; }
+    &:hover { background: ${({ $selected }) => ($selected ? "#bfdbfe" : "#f8fafc")}; }
 `;
 
 const Checkbox = styled.div<{ $checked: boolean }>`
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: 4px;
     border: ${({ $checked }) => ($checked ? "none" : "1.5px solid #cbd5e1")};
-    background: ${({ $checked }) => ($checked ? "#2563eb" : "#fff")};
+    background: ${({ $checked }) => ($checked ? "#2563eb" : "#ffffff")};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -160,7 +175,7 @@ const ResetBtn = styled.div`
     text-align: center;
     font-size: 12px;
     font-weight: 700;
-    color: #ef4444;
+    color: #dc2626;
     cursor: pointer;
     border-top: 1px solid #e2e8f0;
 
@@ -183,9 +198,14 @@ interface CustomMultiSelectProps {
     disabled?: boolean;
     /** true(기본): 같은 그룹 내 1개만 선택(라디오). false: 그룹 내 복수 선택 허용 */
     radioPerGroup?: boolean;
+    /** "chip" — 필터바용 노션식 칩 */
+    variant?: "default" | "chip";
 }
 
-export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style, disabled = false, radioPerGroup = true }: CustomMultiSelectProps) {
+export function CustomMultiSelect({ label = "포맷", groups, value, onChange, style, disabled = false, radioPerGroup = true, variant = "default" }: CustomMultiSelectProps) {
+    const isChip = variant === "chip";
+    /* 하나라도 고르면 실제로 걸러내고 있는 필터 */
+    const isApplied = isChip && value.length > 0;
     const wrapperRef = useRef<HTMLDivElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [isOpen, setIsOpen] = useState(false);
@@ -259,13 +279,13 @@ export function CustomMultiSelect({ label = "포맷", groups, value, onChange, s
 
     return (
         <Wrapper ref={wrapperRef} style={style}>
-            <SelectButton onClick={toggle} $open={isOpen} $disabled={disabled}>
-                <InternalLabelBox>{label}</InternalLabelBox>
-                <ValueDisplay $isPlaceholder={value.length === 0}>
+            <SelectButton onClick={toggle} $open={isOpen} $disabled={disabled} $chip={isChip} $applied={isApplied}>
+                <InternalLabelBox $chip={isChip} $applied={isApplied}>{label}</InternalLabelBox>
+                <ValueDisplay $isPlaceholder={value.length === 0} $chip={isChip} $applied={isApplied}>
                     {value.length === 0 ? "전체" : value.length <= 2 ? value.join(", ") : `${value[0]}, ${value[1]} 외 ${value.length - 2}건`}
                 </ValueDisplay>
                 {value.length > 0 && <Badge>{value.length}</Badge>}
-                <CaretIcon size={16} weight="bold" $open={isOpen} />
+                <CaretIcon size={isChip ? 12 : 16} weight="bold" $open={isOpen} $chip={isChip} $applied={isApplied} />
             </SelectButton>
 
             {isOpen && createPortal(
@@ -281,7 +301,7 @@ export function CustomMultiSelect({ label = "포맷", groups, value, onChange, s
                                         onClick={() => handleToggleItem(item)}
                                     >
                                         <Checkbox $checked={value.includes(item)}>
-                                            {value.includes(item) && <Check size={10} weight="bold" color="#fff" />}
+                                            {value.includes(item) && <Check size={10} weight="bold" color="#ffffff" />}
                                         </Checkbox>
                                         <OptionLabel>{item}</OptionLabel>
                                     </OptionItem>

@@ -50,9 +50,9 @@ const SectionHeader = styled.div`
 const FareInputCard = styled.div`
     background-color: #f8fafc;
     padding: 20px;
-    border-radius: 12px;
+    border-radius: 6px;
     border: 1px solid #e2e8f0;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
 `;
 
 const FareInputGroup = styled.div`
@@ -74,8 +74,8 @@ const FareList = styled.div`
     &::-webkit-scrollbar-track { background: #f1f5f9; }
     &::-webkit-scrollbar-thumb { 
         background: #cbd5e1; 
-        border-radius: 10px;
-        &:hover { background: #94a3b8; }
+        border-radius: 8px;
+        &:hover { background: #cbd5e1; }
     }
 `;
 
@@ -90,8 +90,8 @@ const FareItem = styled.div`
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 
     &:hover {
-        border-color: #3b82f6;
-        background-color: #f0f7ff;
+        border-color: #2563eb;
+        background-color: #eff6ff;
         transform: translateX(4px);
     }
 `;
@@ -119,17 +119,18 @@ const EmptyWrapper = styled.div`
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 48px 0;
+    padding: 72px 24px;
     color: #94a3b8;
-    background-color: #f8fafc;
+    background-color: #94a3b8;
     border: 1px dashed #cbd5e1;
     border-radius: 12px;
     gap: 10px;
     
     .text {
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 500;
     }
+    line-height: 1.6;
 `;
 
 /* --- 인터페이스 정의 --- */

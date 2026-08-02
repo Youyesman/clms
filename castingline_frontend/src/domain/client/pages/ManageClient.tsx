@@ -19,6 +19,7 @@ import { OPERATIONAL_STATUS_OPTIONS, CLIENT_TYPES, MANAGEMENT_TYPES, THEATER_KIN
 import dayjs from "dayjs";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { ui } from "../../../styles/uiTokens";
 
 /** 1. 레이아웃 스타일 정의 **/
 const PageContainer = styled.div`
@@ -26,9 +27,9 @@ const PageContainer = styled.div`
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background-color: #f8fafc;
+    background-color: ${ui.color.canvas};
     min-height: 100vh;
-    font-family: "SUIT", sans-serif;
+    font-family: ${ui.font.family};
 `;
 
 

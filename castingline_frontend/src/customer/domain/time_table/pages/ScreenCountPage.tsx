@@ -53,8 +53,8 @@ const PageWrapper = styled.div`
 const FilterCard = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px 20px;
+    border-radius: 6px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -73,22 +73,26 @@ const FieldBox = styled.div<{ $error?: boolean }>`
     gap: 4px;
     position: relative; /* 에러 문구 absolute 배치 기준 */
     label {
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 12.5px;
+        font-weight: 500;
         color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
     }
     select, input {
-        height: 34px;
+        height: 30px;
         padding: 0 10px;
-        border: 1.5px solid ${p => p.$error ? "#ef4444" : "#e2e8f0"};
+        border: 1px solid ${p => p.$error ? "#dc2626" : "#e2e8f0"};
         border-radius: 6px;
-        font-size: 13px;
+        font-size: 12.5px;
+        line-height: 20px;
         color: #1e293b;
         background: white;
         outline: none;
-        &:focus { border-color: ${p => p.$error ? "#ef4444" : "#3b82f6"}; }
+        transition: border-color 0.12s ease;
+        &:hover { border-color: ${p => p.$error ? "#dc2626" : "#cbd5e1"}; }
+        &:focus {
+            border-color: ${p => p.$error ? "#dc2626" : "#2563eb"};
+            box-shadow: 0 0 0 3px #eff6ff;
+        }
         &:disabled { background: #f8fafc; color: #94a3b8; cursor: default; }
     }
     select[multiple] {
@@ -103,16 +107,16 @@ const FieldBox = styled.div<{ $error?: boolean }>`
         left: 2px;
         margin-top: 2px;
         font-size: 11px;
-        color: #ef4444;
+        color: #dc2626;
         font-weight: 500;
         white-space: nowrap;
     }
 `;
 
 const SearchBtn = styled.button`
-    height: 34px;
+    height: 32px;
     padding: 0 20px;
-    background: #3b82f6;
+    background: #2563eb;
     color: white;
     border: none;
     border-radius: 6px;
@@ -128,7 +132,7 @@ const SearchBtn = styled.button`
 const SectionCard = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    border-radius: 6px;
     overflow: hidden;
 `;
 
@@ -163,7 +167,7 @@ const Tbl = styled.table`
     th {
         background: #f1f5f9;
         font-weight: 700;
-        color: #334155;
+        color: #475569;
         position: sticky;
         top: 0;
         z-index: 1;
@@ -171,8 +175,8 @@ const Tbl = styled.table`
     td { color: #475569; }
     tbody tr:hover td { background: #f8fafc; }
     .total-row td {
-        background: #dbeafe !important;
-        color: #1e40af !important;
+        background: #bfdbfe !important;
+        color: #1d4ed8 !important;
         font-weight: 700;
         font-size: 12.5px;
     }
@@ -181,9 +185,11 @@ const Tbl = styled.table`
 
 const EmptyMsg = styled.div`
     text-align: center;
-    padding: 40px;
+    padding: 28px 16px;
     color: #94a3b8;
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 const PopoverBox = styled.div<{ $x: number; $y: number }>`
@@ -199,7 +205,7 @@ const PopoverBox = styled.div<{ $x: number; $y: number }>`
     pointer-events: none;
     z-index: 9999;
     white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 `;
 
 const HintText = styled.div`
@@ -442,7 +448,7 @@ export function ScreenCountPage() {
                                     <Bar
                                         dataKey="period_screens"
                                         name="총 스크린수"
-                                        fill="#7c3aed"
+                                        fill="#d97706"
                                         radius={[3, 3, 0, 0]}
                                         cursor="pointer"
                                         onClick={(d: any, _idx: number, e: any) => {

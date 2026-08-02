@@ -73,7 +73,7 @@ const Body = styled.div`
 const SectionLabel = styled.div`
     font-size: 12px;
     font-weight: 800;
-    color: #334155;
+    color: #475569;
     margin-bottom: 6px;
 `;
 
@@ -111,7 +111,7 @@ const Warn = styled.div`
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 700;
     color: #d97706;
     background: #fffbeb;
@@ -125,9 +125,9 @@ const MiniBtn = styled.button<{ $primary?: boolean }>`
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 700;
     cursor: pointer;
     border: 1px solid ${({ $primary }) => ($primary ? "transparent" : "#cbd5e1")};
     background: ${({ $primary }) => ($primary ? "#2563eb" : "#ffffff")};

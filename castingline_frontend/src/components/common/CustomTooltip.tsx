@@ -13,10 +13,10 @@ const TooltipBox = styled.div`
     z-index: 10;
 
     padding: 12px 16px;
-    background: var(--White-white, #fff);
-    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.15);
+    background: #ffffff;
+    box-shadow: 0px 4px 8px rgba(15, 23, 42, 0.15);
     border-radius: 8px;
-    outline: 1px solid var(--Gray-300, #d5d7da);
+    outline: 1px solid #cbd5e1;
     outline-offset: -1px;
 
     display: none;
@@ -27,7 +27,7 @@ const TooltipBox = styled.div`
 
 const TooltipItem = styled.div<{ $width?: number | string }>`
     width: ${({ $width }) => (typeof $width === "number" ? `${$width}px` : $width || "160px")};
-    color: var(--Gray-800, #252b37);
+    color: #1e293b;
     font-size: 12px;
     font-weight: 500;
     line-height: 18.96px;
@@ -52,7 +52,7 @@ export function CustomTooltip({ items, iconSize = 20, width }: Props) {
     return (
         <TooltipWrapper>
             <IconBox>
-                <InfoIcon weight="fill" color="rgba(0,0,0,0.15)" size={iconSize} />
+                <InfoIcon weight="fill" color="rgba(15, 23, 42, 0.15)" size={iconSize} />
                 <TooltipBox>
                     {items.map((text, idx) => (
                         <TooltipItem key={idx} $width={width}>

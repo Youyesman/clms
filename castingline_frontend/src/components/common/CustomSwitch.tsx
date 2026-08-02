@@ -39,8 +39,8 @@ const Wrapper = styled.div<{ $checked: boolean }>`
     height: 100%;
 
     padding: 3px;
-    background: ${({ $checked }) => ($checked ? "var(--Gray-800)" : "var(--Gray-300)")};
-    border-radius: 100px;
+    background: ${({ $checked }) => ($checked ? "#1e293b" : "#cbd5e1")};
+    border-radius: 999px;
 
     display: inline-flex;
     align-items: center;
@@ -55,11 +55,11 @@ const Knob = styled.div`
     width: 24px;
     height: 24px;
     background: white;
-    border-radius: 9999px;
+    border-radius: 999px;
 `;
 
 const Label = styled.div<{ $checked: boolean }>`
-    color: ${({ $checked }) => ($checked ? "white" : "var(--Gray-500)")};
+    color: ${({ $checked }) => ($checked ? "white" : "#64748b")};
 
     font-size: 11px;
     font-family: SUIT;

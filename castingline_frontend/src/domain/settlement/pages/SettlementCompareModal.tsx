@@ -1509,9 +1509,9 @@ const SummaryBar = styled.div`
     align-items: center;
     gap: 16px;
     flex-wrap: wrap;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 14px;
     font-size: 13px;
     color: #475569;
@@ -1541,8 +1541,8 @@ const Chain = styled.span`
     height: 24px;
     padding: 0 10px;
     border-radius: 6px;
-    background: #0f172a;
-    color: #fff;
+    background: #2563eb;
+    color: #ffffff;
     font-size: 12px;
     font-weight: 700;
 `;
@@ -1561,7 +1561,7 @@ const ConfirmMini = styled.button<{ $on: boolean }>`
     cursor: pointer;
     white-space: nowrap;
     border: 1px solid ${({ $on }) => ($on ? "#16a34a" : "#cbd5e1")};
-    background: ${({ $on }) => ($on ? "#f0fdf4" : "#fff")};
+    background: ${({ $on }) => ($on ? "#f0fdf4" : "#ffffff")};
     color: ${({ $on }) => ($on ? "#16a34a" : "#94a3b8")};
     &:hover {
         border-color: ${({ $on }) => ($on ? "#dc2626" : "#16a34a")};
@@ -1570,29 +1570,29 @@ const ConfirmMini = styled.button<{ $on: boolean }>`
 `;
 const BulkBtn = styled.button`
     margin-left: 10px;
-    height: 28px;
+    height: 30px;
     padding: 0 14px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    border: 1px solid #7c3aed;
-    background: #7c3aed;
-    color: #fff;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #ffffff;
     &:hover {
         background: #6d28d9;
     }
 `;
 const FilterBtn = styled.button<{ $on: boolean }>`
-    height: 28px;
+    height: 30px;
     padding: 0 12px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     border: 1px solid ${({ $on }) => ($on ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $on }) => ($on ? "#2563eb" : "#fff")};
-    color: ${({ $on }) => ($on ? "#fff" : "#475569")};
+    background: ${({ $on }) => ($on ? "#2563eb" : "#ffffff")};
+    color: ${({ $on }) => ($on ? "#ffffff" : "#475569")};
 `;
 const MiniBulkBtn = styled.button`
     height: 22px;
@@ -1601,17 +1601,17 @@ const MiniBulkBtn = styled.button`
     font-size: 11px;
     font-weight: 700;
     cursor: pointer;
-    border: 1px solid #7c3aed;
-    background: #fff;
-    color: #7c3aed;
+    border: 1px solid #2563eb;
+    background: #ffffff;
+    color: #2563eb;
     &:hover {
-        background: #7c3aed;
-        color: #fff;
+        background: #2563eb;
+        color: #ffffff;
     }
 `;
 const UnconfirmAllBtn = styled.button`
     margin-left: 6px;
-    height: 28px;
+    height: 30px;
     padding: 0 14px;
     border-radius: 999px;
     font-size: 12px;
@@ -1619,7 +1619,7 @@ const UnconfirmAllBtn = styled.button`
     cursor: pointer;
     border: 1px solid #64748b;
     background: #64748b;
-    color: #fff;
+    color: #ffffff;
     &:hover {
         background: #475569;
     }
@@ -1632,11 +1632,11 @@ const MiniUnconfirmBtn = styled.button`
     font-weight: 700;
     cursor: pointer;
     border: 1px solid #64748b;
-    background: #fff;
+    background: #ffffff;
     color: #64748b;
     &:hover {
         background: #64748b;
-        color: #fff;
+        color: #ffffff;
     }
 `;
 const MovieSection = styled.div`
@@ -1651,7 +1651,7 @@ const MovieHeader = styled.div`
     flex-wrap: wrap;
     h4 {
         margin: 0;
-        font-size: 15px;
+        font-size: 14px;
         color: #0f172a;
     }
     .stats {
@@ -1679,7 +1679,7 @@ const MovieHeader = styled.div`
 const TableScroll = styled.div`
     overflow: auto;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     max-height: 420px;
 `;
 const Table = styled.table`
@@ -1687,7 +1687,7 @@ const Table = styled.table`
     /* sticky 헤더에서 border가 밀리지 않도록 separate 사용 */
     border-collapse: separate;
     border-spacing: 0;
-    background: #fff;
+    background: #ffffff;
     font-size: 12px;
     white-space: nowrap;
     thead th {
@@ -1719,7 +1719,7 @@ const Table = styled.table`
         padding: 6px 10px;
         border-bottom: 1px solid #f1f5f9;
         border-right: 1px solid #f6f8fa;
-        color: #334155;
+        color: #475569;
         text-align: right;
         font-variant-numeric: tabular-nums;
     }
@@ -1739,7 +1739,7 @@ const Table = styled.table`
         color: #cbd5e1;
     }
     tbody td.date {
-        font-size: 11.5px;
+        font-size: 12.5px;
         letter-spacing: -0.2px;
         white-space: nowrap;
     }
@@ -1764,16 +1764,16 @@ const Table = styled.table`
         margin-left: 6px;
         padding: 1px 6px;
         border-radius: 4px;
-        background: #fef3c7;
-        color: #92400e;
+        background: #fffbeb;
+        color: #b45309;
         font-size: 11px;
     }
     .tag.rate {
-        background: #fee2e2;
-        color: #991b1b;
+        background: #fecaca;
+        color: #b91c1c;
     }
     .tag.cls {
-        background: #ede9fe;
+        background: #fffbeb;
         color: #5b21b6;
     }
 `;
@@ -1781,9 +1781,9 @@ const FileList = styled.ul`
     margin: 0;
     padding: 8px 14px;
     list-style: none;
-    background: #fff;
+    background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     font-size: 12px;
     color: #475569;
     display: flex;
@@ -1797,12 +1797,12 @@ const FileList = styled.ul`
         flex-wrap: wrap;
     }
     li.low {
-        color: #92400e;
+        color: #b45309;
     }
     .ai {
         padding: 0 6px;
         border-radius: 4px;
-        background: #ede9fe;
+        background: #fffbeb;
         color: #5b21b6;
         font-weight: 700;
         font-size: 11px;
@@ -1813,10 +1813,10 @@ const FileList = styled.ul`
     }
 `;
 const AdjBtn = styled.button`
-    height: 24px;
+    height: 26px;
     padding: 0 8px;
     border: 1px solid #2563eb;
-    background: #fff;
+    background: #ffffff;
     color: #2563eb;
     border-radius: 6px;
     font-size: 11px;
@@ -1832,8 +1832,8 @@ const DateApplyBtn = styled.button`
     height: 20px;
     padding: 0 7px;
     border: 1px solid #2563eb;
-    border-radius: 5px;
-    background: #fff;
+    border-radius: 6px;
+    background: #ffffff;
     color: #2563eb;
     font-size: 11px;
     font-weight: 700;
@@ -1841,7 +1841,7 @@ const DateApplyBtn = styled.button`
     vertical-align: middle;
     &:hover {
         background: #2563eb;
-        color: #fff;
+        color: #ffffff;
     }
 `;
 const AdjWrap = styled.span`
@@ -1851,7 +1851,7 @@ const AdjWrap = styled.span`
     .adjtag {
         padding: 2px 6px;
         border-radius: 4px;
-        background: #ede9fe;
+        background: #fffbeb;
         color: #6d28d9;
         font-size: 11px;
         font-weight: 700;
@@ -1859,10 +1859,10 @@ const AdjWrap = styled.span`
     }
     .undo {
         border: 1px solid #e2e8f0;
-        background: #fff;
+        background: #ffffff;
         color: #94a3b8;
         border-radius: 4px;
-        font-size: 10px;
+        font-size: 11px;
         padding: 1px 5px;
         cursor: pointer;
         &:hover {
@@ -1872,17 +1872,19 @@ const AdjWrap = styled.span`
     }
 `;
 const EmptyNote = styled.div`
-    font-size: 12px;
+    font-size: 12.5px;
     color: #94a3b8;
-    padding: 8px 4px;
+    padding: 28px 16px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 const UnmatchedBox = styled.div`
     background: #fffbeb;
     border: 1px solid #fde68a;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 14px;
     font-size: 12px;
-    color: #92400e;
+    color: #b45309;
     ul {
         margin: 6px 0 0;
         padding-left: 18px;

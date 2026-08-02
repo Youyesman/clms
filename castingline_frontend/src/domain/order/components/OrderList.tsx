@@ -205,26 +205,20 @@ export function OrderList({ orderList, setOrderList, selectedOrderList, setSelec
     return (
         <>
             <CommonFilterBar onSearch={onClickSearch}>
-                <FilterGroup>
-                    <div className="label">개봉년도 (이상):</div>
-                    <CustomInput
-                        size="sm"
-                        placeholder="YYYY"
-                        value={filterYear}
-                        setValue={setFilterYear}
-                        style={{ width: "80px" }}
-                    />
-                </FilterGroup>
-                <FilterGroup style={{ flex: 1, maxWidth: "400px" }}>
-                    <div className="label">영화명 검색:</div>
-                    <AutocompleteInputMovie
-                        placeholder="영화 제목 검색..."
-                        formData={searchMovie}
-                        setFormData={setSearchMovie}
-                        inputValue={movieInputValue}
-                        setInputValue={setMovieInputValue}
-                    />
-                </FilterGroup>
+                <CustomInput
+                    label="개봉년도(이상)"
+                    placeholder="YYYY"
+                    value={filterYear}
+                    setValue={setFilterYear}
+                />
+                <AutocompleteInputMovie
+                    label="영화명"
+                    placeholder="영화 제목 검색..."
+                    formData={searchMovie}
+                    setFormData={setSearchMovie}
+                    inputValue={movieInputValue}
+                    setInputValue={setMovieInputValue}
+                />
             </CommonFilterBar>
 
             <CommonSectionCard>

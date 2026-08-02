@@ -205,7 +205,7 @@ const Bar = styled.div<{ $visible: boolean; $color: string }>`
     width: 100%;
     max-width: 560px;
     padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(15, 23, 42, 0.55);
     border-radius: 8px;
 
     display: inline-flex;

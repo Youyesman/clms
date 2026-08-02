@@ -34,7 +34,7 @@ export const resetStyles = `
     body {
         line-height: 1;
         margin: 0;
-        background-color: var(--Gray-100); /* AppBackground와 동일하게 */
+        background-color: #f1f5f9; /* AppBackground와 동일하게 */
     }
     menu, ol, ul {
     list-style: none;

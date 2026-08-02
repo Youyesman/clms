@@ -17,8 +17,8 @@ const DetailContainer = styled.div`
     border: 1px solid #cbd5e1;
     border-radius: 4px;
     box-shadow: 
-        0 4px 6px -1px rgba(0, 0, 0, 0.1), 
-        0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        0 4px 6px -1px rgba(15, 23, 42, 0.1), 
+        0 2px 4px -1px rgba(15, 23, 42, 0.06);
     overflow: hidden;
     height: 100%;
 `;

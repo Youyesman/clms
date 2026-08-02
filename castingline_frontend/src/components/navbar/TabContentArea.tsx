@@ -95,9 +95,10 @@ const EmptyMessage = styled.div`
     height: 100%;
     min-height: calc(100vh - 96px);
     color: #94a3b8;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
     font-family: "SUIT", sans-serif;
+    line-height: 1.6;
 `;
 
 /**

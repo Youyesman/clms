@@ -5,10 +5,10 @@ import { TrendUp, TrendDown, ArrowsLeftRight } from "@phosphor-icons/react";
 /** --- Styles (기존 디자인 유지 및 최적화) --- **/
 const ChartCard = styled.div`
     background: #ffffff;
-    border-radius: 4px;
+    border-radius: 6px;
     padding: 24px;
     border: 1px solid #e2e8f0;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
     display: flex;
     flex-direction: column;
     gap: 32px;
@@ -35,7 +35,7 @@ const SwitchButton = styled.button<{ active: boolean }>`
     border-radius: 6px;
     border: none;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 700;
     cursor: pointer;
     transition: all 0.2s;
     background-color: ${(props) => (props.active ? "#ffffff" : "transparent")};
@@ -105,7 +105,7 @@ const MetricItem = styled.div`
             font-weight: 900;
         }
         .sub-val {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 700;
             opacity: 0.8;
         }
@@ -113,13 +113,13 @@ const MetricItem = styled.div`
     &.up {
         .value-group,
         svg {
-            color: #10b981;
+            color: #16a34a;
         }
     }
     &.down {
         .value-group,
         svg {
-            color: #ef4444;
+            color: #dc2626;
         }
     }
 `;
@@ -148,7 +148,7 @@ const TooltipBox = styled.div<{ x: string; y: string }>`
     font-size: 12px;
     pointer-events: none;
     z-index: 100;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.2);
     &::after {
         content: "";
         position: absolute;
@@ -374,8 +374,8 @@ export function ComparisonChart({
                             cx={p.x}
                             cy={p.lineY}
                             r={hoveredIdx === i ? 6 : 4}
-                            fill={hoveredIdx === i ? "#ef4444" : "#1e293b"}
-                            stroke="#fff"
+                            fill={hoveredIdx === i ? "#dc2626" : "#1e293b"}
+                            stroke="#ffffff"
                             strokeWidth="2"
                         />
                     ))}
@@ -415,7 +415,7 @@ export function ComparisonChart({
                         </div>
                         <div className="row">
                             <span>관객수</span>
-                            <span style={{ fontWeight: 800 }}>
+                            <span style={{ fontWeight: 700 }}>
                                 {points[hoveredIdx].original.base_day_visitors.toLocaleString()}명
                             </span>
                         </div>
@@ -423,8 +423,8 @@ export function ComparisonChart({
                             <span>증감폭</span>
                             <span
                                 style={{
-                                    fontWeight: 800,
-                                    color: points[hoveredIdx].original.theater_change >= 0 ? "#10b981" : "#ef4444",
+                                    fontWeight: 700,
+                                    color: points[hoveredIdx].original.theater_change >= 0 ? "#16a34a" : "#dc2626",
                                 }}>
                                 {points[hoveredIdx].original.theater_change > 0 ? "+" : ""}
                                 {points[hoveredIdx].original.theater_change}개

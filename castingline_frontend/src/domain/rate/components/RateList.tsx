@@ -29,7 +29,7 @@ const BulkActionBar = styled.div`
     gap: 16px;
     padding: 12px 20px;
     background-color: #ffffff;
-    border-bottom: 2px solid #64748b;
+    border-bottom: 1px solid #e2e8f0;
 
     .section-label {
         font-size: 13px;
@@ -48,9 +48,9 @@ const BulkSaveButton = styled.button`
     border: none;
     border-radius: 6px;
     padding: 0 16px;
-    height: 36px;
+    height: 32px;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
     margin-left: auto; /* 우측 정렬 */

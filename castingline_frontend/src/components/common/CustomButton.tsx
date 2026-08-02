@@ -1,66 +1,68 @@
 import styled, { css } from "styled-components";
 import { motion } from "framer-motion";
+import { ui } from "../../styles/uiTokens";
 
 type Size = "xs" | "sm" | "md" | "lg";
 type Color = "blue" | "red" | "gray";
 
-/* 1. 컬러 시스템: Deep Slate 테마에 맞춘 색상 보정 */
+/* 1. 컬러 시스템 — 전부 uiTokens 기준.
+   blue가 예전엔 별도의 파랑(#2b5797)이라 화면의 다른 파랑과 어긋나 있었습니다 → primary로 통일 */
 const defaultStyle = {
-    text: "#1e293b" /* Slate 800 */,
-    border: "#94a3b8" /* Slate 400 */,
-    hover: "#f1f5f9" /* Slate 100 */,
+    text: ui.color.text,
+    border: ui.color.borderStrong,
+    hover: ui.color.surfaceHover,
 };
 
 const colorMap = {
     blue: {
-        text: "#2b5797",
-        border: "#2b5797",
-        hover: "#f1f8fc",
+        text: ui.color.primary,
+        border: ui.color.primary,
+        hover: ui.color.primarySoft,
     },
     red: {
-        text: "#dc2626",
-        border: "#ef4444",
-        hover: "#fef2f2",
+        text: ui.color.danger,
+        border: ui.color.danger,
+        hover: ui.color.dangerSoft,
     },
     gray: {
-        text: "#475569" /* Slate 600 */,
-        border: "#cbd5e1" /* Slate 300 */,
-        hover: "#f8fafc",
+        text: ui.color.textMutedStrong,
+        border: ui.color.borderStrong,
+        hover: ui.color.surfaceMuted,
     },
 };
 
-/* 2. 사이즈 시스템: 높이 규격 축소 */
+/* 2. 사이즈 시스템 — 높이는 uiTokens.control, 반경은 uiTokens.radius */
 const sizeStyles = {
     xs: css`
-        height: 26px; /* 초소형 (유틸리티용) */
+        height: ${ui.control.xs}px; /* 초소형 (유틸리티용) */
         padding: 0 8px;
-        font-size: 11px;
-        font-weight: 600;
-        border-radius: 3px;
+        font-size: ${ui.font.size.xs};
+        font-weight: ${ui.font.weight.semibold};
+        border-radius: ${ui.radius.sm};
         gap: 4px;
     `,
     sm: css`
-        height: 32px; /* 👈 관리자 표준 (Input/Select와 동일 규격) */
+        height: ${ui.control.sm}px; /* 👈 관리자 표준 (Input/Select와 동일 규격) */
         padding: 0 12px;
-        font-size: 12px;
-        font-weight: 700;
-        border-radius: 4px;
+        font-size: ${ui.font.size.sm};
+        font-weight: ${ui.font.weight.semibold};
+        border-radius: ${ui.radius.md};
         gap: 6px;
     `,
     md: css`
-        height: 38px; /* 일반 강조형 */
+        height: ${ui.control.md}px; /* 일반 강조형 */
         padding: 0 16px;
-        font-size: 14px;
-        font-weight: 700;
-        border-radius: 4px;
+        font-size: ${ui.font.size.lg};
+        font-weight: ${ui.font.weight.semibold};
+        border-radius: ${ui.radius.md};
         gap: 8px;
     `,
     lg: css`
         height: 46px; /* 대형 (로그인 등 메인 액션) */
         padding: 0 20px;
-        font-size: 16px;
-        font-weight: 700;
-        border-radius: 6px;
+        font-size: ${ui.font.size.xl};
+        font-weight: ${ui.font.weight.bold};
+        border-radius: ${ui.radius.lg};
         gap: 8px;
     `,
 };
@@ -81,7 +83,7 @@ export const CustomButton = styled(motion.button).withConfig({
     white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-    font-family: "SUIT", sans-serif;
+    font-family: ${ui.font.family};
     outline: none;
 
     /* 사이즈 적용 (기본 sm으로 설정하여 입력창과 맞춤) */
@@ -103,24 +105,24 @@ export const CustomButton = styled(motion.button).withConfig({
         return css`
             color: ${c.text};
             border: 1px solid ${c.border};
-            background: white;
+            background: ${ui.color.surface};
 
             &:hover {
                 background: ${c.hover};
-                border-color: ${color === "gray" ? "#94a3b8" : c.border};
+                border-color: ${color === "gray" ? ui.color.textSubtle : c.border};
             }
 
             &:active {
-                background: #e2e8f0;
+                background: ${ui.color.border};
             }
         `;
     }}
 
     /* Disabled 상태 */
     &:disabled {
-        background: #f1f5f9 !important;
-        border: 1px solid #e2e8f0 !important;
-        color: #94a3b8 !important;
+        background: ${ui.color.surfaceHover} !important;
+        border: 1px solid ${ui.color.border} !important;
+        color: ${ui.color.textSubtle} !important;
         cursor: not-allowed;
         transform: none !important;
     }

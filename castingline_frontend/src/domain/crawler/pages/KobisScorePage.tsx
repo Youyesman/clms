@@ -13,6 +13,8 @@ import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { ScoreExcelUploader } from "../../score/pages/ScoreExcelUploader";
 import { KobisAccountSettings } from "./KobisAccountSettings";
+import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { CustomInput } from "../../../components/common/CustomInput";
 
 const XLSX_MIME =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -161,46 +163,22 @@ export const KobisScorePage = () => {
                 </SettingsBtn>
             </Header>
 
-            <Controls>
-                <Field>
-                    <label>상영일 (시작)</label>
-                    <input
-                        type="date"
-                        value={start}
-                        onChange={(e) => setStart(e.target.value)}
-                    />
-                </Field>
-                <span className="tilde">~</span>
-                <Field>
-                    <label>상영일 (종료)</label>
-                    <input
-                        type="date"
-                        value={end}
-                        onChange={(e) => setEnd(e.target.value)}
-                    />
-                </Field>
-                <Field $grow>
-                    <label>영화명 키워드 (쉼표로 여러 개, 비우면 전체)</label>
-                    <input
-                        type="text"
-                        placeholder="예: 백룸"
-                        value={include}
-                        onChange={(e) => setInclude(e.target.value)}
-                    />
-                </Field>
-                <Field $grow>
-                    <label>제외 키워드 (쉼표)</label>
-                    <input
-                        type="text"
-                        placeholder="예: 무대인사"
-                        value={exclude}
-                        onChange={(e) => setExclude(e.target.value)}
-                    />
-                </Field>
-                <RunBtn onClick={run} disabled={loading}>
-                    {loading ? "수집 중…" : "수집 실행"}
-                </RunBtn>
-            </Controls>
+            <CommonFilterBar
+                actions={
+                    <RunBtn onClick={run} disabled={loading}>
+                        {loading ? "수집 중…" : "수집 실행"}
+                    </RunBtn>
+                }>
+                <CustomInput label="상영일 시작" inputType="date" value={start} setValue={setStart} />
+                <CustomInput label="상영일 종료" inputType="date" value={end} setValue={setEnd} />
+                <CustomInput
+                    label="영화명 키워드(쉼표, 비우면 전체)"
+                    placeholder="예: 백룸"
+                    value={include}
+                    setValue={setInclude}
+                />
+                <CustomInput label="제외 키워드(쉼표)" placeholder="예: 무대인사" value={exclude} setValue={setExclude} />
+            </CommonFilterBar>
 
             {loading && (
                 <Notice>
@@ -325,7 +303,7 @@ export const KobisScorePage = () => {
 
 /* ───── styles ───── */
 const Wrapper = styled.div`
-    padding: 28px 32px;
+    padding: 20px;
     background: #f8fafc;
     min-height: 100%;
     font-family: "SUIT", sans-serif;
@@ -355,13 +333,13 @@ const SettingsBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 36px;
-    padding: 0 14px;
+    height: 32px;
+    padding: 0 12px;
     border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    background: #fff;
-    color: #334155;
-    font-size: 13px;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #475569;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     &:hover {
@@ -369,53 +347,15 @@ const SettingsBtn = styled.button`
         border-color: #94a3b8;
     }
 `;
-const Controls = styled.div`
-    display: flex;
-    align-items: flex-end;
-    gap: 12px;
-    flex-wrap: wrap;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 16px;
-    .tilde {
-        padding-bottom: 9px;
-        color: #94a3b8;
-    }
-`;
-const Field = styled.div<{ $grow?: boolean }>`
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    flex: ${({ $grow }) => ($grow ? "1 1 200px" : "0 0 auto")};
-    label {
-        font-size: 12px;
-        font-weight: 600;
-        color: #475569;
-    }
-    input {
-        height: 38px;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 0 10px;
-        font-size: 14px;
-        font-family: inherit;
-        &:focus {
-            outline: none;
-            border-color: #2563eb;
-        }
-    }
-`;
 const RunBtn = styled.button`
-    height: 38px;
-    padding: 0 20px;
+    height: 32px;
+    padding: 0 16px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 6px;
     background: #2563eb;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 700;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
     &:hover:not(:disabled) {
         background: #1d4ed8;
@@ -429,8 +369,8 @@ const Notice = styled.div`
     padding: 14px 16px;
     background: #eff6ff;
     border: 1px solid #bfdbfe;
-    border-radius: 10px;
-    color: #1e40af;
+    border-radius: 6px;
+    color: #1d4ed8;
     font-size: 13px;
     margin-bottom: 16px;
 `;
@@ -439,9 +379,9 @@ const SummaryBar = styled.div`
     align-items: center;
     gap: 24px;
     flex-wrap: wrap;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 12px 16px;
     margin-bottom: 12px;
     font-size: 13px;
@@ -461,12 +401,12 @@ const DownloadAllBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 34px;
+    height: 32px;
     padding: 0 14px;
     border: 1px solid #16a34a;
     background: #16a34a;
-    color: #fff;
-    border-radius: 8px;
+    color: #ffffff;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
@@ -481,23 +421,24 @@ const DownloadAllBtn = styled.button`
 const Table = styled.table`
     width: 100%;
     border-collapse: collapse;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    border-radius: 6px;
     overflow: hidden;
-    font-size: 13px;
+    font-size: 12.5px;
     thead th {
-        background: #f1f5f9;
-        color: #475569;
-        font-weight: 700;
+        background: #f8fafc;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 600;
         text-align: left;
         padding: 10px 12px;
         border-bottom: 1px solid #e2e8f0;
     }
     tbody td {
         padding: 9px 12px;
-        border-bottom: 1px solid #f1f5f9;
-        color: #334155;
+        border-bottom: 1px solid #e2e8f0;
+        color: #1e293b;
         vertical-align: middle;
     }
     tbody tr.failrow {
@@ -533,15 +474,15 @@ const ActBtn = styled.button<{ $variant?: "upload" }>`
     gap: 4px;
     height: 30px;
     padding: 0 10px;
-    border-radius: 7px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     border: 1px solid
         ${({ $variant }) => ($variant === "upload" ? "#2563eb" : "#cbd5e1")};
     background: ${({ $variant }) =>
-        $variant === "upload" ? "#2563eb" : "#fff"};
-    color: ${({ $variant }) => ($variant === "upload" ? "#fff" : "#334155")};
+        $variant === "upload" ? "#2563eb" : "#ffffff"};
+    color: ${({ $variant }) => ($variant === "upload" ? "#ffffff" : "#475569")};
     &:hover {
         ${({ $variant }) =>
             $variant === "upload"
@@ -555,7 +496,9 @@ const Empty = styled.div`
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 80px 0;
+    padding: 72px 24px;
     color: #94a3b8;
     font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
 `;

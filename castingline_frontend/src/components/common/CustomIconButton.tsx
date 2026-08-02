@@ -1,5 +1,6 @@
 import React from "react";
 import styled, { css } from "styled-components";
+import { ui } from "../../styles/uiTokens";
 
 type IconButtonColor = "blue" | "red" | "gray" | "green";
 
@@ -14,31 +15,28 @@ interface CustomIconButtonProps {
     style?: React.CSSProperties;
 }
 
-/** 1. 컬러 맵 정의 (Slate 기반 테마) **/
+/** 1. 컬러 맵 정의 — 전부 uiTokens 기준.
+    blue가 예전엔 별도의 파랑(#2b5797)이라 화면의 다른 파랑과 어긋나 있었습니다 → primary로 통일 **/
 const colorMap = {
     blue: {
-        border: "#cbd5e1",
-        hoverBorder: "#2b5797",
-        hoverColor: "#2b5797",
-        hoverBg: "#f1f8fc",
+        hoverBorder: ui.color.primaryBorder,
+        hoverColor: ui.color.primary,
+        hoverBg: ui.color.primarySoft,
     },
     red: {
-        border: "#cbd5e1",
-        hoverBorder: "#ef4444",
-        hoverColor: "#ef4444",
-        hoverBg: "#fef2f2",
+        hoverBorder: ui.color.danger,
+        hoverColor: ui.color.danger,
+        hoverBg: ui.color.dangerSoft,
     },
     gray: {
-        border: "#cbd5e1",
-        hoverBorder: "#94a3b8",
-        hoverColor: "#0f172a",
-        hoverBg: "#f8fafc",
+        hoverBorder: ui.color.textSubtle,
+        hoverColor: ui.color.textStrong,
+        hoverBg: ui.color.surfaceMuted,
     },
     green: {
-        border: "#cbd5e1",
-        hoverBorder: "#22c55e",
-        hoverColor: "#22c55e",
-        hoverBg: "#f0fdf4",
+        hoverBorder: ui.color.success,
+        hoverColor: ui.color.success,
+        hoverBg: ui.color.successSoft,
     },
 };
 
@@ -47,13 +45,13 @@ const StyledButton = styled.button<{ $color: IconButtonColor; $btnSize: number }
     display: flex;
     align-items: center;
     justify-content: center;
-    width: ${({ $btnSize }) => $btnSize + 14}px; 
+    width: ${({ $btnSize }) => $btnSize + 14}px;
     height: ${({ $btnSize }) => $btnSize + 14}px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    background: white;
+    border: 1px solid ${ui.color.border};
+    border-radius: ${ui.radius.md};
+    background: ${ui.color.surface};
     cursor: pointer;
-    color: #64748b;
+    color: ${ui.color.textMuted};
     transition: all 0.15s ease;
     padding: 0;
     outline: none;
@@ -71,13 +69,13 @@ const StyledButton = styled.button<{ $color: IconButtonColor; $btnSize: number }
 
     &:active:not(:disabled) {
         transform: translateY(1px);
-        background-color: #f1f5f9;
+        background-color: ${ui.color.surfaceHover};
     }
 
     &:disabled {
-        opacity: 0.3;
+        opacity: 0.4;
         cursor: not-allowed;
-        background-color: #f1f5f9;
+        background-color: ${ui.color.surfaceHover};
     }
 
     /* 내부 아이콘 중앙 정렬 보정 */

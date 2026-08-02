@@ -14,9 +14,9 @@ export const PageContainer = styled.div`
 /** 2. 창(Window) 스타일 **/
 export const ContentWindow = styled.div<{ flex?: number; height?: string }>`
     background-color: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     padding: 8px;
     display: flex;
     flex-direction: column;
@@ -26,7 +26,7 @@ export const ContentWindow = styled.div<{ flex?: number; height?: string }>`
 `;
 
 export const WindowHeader = styled.div`
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.1);
     padding: 6px;
     font-size: 14px;
     font-weight: bold;
@@ -37,13 +37,13 @@ export const WindowHeader = styled.div`
 export const FilterBar = styled.div`
     background: white;
     padding: 12px 16px;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 8px;
     display: flex;
     flex-wrap: wrap;
     gap: 20px;
     align-items: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 `;
 
 export const FilterItem = styled.div`
@@ -59,12 +59,12 @@ export const FilterItem = styled.div`
 
 const InputStyle = css`
     background-color: #ffffff;
-    border: 1px solid #b0b0b0;
+    border: 1px solid #94a3b8;
     padding: 4px 8px;
     font-size: 12px;
     border-radius: 4px;
     &:focus {
-        border-color: #005f99;
+        border-color: #1d4ed8;
         outline: none;
     }
 `;
@@ -87,14 +87,14 @@ export const CommonTable = styled.table`
     /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
     border-collapse: separate;
     border-spacing: 0;
-    border-top: 1px solid #b0b0b0;
-    border-left: 1px solid #b0b0b0;
+    border-top: 1px solid #94a3b8;
+    border-left: 1px solid #94a3b8;
     font-size: 12px;
 
     th {
-        background-color: #e0e0e0;
-        border-right: 1px solid #b0b0b0;
-        border-bottom: 1px solid #b0b0b0;
+        background-color: #e2e8f0;
+        border-right: 1px solid #94a3b8;
+        border-bottom: 1px solid #94a3b8;
         padding: 8px;
         font-weight: normal;
         position: sticky;
@@ -102,14 +102,14 @@ export const CommonTable = styled.table`
     }
 
     td {
-        border-right: 1px solid #b0b0b0;
-        border-bottom: 1px solid #b0b0b0;
+        border-right: 1px solid #94a3b8;
+        border-bottom: 1px solid #94a3b8;
         padding: 8px;
         white-space: nowrap;
     }
 
     tbody tr:nth-child(odd) {
-        background-color: #f5f5f5;
+        background-color: #f1f5f9;
     }
 
     tbody tr:hover {
@@ -119,30 +119,30 @@ export const CommonTable = styled.table`
     }
 
     tbody tr.selected {
-        background-color: #005f99;
+        background-color: #1d4ed8;
         color: white;
     }
 `;
 
 /** 5. 버튼 스타일 **/
 export const BaseButton = styled.button`
-    background-color: #e0e0e0;
+    background-color: #e2e8f0;
     border-top: 1px solid #ffffff;
     border-left: 1px solid #ffffff;
-    border-right: 1px solid #666666;
-    border-bottom: 1px solid #666666;
+    border-right: 1px solid #475569;
+    border-bottom: 1px solid #475569;
     padding: 6px 14px;
     font-size: 12px;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: all 0.1s ease;
 
     &:hover {
-        background-color: #ececec;
+        background-color: #e2e8f0;
     }
     &:active {
-        background-color: #d0d0d0;
-        border: 1px solid #666666;
+        background-color: #cbd5e1;
+        border: 1px solid #475569;
         border-right: 1px solid #ffffff;
         border-bottom: 1px solid #ffffff;
         transform: translate(1px, 1px);

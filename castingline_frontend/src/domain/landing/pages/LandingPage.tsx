@@ -382,7 +382,7 @@ const HeroCTA = styled.div`
 `;
 
 const CTAButton = styled.button<{ $primary?: boolean }>`
-    padding: 16px 36px; font-size: 16px; font-weight: 700; border-radius: 8px;
+    padding: 16px 36px; font-size: 14px; font-weight: 700; border-radius: 6px;
     cursor: pointer; display: flex; align-items: center; gap: 10px;
     transition: box-shadow 0.3s, background 0.3s;
     border: 1px solid ${({ $primary }) => ($primary ? "transparent" : "rgba(255,255,255,0.2)")};
@@ -423,7 +423,7 @@ const ImageTextBlock = styled.div<{ $order?: number }>`
 
 const ImageCardWrap = styled.div<{ $visible: boolean }>`
     position: relative;
-    border-radius: 20px;
+    border-radius: 12px;
     overflow: hidden;
     cursor: default;
     will-change: transform;
@@ -436,7 +436,7 @@ const ImageCardWrap = styled.div<{ $visible: boolean }>`
 
 const ImageCardInner = styled.div`
     overflow: hidden;
-    border-radius: 20px;
+    border-radius: 12px;
     aspect-ratio: 4 / 3;
 `;
 
@@ -449,13 +449,13 @@ const ImageCardImg = styled.img`
 `;
 
 const ImageCardGlow = styled.div`
-    position: absolute; inset: 0; border-radius: 20px;
+    position: absolute; inset: 0; border-radius: 12px;
     pointer-events: none; z-index: 1;
     transition: background 0.25s ease-out;
 `;
 
 const ImageCardShine = styled.div`
-    position: absolute; inset: 0; border-radius: 20px;
+    position: absolute; inset: 0; border-radius: 12px;
     pointer-events: none; z-index: 2;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
@@ -516,7 +516,7 @@ const FeatGrid = styled.div`
 
 const FeatCard = styled.div<{ $visible: boolean; $delay: number }>`
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 16px; padding: 36px; position: relative; overflow: hidden; cursor: default;
+    border-radius: 12px; padding: 36px; position: relative; overflow: hidden; cursor: default;
     opacity: ${({ $visible }) => ($visible ? 1 : 0)};
     transform: translateY(${({ $visible }) => ($visible ? 0 : 40)}px);
     transition: all 0.7s cubic-bezier(0.16,1,0.3,1);
@@ -572,7 +572,7 @@ const PLabel = styled.div<{ $active: boolean }>`
 
 /* ── CTA Banner ── */
 const CTABanner = styled.section<{ $visible: boolean }>`
-    margin: 0 auto 120px; max-width: 1000px; padding: 64px; border-radius: 20px;
+    margin: 0 auto 120px; max-width: 1000px; padding: 64px; border-radius: 12px;
     background: linear-gradient(135deg, rgba(228,179,90,0.12), rgba(228,179,90,0.04));
     border: 1px solid rgba(228,179,90,0.15); text-align: center; position: relative; overflow: hidden; z-index: 2;
     opacity: ${({ $visible }) => ($visible ? 1 : 0)};

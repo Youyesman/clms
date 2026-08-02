@@ -2,75 +2,51 @@ import { useState, useEffect, useRef } from "react";
 import styled from "styled-components";
 import axios from "axios";
 import { BASE_URL } from "../../../axios/Axios";
+import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { CustomInput } from "../../../components/common/CustomInput";
+import { CustomSelect } from "../../../components/common/CustomSelect";
 
 /* ── 스타일 ── */
-const FilterWrap = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    padding: 16px;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    align-items: flex-end;
-`;
 
-const FilterItem = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 140px;
-
-    label {
-        font-size: 12px;
-        font-weight: 600;
-        color: #374151;
-    }
-
-    select, input {
-        padding: 8px 10px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 13px;
-        background: #fff;
-        color: #111827;
-        min-width: 120px;
-
-        &:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 2px rgba(59,130,246,0.1);
-        }
-    }
-`;
 
 const MultiSelectWrap = styled.div`
     position: relative;
     min-width: 180px;
 `;
 
-const MultiSelectButton = styled.div`
-    padding: 8px 10px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
+/* 포맷은 복수 선택이라 드롭다운을 유지하되 겉모습은 필터 칩과 동일하게 */
+const MultiSelectButton = styled.button`
+    display: inline-flex;
     align-items: center;
-    background: #fff;
-    color: #111827;
-    min-height: 35px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.12s ease;
 
-    &:hover { border-color: #9ca3af; }
+    &:hover { border-color: #cbd5e1; }
 
-    span.count {
-        background: #3b82f6;
-        color: #fff;
-        border-radius: 10px;
-        padding: 1px 8px;
+    .chip-label {
+        font-size: 12.5px;
+        line-height: 20px;
+        color: #64748b;
+        padding-right: 8px;
+        border-right: 1px solid #e2e8f0;
+    }
+    .chip-value {
+        font-size: 12.5px;
+        line-height: 20px;
+        font-weight: 600;
+        color: #0f172a;
+        padding-left: 8px;
+    }
+    .chip-caret {
+        margin-left: 5px;
         font-size: 11px;
-        margin-left: 6px;
+        color: #94a3b8;
     }
 `;
 
@@ -79,10 +55,10 @@ const MultiSelectDropdown = styled.div`
     top: 100%;
     left: 0;
     right: 0;
-    background: #fff;
-    border: 1px solid #d1d5db;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
     border-radius: 6px;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
     z-index: 100;
     max-height: 200px;
     overflow-y: auto;
@@ -96,26 +72,26 @@ const MultiSelectDropdown = styled.div`
         font-size: 13px;
         cursor: pointer;
 
-        &:hover { background: #f3f4f6; }
+        &:hover { background: #f1f5f9; }
     }
 `;
 
 const SearchBtn = styled.button`
     padding: 8px 24px;
-    background: #111827;
-    color: #fff;
-    border: 1px solid #111827;
+    background: #2563eb;
+    color: #ffffff;
+    border: 1px solid #0f172a;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    height: 35px;
+    height: 30px;
     transition: background 0.2s;
 
-    &:hover { background: #1f2937; }
+    &:hover { background: #1e293b; }
     &:disabled {
-        background: #9ca3af;
-        border-color: #9ca3af;
+        background: #94a3b8;
+        border-color: #94a3b8;
         cursor: not-allowed;
     }
 `;
@@ -237,95 +213,81 @@ export function ScoreFilter({ filters, setFilters, handleSearch }: ScoreFilterPr
     };
 
     return (
-        <FilterWrap onKeyDown={handleKeyDown}>
-            {/* 연도 */}
-            <FilterItem>
-                <label>연도 *</label>
-                <select name="year" value={filters.year || ""} onChange={handleChange}>
-                    <option value="">연도 선택</option>
-                    {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
-            </FilterItem>
-
-            {/* 영화 선택 */}
-            <FilterItem>
-                <label>영화 선택 *</label>
-                <select value={filters.movie?.id || ""} onChange={handleMovieChange}>
-                    <option value="">영화 선택</option>
-                    {movies.map(m => (
-                        <option key={m.id} value={m.id}>{m.title_ko}</option>
-                    ))}
-                </select>
-            </FilterItem>
-
-            {/* 포맷 (멀티 셀렉트) */}
-            <FilterItem>
-                <label>포맷</label>
-                <MultiSelectWrap ref={formatRef}>
-                    <MultiSelectButton onClick={() => setFormatOpen(!formatOpen)}>
-                        {selectedFormats.length === 0
-                            ? "전체"
-                            : <>선택됨 <span className="count">{selectedFormats.length}</span></>
-                        }
-                        ▾
-                    </MultiSelectButton>
-                    {formatOpen && (
-                        <MultiSelectDropdown>
-                            {formats.length === 0 && (
-                                <label style={{ color: "#9ca3af" }}>포맷 없음</label>
-                            )}
-                            {formats.map(f => (
-                                <label key={f.id}>
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedFormats.includes(f.id)}
-                                        onChange={() => toggleFormat(f.id)}
-                                    />
-                                    {f.label}
-                                </label>
-                            ))}
-                        </MultiSelectDropdown>
-                    )}
-                </MultiSelectWrap>
-            </FilterItem>
-
-            {/* 지역 */}
-            <FilterItem>
-                <label>지역</label>
-                <select name="region" value={filters.region || ""} onChange={handleChange}>
-                    <option value="">전체</option>
-                    {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-            </FilterItem>
-
-            {/* 멀티 */}
-            <FilterItem>
-                <label>멀티</label>
-                <select name="multi" value={filters.multi || ""} onChange={handleChange}>
-                    <option value="">전체</option>
-                    {MULTIS.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-            </FilterItem>
-
-            {/* 극장유형 */}
-            <FilterItem>
-                <label>극장유형</label>
-                <select name="theater_type" value={filters.theater_type || ""} onChange={handleChange}>
-                    <option value="">전체</option>
-                    {THEATER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-            </FilterItem>
-
-            {/* 날짜 */}
-            <FilterItem>
-                <label>날짜 *</label>
-                <input type="date" name="date" value={filters.date || ""} onChange={handleChange} />
-            </FilterItem>
-
-            {/* 검색 버튼 */}
-            <SearchBtn onClick={handleSearch} disabled={!canSearch}>
-                검색
-            </SearchBtn>
-        </FilterWrap>
+        <CommonFilterBar
+            actions={
+                <SearchBtn onClick={handleSearch} disabled={!canSearch}>
+                    검색
+                </SearchBtn>
+            }>
+            <CustomSelect
+                label="연도"
+                required
+                options={YEARS.map((y) => y.toString())}
+                value={filters.year || ""}
+                onChange={(v) => setFilters((prev: any) => ({ ...prev, year: v }))}
+                allowClear={false}
+            />
+            <CustomSelect
+                label="영화 선택"
+                required
+                options={movies.map((mv: any) => ({ label: mv.title_ko, value: mv.id.toString() }))}
+                value={filters.movie?.id ? filters.movie.id.toString() : ""}
+                onChange={(v) => handleMovieChange({ target: { value: v } } as any)}
+                allowClear={false}
+            />
+            {/* 포맷은 복수 선택이라 기존 드롭다운을 유지하되 칩과 같은 규격으로 보입니다 */}
+            <MultiSelectWrap ref={formatRef}>
+                <MultiSelectButton onClick={() => setFormatOpen(!formatOpen)}>
+                    <span className="chip-label">포맷</span>
+                    <span className="chip-value">
+                        {selectedFormats.length === 0 ? "전체" : `${selectedFormats.length}개 선택`}
+                    </span>
+                    <span className="chip-caret">▾</span>
+                </MultiSelectButton>
+                {formatOpen && (
+                    <MultiSelectDropdown>
+                        {formats.length === 0 && <label style={{ color: "#94a3b8" }}>포맷 없음</label>}
+                        {formats.map((f) => (
+                            <label key={f.id}>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedFormats.includes(f.id)}
+                                    onChange={() => toggleFormat(f.id)}
+                                />
+                                {f.label}
+                            </label>
+                        ))}
+                    </MultiSelectDropdown>
+                )}
+            </MultiSelectWrap>
+            <CustomSelect
+                label="지역"
+                options={["전체", ...REGIONS]}
+                value={filters.region || "전체"}
+                onChange={(v) => setFilters((prev: any) => ({ ...prev, region: v === "전체" ? "" : v }))}
+                allowClear={false}
+            />
+            <CustomSelect
+                label="멀티"
+                options={["전체", ...MULTIS]}
+                value={filters.multi || "전체"}
+                onChange={(v) => setFilters((prev: any) => ({ ...prev, multi: v === "전체" ? "" : v }))}
+                allowClear={false}
+            />
+            <CustomSelect
+                label="극장유형"
+                options={["전체", ...THEATER_TYPES]}
+                value={filters.theater_type || "전체"}
+                onChange={(v) => setFilters((prev: any) => ({ ...prev, theater_type: v === "전체" ? "" : v }))}
+                allowClear={false}
+            />
+            <CustomInput
+                label="날짜"
+                required
+                inputType="date"
+                value={filters.date || ""}
+                setValue={(v) => setFilters((prev: any) => ({ ...prev, date: v }))}
+            />
+        </CommonFilterBar>
     );
 }

@@ -9,6 +9,7 @@ import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { EmptyState } from "../../../components/common/EmptyState";
 
 /** 1. 스타일 정의 **/
 const DetailContainer = styled.div`
@@ -31,11 +32,11 @@ const PrintPopover = styled.div`
     padding: 6px 10px;
     background: #0f172a; /* Slate 900 */
     color: #ffffff;
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 600;
     white-space: nowrap;
     border-radius: 6px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
 
     display: none;
 
@@ -77,8 +78,8 @@ const ScrollBody = styled.div`
         background: #f8fafc;
     }
     &::-webkit-scrollbar-thumb {
-        background: #94a3b8;
-        border-radius: 10px;
+        background: #cbd5e1;
+        border-radius: 8px;
     }
 `;
 
@@ -97,15 +98,6 @@ const SectionTitle = styled.div`
     border-bottom: 1px solid #e2e8f0;
 `;
 
-const EmptyState = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #94a3b8;
-    font-weight: 600;
-    font-size: 14px;
-    margin-top: 100px;
-`;
 
 /** 2. 메인 컴포넌트 **/
 export function MovieDetail({

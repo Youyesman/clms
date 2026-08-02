@@ -58,8 +58,8 @@ const PageWrapper = styled.div`
 const FilterBar = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 14px 20px;
+    border-radius: 6px;
+    padding: 10px 12px;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -73,7 +73,7 @@ const ExcelSlot = styled.div`
 `;
 
 const MovieInfo = styled.div`
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
     color: #1e293b;
     span {
@@ -112,7 +112,7 @@ const StyledTable = styled.table`
     th {
         background: #f1f5f9;
         font-weight: 700;
-        color: #334155;
+        color: #475569;
         position: sticky;
         top: 0;
         z-index: 2;
@@ -130,8 +130,8 @@ const StyledTable = styled.table`
 const SortableTh = styled.th<{ $active: boolean }>`
     cursor: pointer;
     user-select: none;
-    background: ${({ $active }) => ($active ? "#dbeafe" : "#f1f5f9")} !important;
-    color: ${({ $active }) => ($active ? "#1e40af" : "#334155")} !important;
+    background: ${({ $active }) => ($active ? "#bfdbfe" : "#f1f5f9")} !important;
+    color: ${({ $active }) => ($active ? "#1d4ed8" : "#475569")} !important;
     transition: background 0.15s;
 
     &:hover {
@@ -141,26 +141,29 @@ const SortableTh = styled.th<{ $active: boolean }>`
 
 const SortArrow = styled.span`
     margin-left: 4px;
-    font-size: 10px;
+    font-size: 11px;
 `;
 
 const TotalRow = styled.tr`
-    background: #dbeafe !important;
+    background: #bfdbfe !important;
     font-weight: 700;
     td {
-        color: #1e40af !important;
-        background: #dbeafe !important;
+        color: #1d4ed8 !important;
+        background: #bfdbfe !important;
         /* 스크롤 없이 항상 보이도록 하단 고정 */
         position: sticky;
         bottom: 0;
         z-index: 3;
-        border-top: 1px solid #93c5fd;
+        border-top: 1px solid #bfdbfe;
     }
 `;
 
 const EmptyTd = styled.td`
-    padding: 40px !important;
+    padding: 28px 16px !important;
     color: #94a3b8 !important;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 /* ── 컴포넌트 ── */
@@ -342,7 +345,6 @@ export function RankingPage() {
             <FilterBar>
                 <div>
                     <CustomSelect
-                        style={{ width: "160px" }}
                         label="연도"
                         options={yearOptions}
                         value={searchParams.yyyy}
@@ -351,12 +353,10 @@ export function RankingPage() {
                             setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
                             setFormatOptions([]);
                             setSelectedFormats([]);
-                        }}
-                    />
+                        }} variant="chip" />
                 </div>
                 <div>
                     <CustomSelect
-                        style={{ width: "360px" }}
                         label="영화선택"
                         allowClear={false}
                         options={moviesList.map((m) => ({
@@ -368,8 +368,7 @@ export function RankingPage() {
                             setSearchParams((p) => ({ ...p, movie_id: val }));
                             setScoreFilter((f) => ({ ...f, movieId: val }));
                             fetchMovieFormats(val);
-                        }}
-                    />
+                        }} variant="chip" />
                 </div>
                 <div>
                     <CustomMultiSelect
@@ -377,8 +376,7 @@ export function RankingPage() {
                         groups={FORMAT_GROUPS}
                         value={selectedFormats}
                         onChange={setSelectedFormats}
-                        disabled={formatOptions.length === 0}
-                    />
+                        disabled={formatOptions.length === 0} variant="chip" />
                 </div>
                 <div>
                     <CustomSelect
@@ -387,8 +385,7 @@ export function RankingPage() {
                         value={searchParams.region}
                         onChange={(v) =>
                             setSearchParams((p) => ({ ...p, region: v }))
-                        }
-                    />
+                        } variant="chip" />
                 </div>
                 <div>
                     <CustomSelect
@@ -397,8 +394,7 @@ export function RankingPage() {
                         value={searchParams.multi}
                         onChange={(v) =>
                             setSearchParams((p) => ({ ...p, multi: v }))
-                        }
-                    />
+                        } variant="chip" />
                 </div>
                 <div>
                     <CustomSelect
@@ -407,8 +403,7 @@ export function RankingPage() {
                         value={searchParams.theater_type}
                         onChange={(v) =>
                             setSearchParams((p) => ({ ...p, theater_type: v }))
-                        }
-                    />
+                        } variant="chip" />
                 </div>
                 <div>
                     <CustomInput
@@ -418,8 +413,7 @@ export function RankingPage() {
                         setValue={(v) => {
                             setSearchParams((p) => ({ ...p, date_from: v }));
                             setScoreFilter((f) => ({ ...f, dateFrom: v, date: v }));
-                        }}
-                    />
+                        }} variant="chip" />
                 </div>
                 <div>
                     <CustomInput
@@ -429,16 +423,14 @@ export function RankingPage() {
                         setValue={(v) => {
                             setSearchParams((p) => ({ ...p, date_to: v }));
                             setScoreFilter((f) => ({ ...f, dateTo: v }));
-                        }}
-                    />
+                        }} variant="chip" />
                 </div>
                 <div>
                     <CustomInput
                         label="극장 검색"
                         placeholder="극장명 입력"
                         value={theaterSearch}
-                        setValue={setTheaterSearch}
-                    />
+                        setValue={setTheaterSearch} variant="chip" />
                 </div>
                 <ExcelSlot>
                     <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />

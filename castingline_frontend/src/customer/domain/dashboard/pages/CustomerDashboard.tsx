@@ -77,12 +77,12 @@ const CardRow = styled.div`
 const StatCard = styled.div`
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 6px;
     padding: 20px 22px;
     display: flex;
     align-items: center;
     gap: 18px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 `;
 
 const StatIcon = styled.div<{ $bg: string; $fg: string }>`
@@ -94,7 +94,7 @@ const StatIcon = styled.div<{ $bg: string; $fg: string }>`
 `;
 
 const StatLabel = styled.div`
-    font-size: 13.5px; color: #64748b; font-weight: 600; margin-bottom: 6px;
+    font-size: 13px; color: #64748b; font-weight: 600; margin-bottom: 6px;
 `;
 const StatValue = styled.div`
     font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px;
@@ -111,8 +111,8 @@ const PanelRow = styled.div`
 const Panel = styled.div`
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -120,7 +120,7 @@ const Panel = styled.div`
 
 const PanelHead = styled.div`
     display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 14px 18px; border-bottom: 1px solid #eef2f7;
+    gap: 10px; padding: 14px 18px; border-bottom: 1px solid #f1f5f9;
     flex-wrap: wrap;
 `;
 const PanelTitle = styled.div`
@@ -136,9 +136,9 @@ const SubHead = styled.div`
 
 const StatTable = styled.table`
     width: 100%; border-collapse: collapse;
-    th, td { padding: 6px 8px; font-size: 13.5px; }
-    th { text-align: left; color: #94a3b8; font-weight: 700; font-size: 12px; border-bottom: 1px solid #eef2f7; }
-    td { color: #334155; }
+    th, td { padding: 6px 8px; font-size: 13px; }
+    th { text-align: left; color: #94a3b8; font-weight: 700; font-size: 12px; border-bottom: 1px solid #f1f5f9; }
+    td { color: #475569; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
     tr.total td { border-top: 1px solid #e2e8f0; font-weight: 800; color: #0f172a; }
 `;
@@ -159,7 +159,7 @@ const RankItem = styled.li`
     gap: 10px;
     padding: 9px 8px;
     border-radius: 6px;
-    font-size: 13.5px;
+    font-size: 13px;
     &:nth-child(odd) { background: #f8fafc; }
 `;
 const RankNo = styled.span<{ $top: boolean }>`
@@ -167,10 +167,10 @@ const RankNo = styled.span<{ $top: boolean }>`
     color: ${({ $top }) => ($top ? "#dc2626" : "#94a3b8")};
 `;
 const RankName = styled.span`color: #0f172a; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`;
-const RankVisitor = styled.span`color: #334155; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; min-width: 60px;`;
+const RankVisitor = styled.span`color: #475569; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; min-width: 60px;`;
 const RankRevenue = styled.span`color: #64748b; text-align: right; font-variant-numeric: tabular-nums; min-width: 90px;`;
 
-const Empty = styled.div`padding: 28px 8px; text-align: center; color: #94a3b8; font-size: 13.5px;`;
+const Empty = styled.div`padding: 28px 8px; text-align: center; color: #94a3b8; font-size: 13px;`;
 
 /* ── 전일대비 표시 ── */
 function Delta({ value, unit }: { value: number | null; unit: string }) {

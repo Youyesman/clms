@@ -50,7 +50,7 @@ const modalFadeOutScale = keyframes`
 const Overlay = styled.div<{ closing?: boolean }>`
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(15, 23, 42, 0.4);
     backdrop-filter: blur(2px);
     display: flex;
     justify-content: center;
@@ -64,7 +64,7 @@ const AlertContainer = styled.div<{ closing?: boolean }>`
     width: 400px;
     padding: 24px;
     background: white;
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0px 4px 12px rgba(15, 23, 42, 0.15);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -85,7 +85,7 @@ const MessageGroup = styled.div`
 
 const Title = styled.div`
     text-align: center;
-    color: var(--FEG-Dark-900, #03080b);
+    color: #0f172a;
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 0.36px;
@@ -94,7 +94,7 @@ const Title = styled.div`
 
 const Subtitle = styled.div`
     text-align: center;
-    color: var(--FEG-Dark-900, #03080b);
+    color: #0f172a;
     font-size: 14px;
     font-weight: 300;
     letter-spacing: 0.2px;
@@ -175,7 +175,7 @@ export function AlertConfirm({
     title,
     subTitle,
     highlight,
-    highlightColor = "var(--FEG-Dark-50)",
+    highlightColor = "#2563eb",
     img,
     type = "error",
     showBtn = true,

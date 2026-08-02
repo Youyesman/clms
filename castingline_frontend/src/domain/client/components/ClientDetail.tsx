@@ -2,7 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
-import { DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
+import { Buildings, DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, RATE_EXCEPTION_TYPES, REGION_CODES, THEATER_KINDS } from "../../../constant/Constants";
 import { useToast } from "../../../components/common/CustomToast";
@@ -10,6 +10,7 @@ import { AxiosPatch } from "../../../axios/Axios";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
+import { EmptyState, emptyStateIconSize } from "../../../components/common/EmptyState";
 import { DefaultRateDetail } from "./DefaultRateDetail";
 
 /** 스타일 정의 **/
@@ -26,7 +27,7 @@ const ScrollBody = styled.div`
 
     &::-webkit-scrollbar { width: 6px; }
     &::-webkit-scrollbar-track { background: #f8fafc; }
-    &::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+    &::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
 `;
 
 const FormGrid = styled.div`
@@ -53,21 +54,12 @@ const SectionTitle = styled.div`
         content: "";
         width: 4px;
         height: 12px;
-        background-color: #3b82f6; /* Blue 500 */
+        background-color: #2563eb; /* Blue 500 */
         margin-right: 8px;
-        border-radius: 2px;
+        border-radius: 6px;
     }
 `;
 
-const EmptyState = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: #94a3b8;
-    font-weight: 600;
-    font-size: 14px;
-`;
 const InlineRow = styled.div`
     display: flex;
     align-items: flex-end;
@@ -84,7 +76,13 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
     if (!selectedClient) {
         return (
             <CommonSectionCard>
-                <EmptyState>목록에서 거래처를 선택하면 상세 정보가 표시됩니다.</EmptyState>
+                <EmptyState
+                    size="lg"
+                    fill
+                    icon={<Buildings size={emptyStateIconSize("lg")} weight="light" />}
+                    description="거래처 코드·사업자 정보·부금 담당자를 확인하고 수정할 수 있습니다.">
+                    선택된 거래처가 없습니다
+                </EmptyState>
             </CommonSectionCard>
         );
     }

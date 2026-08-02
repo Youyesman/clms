@@ -54,10 +54,10 @@ const ListSection = styled.div`
     flex-direction: column;
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
-    border-radius: 4px;
+    border-radius: 6px;
     box-shadow:
-        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-        0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        0 4px 6px -1px rgba(15, 23, 42, 0.1),
+        0 2px 4px -1px rgba(15, 23, 42, 0.06);
     overflow: hidden;
     position: relative;
 `;
@@ -89,7 +89,7 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
     padding: 0 14px;
     height: 32px;
     border-radius: 6px;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
@@ -97,10 +97,10 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
     transition: all 0.15s;
     ${({ $tone }) =>
         $tone === "green"
-            ? "background:#f0fdf4; border:1px solid #86efac; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#4ade80;}"
+            ? "background:#f0fdf4; border:1px solid #dcfce7; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#16a34a;}"
             : $tone === "sky"
-            ? "background:#f0f9ff; border:1px solid #7dd3fc; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
-            : "background:#eff6ff; border:1px solid #93c5fd; color:#1d4ed8; &:hover:not(:disabled){background:#dbeafe; border-color:#60a5fa;}"}
+            ? "background:#eff6ff; border:1px solid #bfdbfe; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
+            : "background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; &:hover:not(:disabled){background:#bfdbfe; border-color:#60a5fa;}"}
     &:disabled {
         background: #f8fafc;
         border-color: #e2e8f0;
@@ -112,26 +112,50 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
     }
 `;
 
+/* 다른 필터와 같은 칩 모양 (styles/chipStyles.ts 기준).
+   position: relative는 아래 추천목록 위치 기준이라 유지합니다. */
 const TheaterSearchWrapper = styled.div`
     position: relative;
     width: 220px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    transition: border-color 0.12s ease;
+
+    &:hover { border-color: #cbd5e1; }
+    &:focus-within {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px #eff6ff;
+    }
+
+    > .chip-label {
+        flex-shrink: 0;
+        font-size: 12.5px;
+        line-height: 20px;
+        color: #64748b;
+        padding-right: 8px;
+        border-right: 1px solid #e2e8f0;
+    }
 `;
 
+/* 테두리는 바깥 칩(TheaterSearchWrapper)이 그립니다 */
 const TheaterSearchInput = styled.input`
-    width: 100%;
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    font-size: 12px;
+    flex: 1;
+    min-width: 0;
+    height: 20px;
+    padding: 0 0 0 8px;
+    border: none;
+    background: transparent;
+    font-size: 12.5px;
+    line-height: 20px;
     font-family: "SUIT", sans-serif;
+    color: #0f172a;
     outline: none;
-    box-sizing: border-box;
-    &:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
-    }
     &::placeholder {
         color: #94a3b8;
     }
@@ -142,10 +166,10 @@ const TheaterSuggestionList = styled.ul`
     top: calc(100% + 4px);
     left: 0;
     right: 0;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     max-height: 200px;
     overflow-y: auto;
     z-index: 100;
@@ -166,15 +190,17 @@ const TheaterSuggestionItem = styled.li`
 `;
 
 const TheaterChip = styled.div`
-    height: 32px;
+    flex: 1;
+    min-width: 0;
+    height: 20px;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 10px;
-    background: #eff6ff;
-    border: 1px solid #93c5fd;
-    border-radius: 4px;
-    font-size: 12px;
+    padding: 0 0 0 8px;
+    background: transparent;
+    border: none;
+    font-size: 12.5px;
+    line-height: 20px;
     color: #1d4ed8;
     font-weight: 600;
     white-space: nowrap;
@@ -187,14 +213,14 @@ const ClearBtn = styled.button`
     border: none;
     cursor: pointer;
     color: #94a3b8;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1;
     padding: 0;
     display: flex;
     align-items: center;
     margin-left: auto;
     &:hover {
-        color: #ef4444;
+        color: #dc2626;
     }
 `;
 
@@ -209,7 +235,7 @@ const ConfirmToggle = styled.button<{ $on: boolean }>`
     font-weight: 700;
     cursor: pointer;
     border: 1px solid ${({ $on }) => ($on ? "#16a34a" : "#cbd5e1")};
-    background: ${({ $on }) => ($on ? "#f0fdf4" : "#fff")};
+    background: ${({ $on }) => ($on ? "#f0fdf4" : "#ffffff")};
     color: ${({ $on }) => ($on ? "#16a34a" : "#94a3b8")};
     white-space: nowrap;
     &:hover {
@@ -224,15 +250,15 @@ const EditIconBtn = styled.button`
     gap: 3px;
     height: 22px;
     padding: 0 7px;
-    border: 1px solid #c7d2fe;
-    border-radius: 4px;
-    background: #fff;
-    color: #4338ca;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #2563eb;
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
     &:hover {
-        background: #eef2ff;
+        background: #eff6ff;
     }
 `;
 
@@ -242,7 +268,7 @@ const EditModalBody = styled.div`
     gap: 12px;
     font-family: "SUIT", sans-serif;
     font-size: 13px;
-    color: #334155;
+    color: #475569;
     .row {
         display: flex;
         align-items: center;
@@ -262,7 +288,7 @@ const EditModalBody = styled.div`
             text-align: right;
             outline: none;
             &:focus {
-                border-color: #3b82f6;
+                border-color: #2563eb;
             }
             &:disabled {
                 background: #f1f5f9;
@@ -296,11 +322,11 @@ const EditModalBody = styled.div`
         .save {
             border: none;
             background: #2563eb;
-            color: #fff;
+            color: #ffffff;
         }
         .cancel {
             border: 1px solid #cbd5e1;
-            background: #fff;
+            background: #ffffff;
             color: #475569;
         }
     }
@@ -566,7 +592,7 @@ function BulkDateModal({
                 {clearIds.length > 0 && (
                     <button
                         className="cancel"
-                        style={{ color: "#7c3aed", borderColor: "#ddd6fe" }}
+                        style={{ color: "#d97706", borderColor: "#fde68a" }}
                         onClick={clearAll}
                         disabled={saving}
                         title="날짜(To) 확정만 원래 날짜로 복구 (금액 조정 유지)"
@@ -1133,7 +1159,7 @@ export function ManageSettlement() {
                                     fontSize: 11,
                                     border: "1px solid #fecaca",
                                     borderRadius: 4,
-                                    background: "#fff",
+                                    background: "#ffffff",
                                     color: "#dc2626",
                                     cursor: "pointer",
                                 }}
@@ -1152,8 +1178,8 @@ export function ManageSettlement() {
                                     fontSize: 11,
                                     border: "1px solid #e2e8f0",
                                     borderRadius: 4,
-                                    background: "#fff",
-                                    color: "#334155",
+                                    background: "#ffffff",
+                                    color: "#475569",
                                     cursor: "pointer",
                                 }}
                                 onClick={(e) => {
@@ -1170,7 +1196,7 @@ export function ManageSettlement() {
                 if (row.is_adjusted) {
                     return (
                         <span>
-                            <span style={{ color: "#7c3aed", fontWeight: 700, fontSize: 11 }}>
+                            <span style={{ color: "#d97706", fontWeight: 700, fontSize: 11 }}>
                                 수동조정
                             </span>
                             {row["조정ID"] && (
@@ -1180,10 +1206,10 @@ export function ManageSettlement() {
                                         marginLeft: 5,
                                         padding: "1px 6px",
                                         fontSize: 11,
-                                        border: "1px solid #ddd6fe",
+                                        border: "1px solid #fde68a",
                                         borderRadius: 4,
-                                        background: "#fff",
-                                        color: "#7c3aed",
+                                        background: "#ffffff",
+                                        color: "#d97706",
                                         cursor: "pointer",
                                     }}
                                     onClick={(e) => {
@@ -1391,7 +1417,7 @@ export function ManageSettlement() {
                     </>
                 }
             >
-                <div style={{ width: "200px" }}>
+                <div>
                     <CustomInput
                         label="부금년월"
                         inputType="month"
@@ -1403,7 +1429,7 @@ export function ManageSettlement() {
                         labelWidth="60px"
                     />
                 </div>
-                <div style={{ width: "300px", position: "relative" }}>
+                <div style={{position: "relative" }}>
                     <CustomSelect
                         label="영화명"
                         options={movieOptions.map((m) => ({ label: m.title, value: String(m.id) }))}
@@ -1421,7 +1447,7 @@ export function ManageSettlement() {
                         </div>
                     )}
                 </div>
-                <div style={{ width: "250px" }}>
+                <div>
                     <CustomSelect
                         label="조회대상"
                         options={["전체극장", "일반극장", "기금면제극장"]}
@@ -1431,7 +1457,7 @@ export function ManageSettlement() {
                         allowClear={false}
                     />
                 </div>
-                <div style={{ width: "200px" }}>
+                <div>
                     <CustomSelect
                         label="확인여부"
                         options={["전체", "확인", "미확인"]}
@@ -1441,7 +1467,7 @@ export function ManageSettlement() {
                         allowClear={false}
                     />
                 </div>
-                <div style={{ width: "170px" }}>
+                <div>
                     <CustomSelect
                         label="멀티"
                         options={multiOptions}
@@ -1451,7 +1477,7 @@ export function ManageSettlement() {
                         allowClear={false}
                     />
                 </div>
-                <div style={{ width: "170px" }}>
+                <div>
                     <CustomSelect
                         label="직위"
                         options={["전체", "직영", "위탁", "기타"]}
@@ -1462,6 +1488,7 @@ export function ManageSettlement() {
                     />
                 </div>
                 <TheaterSearchWrapper ref={theaterWrapperRef}>
+                    <span className="chip-label">극장명</span>
                     {selectedTheater ? (
                         <TheaterChip>
                             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1479,7 +1506,7 @@ export function ManageSettlement() {
                         </TheaterChip>
                     ) : (
                         <TheaterSearchInput
-                            placeholder="SEARCH (극장명)"
+                            placeholder="극장 검색"
                             value={theaterInput}
                             onChange={(e) => setTheaterInput(e.target.value)}
                             onFocus={() => {
@@ -1554,7 +1581,7 @@ export function ManageSettlement() {
                                         }
                                     >
                                         {dc ? (
-                                            <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                            <span style={{ color: "#d97706", fontWeight: 700 }}>
                                                 {v}
                                             </span>
                                         ) : (
@@ -1568,7 +1595,7 @@ export function ManageSettlement() {
                                                 fontSize: 11,
                                                 border: "1px solid #e2e8f0",
                                                 borderRadius: 4,
-                                                background: "#fff",
+                                                background: "#ffffff",
                                                 color: "#64748b",
                                                 cursor: "pointer",
                                                 verticalAlign: "middle",
@@ -1587,10 +1614,10 @@ export function ManageSettlement() {
                                                     marginLeft: 4,
                                                     padding: "1px 6px",
                                                     fontSize: 11,
-                                                    border: "1px solid #ddd6fe",
+                                                    border: "1px solid #fde68a",
                                                     borderRadius: 4,
-                                                    background: "#fff",
-                                                    color: "#7c3aed",
+                                                    background: "#ffffff",
+                                                    color: "#d97706",
                                                     cursor: "pointer",
                                                 }}
                                                 onClick={(e) => {
@@ -1614,7 +1641,7 @@ export function ManageSettlement() {
                                     return (
                                         <span>
                                             {v.toLocaleString()}{" "}
-                                            <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                            <span style={{ color: "#d97706", fontWeight: 700 }}>
                                                 ({delta > 0 ? "+" : ""}
                                                 {delta.toLocaleString()})
                                             </span>
@@ -1631,7 +1658,7 @@ export function ManageSettlement() {
                             ) {
                                 return (
                                     <span>
-                                        <span style={{ color: "#7c3aed", fontWeight: 700 }}>
+                                        <span style={{ color: "#d97706", fontWeight: 700 }}>
                                             수동조정
                                         </span>
                                         {row?.["조정ID"] && (
@@ -1641,10 +1668,10 @@ export function ManageSettlement() {
                                                     marginLeft: 6,
                                                     padding: "1px 6px",
                                                     fontSize: 11,
-                                                    border: "1px solid #ddd6fe",
+                                                    border: "1px solid #fde68a",
                                                     borderRadius: 4,
-                                                    background: "#fff",
-                                                    color: "#7c3aed",
+                                                    background: "#ffffff",
+                                                    color: "#d97706",
                                                     cursor: "pointer",
                                                 }}
                                                 onClick={(e) => {

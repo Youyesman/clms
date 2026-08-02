@@ -215,7 +215,6 @@ export function ManageTheaterMap() {
                 }
             >
                 <CustomSelect
-                    style={{ width: "250px" }}
                     label="대상 배급사"
                     value={selectedDistId ? String(selectedDistId) : ""}
                     options={distributors}

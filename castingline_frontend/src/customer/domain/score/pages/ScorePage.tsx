@@ -33,29 +33,30 @@ const SortTabGroup = styled.div`
 `;
 
 const SortTabLabel = styled.span`
-    font-size: 13px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 600;
     color: #dc2626;
     margin-right: 4px;
-    letter-spacing: -0.3px;
 `;
 
+/* 분류 선택 — 빨강 계열은 의도된 것이라 유지합니다.
+   크기·테두리 굵기·라운드만 다른 버튼과 같은 규격으로 맞추고,
+   glow 그림자와 hover 부양 효과는 뺐습니다. */
 const SortTab = styled.button<{ $active: boolean }>`
-    padding: 10px 22px;
+    height: 32px;
+    padding: 0 16px;
     border-radius: 6px;
-    border: 2px solid ${({ $active }) => ($active ? "#dc2626" : "#fca5a5")};
-    background: ${({ $active }) => ($active ? "#dc2626" : "#fff5f5")};
+    border: 1px solid ${({ $active }) => ($active ? "#dc2626" : "#fecaca")};
+    background: ${({ $active }) => ($active ? "#dc2626" : "#ffffff")};
     color: ${({ $active }) => ($active ? "#ffffff" : "#dc2626")};
-    font-size: 14px;
-    font-weight: ${({ $active }) => ($active ? "800" : "600")};
+    font-size: 12px;
+    font-weight: ${({ $active }) => ($active ? 700 : 600)};
     cursor: pointer;
-    transition: all 0.15s ease;
-    box-shadow: ${({ $active }) => ($active ? "0 2px 8px rgba(220,38,38,0.35)" : "none")};
+    transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 
     &:hover {
         border-color: #dc2626;
-        background: ${({ $active }) => ($active ? "#dc2626" : "#fee2e2")};
-        transform: translateY(-1px);
+        background: ${({ $active }) => ($active ? "#b91c1c" : "#fef2f2")};
     }
 `;
 
@@ -71,11 +72,11 @@ const MainSection = styled.div`
 const FilterBar = styled.div`
     display: flex;
     flex-direction: column; /* 행 분리를 위해 column 방향 설정 */
-    gap: 12px;
-    padding: 16px 20px;
+    gap: 8px;
+    padding: 10px 12px;
     background: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
 `;
 
 const FilterRow = styled.div`
@@ -94,8 +95,8 @@ const ExcelSlot = styled.div`
 
 const TableSection = styled.div`
     background: #ffffff;
-    border: 1px solid #94a3b8;
-    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
     overflow: hidden;
 `;
 
@@ -368,7 +369,6 @@ export function ScorePage() {
                     <FilterRow>
                         <div>
                             <CustomSelect
-                                style={{ width: "150px" }}
                                 label="연도"
                                 options={yearOptions}
                                 value={searchParams.yyyy}
@@ -377,12 +377,10 @@ export function ScorePage() {
                                     setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
                                     setFormatOptions([]);
                                     setSelectedFormats([]);
-                                }}
-                            />
+                                }} variant="chip" />
                         </div>
                         <div>
                             <CustomSelect
-                                style={{ width: "500px" }}
                                 label="영화선택"
                                 allowClear={false}
                                 options={moviesList.map((m) => ({
@@ -394,8 +392,7 @@ export function ScorePage() {
                                     setSearchParams((prev) => ({ ...prev, movie_id: val }));
                                     setScoreFilter((f) => ({ ...f, movieId: val }));
                                     fetchMovieFormats(val);
-                                }}
-                            />
+                                }} variant="chip" />
                         </div>
                         <div>
                             <CustomMultiSelect
@@ -403,16 +400,14 @@ export function ScorePage() {
                                 groups={FORMAT_GROUPS}
                                 value={selectedFormats}
                                 onChange={setSelectedFormats}
-                                disabled={formatOptions.length === 0}
-                            />
+                                disabled={formatOptions.length === 0} variant="chip" />
                         </div>
                         <div>
                             <CustomSelect
                                 label="극장유형"
                                 options={["전체", "직영", "위탁", "기타"]}
                                 value={searchParams.theater_type}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))}
-                            />
+                                onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))} variant="chip" />
                         </div>
                         <div>
                             <CustomInput
@@ -422,16 +417,14 @@ export function ScorePage() {
                                 setValue={(v) => {
                                     setSearchParams((p) => ({ ...p, date: v }));
                                     setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
-                                }}
-                            />
+                                }} variant="chip" />
                         </div>
                         <div>
                             <CustomSelect
                                 label="지역"
                                 options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
                                 value={searchParams.region}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))}
-                            />
+                                onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))} variant="chip" />
                         </div>
                         <div>
                             <CustomSelect
@@ -447,8 +440,7 @@ export function ScorePage() {
                                     "기타",
                                 ]}
                                 value={searchParams.multi}
-                                onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))}
-                            />
+                                onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))} variant="chip" />
                         </div>
                         <ExcelSlot>
                             <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />

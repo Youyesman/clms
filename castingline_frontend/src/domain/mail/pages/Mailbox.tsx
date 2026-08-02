@@ -553,7 +553,7 @@ const Wrapper = styled.div`
     display: flex;
     flex-direction: column;
     height: calc(100vh - 96px);
-    padding: 24px 28px 16px;
+    padding: 20px;
     background: #f8fafc;
     font-family: "SUIT", sans-serif;
 `;
@@ -579,12 +579,12 @@ const RefreshBtn = styled.button`
     align-items: center;
     gap: 6px;
     border: 1px solid #cbd5e1;
-    background: #fff;
-    color: #334155;
+    background: #ffffff;
+    color: #475569;
     font-size: 13px;
     font-weight: 600;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     &:hover {
         background: #f1f5f9;
@@ -598,8 +598,8 @@ const FolderBar = styled.div`
 `;
 const FolderPill = styled.button<{ $active: boolean }>`
     border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $active }) => ($active ? "#2563eb" : "#fff")};
-    color: ${({ $active }) => ($active ? "#fff" : "#475569")};
+    background: ${({ $active }) => ($active ? "#2563eb" : "#ffffff")};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#475569")};
     font-size: 13px;
     font-weight: 600;
     padding: 6px 14px;
@@ -619,7 +619,7 @@ const Body = styled.div`
 const ListPane = styled.div`
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
     overflow: hidden;
@@ -650,10 +650,10 @@ const PagerBtn = styled.button`
     width: 26px;
     height: 26px;
     border: 1px solid #e2e8f0;
-    background: #fff;
+    background: #ffffff;
     border-radius: 6px;
     cursor: pointer;
-    color: #334155;
+    color: #475569;
     &:disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -672,7 +672,7 @@ const Row = styled.div<{ $active: boolean; $unread: boolean }>`
     padding: 12px 16px;
     border-bottom: 1px solid #f1f5f9;
     cursor: pointer;
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#fff")};
+    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
     border-left: 3px solid
         ${({ $active }) => ($active ? "#2563eb" : "transparent")};
     &:hover {
@@ -707,12 +707,12 @@ const CollectedDivider = styled.div`
     font-weight: 700;
     color: #16a34a;
     background: #f0fdf4;
-    border-bottom: 1px solid #bbf7d0;
+    border-bottom: 1px solid #dcfce7;
     &::before,
     &::after {
         content: "";
         flex: 1;
-        border-top: 1px dashed #86efac;
+        border-top: 1px dashed #dcfce7;
     }
 `;
 /* 수집(다운로드) 완료된 메일 뱃지 (C001) */
@@ -720,11 +720,11 @@ const CollectedBadge = styled.span`
     display: inline-block;
     margin-left: 6px;
     padding: 1px 6px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     color: #16a34a;
     background: #f0fdf4;
-    border: 1px solid #86efac;
+    border: 1px solid #dcfce7;
     border-radius: 8px;
     white-space: nowrap;
     flex-shrink: 0;
@@ -768,7 +768,7 @@ const ContextMenuOverlay = styled.div`
 const ContextMenuContainer = styled.div`
     position: fixed;
     z-index: 1001;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
@@ -784,7 +784,7 @@ const ContextMenuItem = styled.button`
     background: transparent;
     padding: 8px 10px;
     font-size: 13px;
-    color: #334155;
+    color: #475569;
     border-radius: 6px;
     cursor: pointer;
     &:hover {
@@ -794,7 +794,7 @@ const ContextMenuItem = styled.button`
 const DetailPane = styled.div`
     display: flex;
     flex-direction: column;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
     overflow: hidden;
@@ -828,7 +828,7 @@ const DetailHead = styled.div`
     }
     dd {
         margin: 0;
-        color: #334155;
+        color: #475569;
         word-break: break-all;
     }
 `;
@@ -863,10 +863,10 @@ const AttachItem = styled.button`
     gap: 6px;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 7px 10px;
     cursor: pointer;
-    color: #334155;
+    color: #475569;
     max-width: 280px;
     &:hover:not(:disabled) {
         background: #eff6ff;
@@ -893,9 +893,9 @@ const AttachItem = styled.button`
 const ReportBox = styled.div`
     margin-top: 14px;
     padding: 12px 14px;
-    border: 1px solid #bbf7d0;
+    border: 1px solid #dcfce7;
     background: #f0fdf4;
-    border-radius: 10px;
+    border-radius: 8px;
     .title {
         display: flex;
         align-items: center;
@@ -924,10 +924,10 @@ const ReportBtn = styled.button<{ $variant?: "extract" | "upload" }>`
         ${({ $variant }) => ($variant === "upload" ? "#2563eb" : "#16a34a")};
     background: ${({ $variant }) =>
         $variant === "upload" ? "#2563eb" : "#16a34a"};
-    color: #fff;
+    color: #ffffff;
     font-size: 12px;
     font-weight: 700;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 8px 14px;
     cursor: pointer;
     &:hover:not(:disabled) {
@@ -943,7 +943,7 @@ const BodyFrame = styled.iframe`
     flex: 1;
     width: 100%;
     border: 0;
-    background: #fff;
+    background: #ffffff;
 `;
 const Empty = styled.div`
     display: flex;
@@ -953,4 +953,6 @@ const Empty = styled.div`
     min-height: 200px;
     color: #94a3b8;
     font-size: 14px;
+    font-weight: 500;
+    line-height: 1.6;
 `;

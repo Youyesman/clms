@@ -105,7 +105,7 @@ export default function AttachmentList({ files, onDelete, onAddFiles }: Props) {
 
 const Wrapper = styled.div<{ isDragging: boolean; isEmpty: boolean }>`
     width: 100%;
-    border: 1px ${({ isDragging }) => (isDragging ? "dashed var(--Blue-700)" : "solid #d5d7da")};
+    border: 1px ${({ isDragging }) => (isDragging ? "dashed #1d4ed8" : "solid #cbd5e1")};
     border-radius: 8px;
     padding: ${({ isEmpty }) => (isEmpty ? "40px 0" : "12px 16px")};
     background: ${({ isDragging, isEmpty }) => (isDragging ? "#eef4ff" : isEmpty ? "rgba(242, 242, 242, 1)" : "white")};
@@ -123,12 +123,14 @@ const EmptyBox = styled.div`
 `;
 
 const EmptyText = styled.div`
-    color: #757575;
-    font-size: 14px;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 const SelectButton = styled.div`
-    color: var(--Blue-700);
+    color: #1d4ed8;
     font-size: 14px;
     cursor: pointer;
 
@@ -157,18 +159,18 @@ const FileChip = styled.div`
 
     padding: 6px 12px;
     background: #f2f3f5;
-    border-radius: 20px;
+    border-radius: 12px;
 
     font-size: 13px;
     font-weight: 500;
-    color: #333;
+    color: #1e293b;
 `;
 
 const FileSelectSmall = styled.div`
     white-space: nowrap;
     font-size: 14px;
     font-weight: 500;
-    color: var(--Blue-700);
+    color: #1d4ed8;
     cursor: pointer;
     text-align: center;
     vertical-align: middle;
@@ -181,16 +183,16 @@ const FileSelectSmall = styled.div`
 const DragOverlay = styled.div`
     position: absolute;
     inset: 0;
-    background: var(--Blue-50);
+    background: #eff6ff;
     border-radius: 8px;
 
     display: flex;
     justify-content: center;
     align-items: center;
 
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
-    color: var(--Blue-700);
+    color: #1d4ed8;
 
     pointer-events: none;
 `;

@@ -90,8 +90,8 @@ export function ManageSpecialSettlement() {
         }));
 
         const totalHeaders = [
-            { key: "row_visitor_sum", label: "관객합계", cellStyle: { backgroundColor: "#fff7ed", fontWeight: "bold", color: "#c2410c" } },
-            { key: "row_amount_sum", label: "매출합계", cellStyle: { backgroundColor: "#fff7ed", fontWeight: "bold", color: "#c2410c" } },
+            { key: "row_visitor_sum", label: "관객합계", cellStyle: { backgroundColor: "#fffbeb", fontWeight: "bold", color: "#b45309" } },
+            { key: "row_amount_sum", label: "매출합계", cellStyle: { backgroundColor: "#fffbeb", fontWeight: "bold", color: "#b45309" } },
         ];
 
         return [...baseHeaders, ...dynamicHeaders, ...totalHeaders];
@@ -232,7 +232,7 @@ export function ManageSpecialSettlement() {
                         setValue={(v) => setSearchParams((p: any) => ({ ...p, end_date: v }))}
                     />
                 </div>
-                <div style={{ width: "260px" }}>
+                <div>
                     <AutocompleteInputMovie
                         label="영화"
                         formData={searchParams}
@@ -244,7 +244,7 @@ export function ManageSpecialSettlement() {
                         isPrimaryOnly={true}
                     />
                 </div>
-                <div style={{ width: "260px" }}>
+                <div>
                     <AutocompleteInputClient
                         type="client"
                         label="극장"

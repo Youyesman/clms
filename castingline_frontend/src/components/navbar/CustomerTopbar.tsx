@@ -21,7 +21,7 @@ const TopbarContainer = styled.header`
     padding: 0 24px;
     background-color: #ffffff;
     border-bottom: 1px solid #e2e8f0; /* Slate 200 */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 `;
 
 const LeftSection = styled.div`
@@ -72,8 +72,8 @@ const navItemStyle = css`
     }
 
     &.active {
-        color: #2b5797; /* 브랜드 포인트 컬러 */
-        background-color: #f0f5ff;
+        color: #2563eb; /* 브랜드 포인트 컬러 */
+        background-color: #eff6ff;
     }
 `;
 
@@ -106,7 +106,7 @@ const DropdownMenu = styled.div`
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     padding: 6px;
     opacity: 0;
     visibility: hidden;
@@ -118,9 +118,9 @@ const DropdownMenu = styled.div`
 const DropdownLink = styled(NavLink)`
     display: block;
     padding: 8px 12px;
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 500;
-    color: #334155;
+    color: #475569;
     text-decoration: none;
     border-radius: 4px;
     transition: background 0.15s;
@@ -133,7 +133,7 @@ const DropdownLink = styled(NavLink)`
 
     &.active {
         background-color: #f1f5f9;
-        color: #2b5797;
+        color: #2563eb;
         font-weight: 700;
     }
 `;

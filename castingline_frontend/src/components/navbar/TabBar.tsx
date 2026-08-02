@@ -4,6 +4,7 @@ import { useRecoilState } from "recoil";
 import { useNavigate, useLocation } from "react-router-dom";
 import { X } from "@phosphor-icons/react";
 import { OpenTabsState, ActiveTabIdState, Tab } from "../../atom/TabState";
+import { ui } from "../../styles/uiTokens";
 
 const TabBarContainer = styled.div<{ $sidebarWidth: number }>`
     position: fixed;
@@ -11,11 +12,11 @@ const TabBarContainer = styled.div<{ $sidebarWidth: number }>`
     left: ${({ $sidebarWidth }) => $sidebarWidth}px;
     z-index: 999;
     width: calc(100% - ${({ $sidebarWidth }) => $sidebarWidth}px);
-    height: 36px;
+    height: 38px;
     display: flex;
     align-items: stretch;
-    background-color: #f1f5f9;
-    border-bottom: 1px solid #e2e8f0;
+    background-color: ${ui.color.surfaceMuted};
+    border-bottom: 1px solid ${ui.color.border};
     overflow-x: auto;
     overflow-y: hidden;
     transition: left 0.3s ease, width 0.3s ease;
@@ -28,33 +29,43 @@ const TabBarContainer = styled.div<{ $sidebarWidth: number }>`
 const TabItem = styled.div<{ $isActive: boolean; $isDragging?: boolean }>`
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 14px;
-    min-width: 120px;
-    max-width: 200px;
+    gap: 4px;
+    /* 탭이 10개 넘게 열리는 화면이 많아 최소폭을 줄이고 라벨 우선으로 배분 */
+    padding: 0 8px 0 12px;
+    min-width: 0;
+    max-width: 160px;
     height: 100%;
-    font-size: 12.5px;
-    font-weight: ${({ $isActive }) => ($isActive ? 700 : 500)};
-    color: ${({ $isActive }) => ($isActive ? "#0f172a" : "#64748b")};
-    background-color: ${({ $isActive }) => ($isActive ? "#ffffff" : "transparent")};
-    border-right: 1px solid #e2e8f0;
-    border-bottom: ${({ $isActive }) => ($isActive ? "2px solid #3b82f6" : "2px solid transparent")};
+    font-size: ${ui.font.size.md};
+    font-weight: ${({ $isActive }) => ($isActive ? ui.font.weight.semibold : ui.font.weight.regular)};
+    color: ${({ $isActive }) => ($isActive ? ui.color.textStrong : ui.color.textMuted)};
+    background-color: ${({ $isActive }) => ($isActive ? ui.color.surface : "transparent")};
+    border-right: 1px solid ${ui.color.border};
+    border-bottom: ${({ $isActive }) => ($isActive ? `2px solid ${ui.color.primary}` : "2px solid transparent")};
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: all 0.15s ease;
+    transition: background-color 0.12s ease, color 0.12s ease;
     user-select: none;
     opacity: ${({ $isDragging }) => ($isDragging ? 0.4 : 1)};
 
     &:hover {
-        background-color: ${({ $isActive }) => ($isActive ? "#ffffff" : "#e2e8f0")};
-        color: #0f172a;
+        background-color: ${({ $isActive }) => ($isActive ? ui.color.surface : ui.color.surfaceHover)};
+        color: ${ui.color.textStrong};
+    }
+
+    /* 닫기 버튼은 활성 탭과 마우스를 올린 탭에서만 노출 — 탭마다 X가 떠 있으면 산만함 */
+    .tab-close {
+        opacity: ${({ $isActive }) => ($isActive ? 1 : 0)};
+    }
+    &:hover .tab-close {
+        opacity: 1;
     }
 `;
 
 const TabLabel = styled.span`
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 `;
@@ -63,30 +74,31 @@ const CloseButton = styled.button`
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     padding: 0;
     border: none;
     background: none;
-    border-radius: 4px;
-    color: #94a3b8;
+    border-radius: ${ui.radius.sm};
+    color: ${ui.color.textSubtle};
     cursor: pointer;
     flex-shrink: 0;
-    transition: all 0.15s ease;
+    transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 
     &:hover {
-        background-color: #fee2e2;
-        color: #ef4444;
+        background-color: ${ui.color.border};
+        color: ${ui.color.textStrong};
     }
 `;
 
 const EmptyTabMessage = styled.div`
     display: flex;
     align-items: center;
-    padding: 0 16px;
-    font-size: 12px;
+    padding: 44px 20px;
+    font-size: 13px;
     color: #94a3b8;
     font-weight: 500;
+    line-height: 1.6;
 `;
 
 const ContextMenuOverlay = styled.div`
@@ -107,7 +119,7 @@ const ContextMenuContainer = styled.div<{ $x: number; $y: number }>`
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
     padding: 4px 0;
     animation: fadeIn 0.1s ease;
 
@@ -124,8 +136,8 @@ const ContextMenuItem = styled.button<{ $disabled?: boolean }>`
     padding: 8px 14px;
     border: none;
     background: none;
-    font-size: 12.5px;
-    color: ${({ $disabled }) => ($disabled ? "#cbd5e1" : "#334155")};
+    font-size: 12px;
+    color: ${({ $disabled }) => ($disabled ? "#cbd5e1" : "#475569")};
     cursor: ${({ $disabled }) => ($disabled ? "default" : "pointer")};
     text-align: left;
     transition: background-color 0.1s ease;
@@ -326,8 +338,8 @@ export function TabBar({ $sidebarWidth }: TabBarProps) {
                     >
                         <TabLabel>{tab.label}</TabLabel>
                         {tab.closable && (
-                            <CloseButton onClick={(e) => handleCloseTab(e, tab)}>
-                                <X size={12} weight="bold" />
+                            <CloseButton className="tab-close" onClick={(e) => handleCloseTab(e, tab)}>
+                                <X size={11} weight="bold" />
                             </CloseButton>
                         )}
                     </TabItem>

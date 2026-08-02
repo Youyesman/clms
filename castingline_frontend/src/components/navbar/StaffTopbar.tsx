@@ -22,7 +22,7 @@ const TopbarContainer = styled.header<{ $sidebarWidth: number }>`
     background-color: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid #e2e8f0;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     transition: all 0.3s ease;
 `;
 
@@ -90,7 +90,7 @@ const LiveClock = styled.div`
     color: #475569;
     background-color: #f8fafc;
     padding: 6px 12px;
-    border-radius: 20px;
+    border-radius: 12px;
     border: 1px solid #e2e8f0;
 `;
 
@@ -102,6 +102,12 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/manage_movie": { group: "기준 정보", name: "영화 관리" },
     "/manage/manage_theater_map": { group: "기준 정보", name: "극장명 매핑 관리" },
     "/manage/crawler": { group: "기준 정보", name: "크롤러 관리" },
+    "/manage/crawler/schedules": { group: "기준 정보", name: "시간표 수집" },
+    "/manage/crawler/megabox_score": { group: "기준 정보", name: "메가박스 스코어 수집" },
+    "/manage/crawler/cineq_score": { group: "기준 정보", name: "씨네큐 스코어 수집" },
+    "/manage/crawler/kobis_score": { group: "기준 정보", name: "KOBIS 상세내역 수집" },
+    "/manage/mailbox": { group: "기준 정보", name: "메일함" },
+    "/manage/settlement_mail": { group: "기준 정보", name: "정산서 수집" },
     "/manage/manage_order": { group: "운영 관리", name: "오더 관리" },
     "/manage/manage_score": { group: "운영 관리", name: "스코어 관리" },
     "/manage/manage_fund": { group: "운영 관리", name: "기금 관리" },
@@ -109,8 +115,22 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/manage_settlement": { group: "정산 관리", name: "부금 정산 관리" },
     "/manage/manage_special_settlement": { group: "정산 관리", name: "지정 부금 관리" },
     "/manage/my_profile": { group: "시스템", name: "내 정보 수정" },
-    "/manage/score": { group: "대시보드", name: "스코어 현황" },
-    "/manage/time_table": { group: "대시보드", name: "시간표 조회" },
+    "/manage/dashboard/score": { group: "배급사 뷰", name: "스코어 개요" },
+    "/manage/dashboard/ranking": { group: "배급사 뷰", name: "누적 순위" },
+    "/manage/score": { group: "배급사 뷰", name: "스코어 현황" },
+    "/manage/score/criteria": { group: "배급사 뷰", name: "기준별 조회" },
+    "/manage/score/daily": { group: "배급사 뷰", name: "일별 현황" },
+    "/manage/score/seat-rate": { group: "배급사 뷰", name: "좌석 판매율" },
+    "/manage/score/ranking": { group: "배급사 뷰", name: "순위 조회" },
+    "/manage/settlement/detail": { group: "배급사 뷰", name: "정산 상세" },
+    "/manage/settlement/aggregate": { group: "배급사 뷰", name: "정산 집계" },
+    "/manage/settlement/theater-total": { group: "배급사 뷰", name: "극장별 합계" },
+    "/manage/settlement/supply-price": { group: "배급사 뷰", name: "공급가 조회" },
+    "/manage/time_table": { group: "배급사 뷰", name: "시간표 조회" },
+    "/manage/time_table/theater-count": { group: "배급사 뷰", name: "극장수" },
+    "/manage/time_table/screen-count": { group: "배급사 뷰", name: "스크린수" },
+    "/manage/time_table/show-count": { group: "배급사 뷰", name: "상영횟수" },
+    "/manage/time_table/seat-count": { group: "배급사 뷰", name: "좌석수" },
 };
 
 function StaffTopbar({ $sidebarWidth }: { $sidebarWidth: number }) {
@@ -145,7 +165,7 @@ function StaffTopbar({ $sidebarWidth }: { $sidebarWidth: number }) {
 
             <RightSection>
                 <UtilityGroup>
-                    <LiveClock style={{ color: isExpired ? "#e11d48" : undefined, gap: "12px", padding: "6px 16px" }}>
+                    <LiveClock style={{ color: isExpired ? "#dc2626" : undefined, gap: "12px", padding: "6px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                             <Timer size={16} weight="bold" />
                             <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8" }}>로그인 유효 시간</span>

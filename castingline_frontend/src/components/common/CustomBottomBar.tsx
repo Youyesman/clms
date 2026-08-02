@@ -69,5 +69,5 @@ const Center = styled.div`
 
 const Text = styled.span`
     font-size: 14px;
-    color: var(--Gray-700);
+    color: #475569;
 `;

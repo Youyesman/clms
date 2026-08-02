@@ -29,10 +29,10 @@ const Header = styled.div`
     width: 100%;
     padding: 12px 20px;
 
-    background: var(--Gray-100, #f5f5f5);
-    border-left: 1px solid var(--Gray-300, #d5d7da);
-    border-top: 1px solid var(--Gray-300, #d5d7da);
-    border-right: 1px solid var(--Gray-300, #d5d7da);
+    background: #f1f5f9;
+    border-left: 1px solid #cbd5e1;
+    border-top: 1px solid #cbd5e1;
+    border-right: 1px solid #cbd5e1;
 
     display: flex;
     align-items: center;
@@ -54,12 +54,12 @@ const HeaderText = styled.div`
     font-size: 16px;
     font-family: SUIT;
     font-weight: 700;
-    color: var(--Gray-800, #252b37);
+    color: #1e293b;
 `;
 
 const Content = styled.div`
     width: 100%;
-    border: 1px solid var(--Gray-300, #d5d7da);
+    border: 1px solid #cbd5e1;
     border-top: none;
     padding: 16px 20px;
     background: white;

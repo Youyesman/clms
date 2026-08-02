@@ -27,11 +27,11 @@ const PageWrapper = styled.div`
 const FilterBar = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px 20px;
+    border-radius: 6px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     margin-bottom: 16px;
 `;
 
@@ -90,7 +90,7 @@ const StyledTable = styled.table`
     th {
         background: #f1f5f9;
         font-weight: 700;
-        color: #334155;
+        color: #475569;
         position: sticky;
         top: 0;
         z-index: 2;
@@ -102,28 +102,28 @@ const StyledTable = styled.table`
 `;
 
 const SubtotalRow = styled.tr`
-    background: #fef9c3 !important;
+    background: #fffbeb !important;
     font-weight: 700;
 
     td {
-        color: #92400e !important;
-        background: #fef9c3 !important;
+        color: #b45309 !important;
+        background: #fffbeb !important;
     }
 `;
 
 const GrandTotalRow = styled.tr`
-    background: #dbeafe !important;
+    background: #bfdbfe !important;
     font-weight: 700;
 
     td {
-        color: #1e40af !important;
-        background: #dbeafe !important;
+        color: #1d4ed8 !important;
+        background: #bfdbfe !important;
         font-size: 13px;
         /* 스크롤 없이 항상 보이도록 하단 고정 */
         position: sticky;
         bottom: 0;
         z-index: 3;
-        border-top: 1px solid #93c5fd;
+        border-top: 1px solid #bfdbfe;
     }
 `;
 
@@ -343,7 +343,6 @@ export function CriteriaPage() {
                 <FilterRow>
                     <div>
                         <CustomSelect
-                            style={{ width: "150px" }}
                             label="연도"
                             options={yearOptions}
                             value={searchParams.yyyy}
@@ -352,12 +351,10 @@ export function CriteriaPage() {
                                 setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
                                 setFormatOptions([]);
                                 setSelectedFormats([]);
-                            }}
-                        />
+                            }} variant="chip" />
                     </div>
                     <div>
                         <CustomSelect
-                            style={{ width: "500px" }}
                             label="영화선택"
                             allowClear={false}
                             options={moviesList.map((m) => ({ label: m.title_ko, value: m.id.toString() }))}
@@ -366,8 +363,7 @@ export function CriteriaPage() {
                                 setSearchParams((p) => ({ ...p, movie_id: val }));
                                 setScoreFilter((f) => ({ ...f, movieId: val }));
                                 fetchMovieFormats(val);
-                            }}
-                        />
+                            }} variant="chip" />
                     </div>
                     <div>
                         <CustomMultiSelect
@@ -375,32 +371,28 @@ export function CriteriaPage() {
                             groups={FORMAT_GROUPS}
                             value={selectedFormats}
                             onChange={setSelectedFormats}
-                            disabled={formatOptions.length === 0}
-                        />
+                            disabled={formatOptions.length === 0} variant="chip" />
                     </div>
                     <div>
                         <CustomSelect
                             label="지역"
                             options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
                             value={searchParams.region}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))}
-                        />
+                            onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))} variant="chip" />
                     </div>
                     <div>
                         <CustomSelect
                             label="멀티"
                             options={["전체", "롯데", "CGV", "메가박스", "자동차극장", "씨네큐", "작은영화관", "기타"]}
                             value={searchParams.multi}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))}
-                        />
+                            onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))} variant="chip" />
                     </div>
                     <div>
                         <CustomSelect
                             label="극장유형"
                             options={["전체", "직영", "위탁", "기타"]}
                             value={searchParams.theater_type}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))}
-                        />
+                            onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))} variant="chip" />
                     </div>
                     <div>
                         <CustomInput
@@ -410,16 +402,14 @@ export function CriteriaPage() {
                             setValue={(v) => {
                                 setSearchParams((p) => ({ ...p, date: v }));
                                 setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
-                            }}
-                        />
+                            }} variant="chip" />
                     </div>
                     <div>
                         <CustomInput
                             label="극장 검색"
                             placeholder="극장명 입력"
                             value={theaterSearch}
-                            setValue={setTheaterSearch}
-                        />
+                            setValue={setTheaterSearch} variant="chip" />
                     </div>
                     <ExcelSlot>
                         <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />

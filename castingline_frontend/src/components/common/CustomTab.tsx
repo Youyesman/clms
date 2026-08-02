@@ -20,9 +20,9 @@ const TabContainer = styled.div<any>`
     justify-content: center;
     align-items: center;
 
-    background: ${({ active }) => (active ? "var(--White-white, white)" : "#E2E2E5")};
+    background: ${({ active }) => (active ? "#ffffff" : "#E2E2E5")};
 
-    border-top: ${({ active }) => (active ? "4px solid var(--Gray-800, #252B37)" : "4px solid transparent")};
+    border-top: ${({ active }) => (active ? "4px solid #1e293b" : "4px solid transparent")};
 
     transition: background 0.25s ease, border-top 0.25s ease;
     cursor: pointer;
@@ -35,7 +35,7 @@ const TabLabel = styled.span<any>`
     line-height: 25.28px;
     letter-spacing: 0.16px;
 
-    color: ${({ active }) => (active ? "var(--Gray-800, #252B37)" : "var(--Gray-500, #717680)")};
+    color: ${({ active }) => (active ? "#1e293b" : "#64748b")};
 
     transition: color 0.25s ease;
 `;

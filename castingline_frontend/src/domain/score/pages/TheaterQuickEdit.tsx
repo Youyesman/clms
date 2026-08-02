@@ -89,7 +89,7 @@ const Table = styled.table`
     input {
         width: 100%;
         border: 1px solid #cbd5e1;
-        border-radius: 3px;
+        border-radius: 4px;
         padding: 3px 5px;
         font-size: 12px;
         outline: none;
@@ -102,9 +102,9 @@ const MiniBtn = styled.button<{ $primary?: boolean }>`
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 700;
     cursor: pointer;
     border: 1px solid ${({ $primary }) => ($primary ? "transparent" : "#cbd5e1")};
     background: ${({ $primary }) => ($primary ? "#2563eb" : "#ffffff")};
@@ -123,7 +123,7 @@ const Foot = styled.div`
 const SectionLabel = styled.div`
     font-size: 12px;
     font-weight: 800;
-    color: #334155;
+    color: #475569;
     margin: 14px 0 6px;
 `;
 
