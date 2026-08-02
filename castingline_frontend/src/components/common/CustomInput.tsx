@@ -308,7 +308,10 @@ export const CustomInput: React.FC<CustomInputProps> = ({
                         placeholder={placeholder}
                         disabled={disabled}
                         name={name}
-                        autoComplete={autoComplete}
+                        // 기본 off: 내부 관리 도구라 자동완성이 불필요하고, 크롬
+                        // 비밀번호 관리자가 일반 인풋을 자격증명으로 오인해
+                        // 저장/업데이트 팝업을 띄우는 것을 막는다
+                        autoComplete={autoComplete ?? "off"}
                         align={align}
                         $size={size}
                         $chip={isChip}

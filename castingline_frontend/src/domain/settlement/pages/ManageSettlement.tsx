@@ -425,14 +425,29 @@ function AmountEditModal({
                 {row["상영타입"] ? ` · ${row["상영타입"]}` : ""} — 수정 금액은 계산값과의
                 차액이 <b>수동조정</b>으로 저장됩니다. (확인여부는 바뀌지 않습니다)
             </div>
+            {/* name/inputMode/autoComplete: 크롬 비밀번호 관리자가 이름 없는 텍스트
+                인풋 입력 후 모달 닫힘을 '비밀번호 변경'으로 오인해 저장할 때마다
+                비밀번호 업데이트 팝업을 띄우는 것 방지 */}
             <div className="row">
                 <label>공급가액</label>
-                <input value={supply} onChange={(e) => setSupply(e.target.value)} />
+                <input
+                    name="supply-amount"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={supply}
+                    onChange={(e) => setSupply(e.target.value)}
+                />
                 <span className="orig">계산값 {baseSupply.toLocaleString()}</span>
             </div>
             <div className="row">
                 <label>부가세</label>
-                <input value={vat} onChange={(e) => setVat(e.target.value)} />
+                <input
+                    name="vat-amount"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={vat}
+                    onChange={(e) => setVat(e.target.value)}
+                />
                 <span className="orig">계산값 {baseVat.toLocaleString()}</span>
             </div>
             <div className="row">
@@ -1531,6 +1546,8 @@ export function ManageSettlement() {
                     ) : (
                         <TheaterSearchInput
                             placeholder="극장 검색"
+                            name="theater-search"
+                            autoComplete="off"
                             value={theaterInput}
                             onChange={(e) => setTheaterInput(e.target.value)}
                             onFocus={() => {

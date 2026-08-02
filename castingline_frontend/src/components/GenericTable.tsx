@@ -468,6 +468,10 @@ export function GenericTable({
                         {isEditing ? (
                           <input
                             autoFocus
+                            // 크롬 비밀번호 관리자가 이름 없는 인풋 입력 후 사라짐을
+                            // '비밀번호 변경'으로 오인하는 것 방지
+                            name="cell-edit"
+                            autoComplete="off"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => setEditingCell(null)}
