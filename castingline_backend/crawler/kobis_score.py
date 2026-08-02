@@ -143,10 +143,29 @@ def _xml_to_xlsx(xml_bytes):
 def download_movie_detail_xlsx(session, csrf, movie_cd, start_dt, end_dt):
     """영화 하나의 상세 통계 엑셀 다운로드 → xlsx bytes.
 
-    장기 상영작(예: 비긴어게인)은 KOBIS가 통계 생성에 수 분 걸려 첫 요청이
-    응답 없이 끊기는 일이 있다. 생성 결과는 서버에 캐시되는 것으로 보여
-    재시도는 빠르게 성공하므로, 연결 오류/타임아웃 시 재시도한다.
+    실제 브라우저 흐름을 그대로 따른다: 상세 '화면'을 먼저 연 뒤(빠름, 서버가
+    통계를 준비함) 그 화면의 폼과 동일하게 loadEnd=1 로 엑셀을 요청한다.
+    화면을 건너뛰고 loadEnd=0 으로 바로 엑셀을 요청하면 장기 상영작(예:
+    비긴어게인)에서 서버가 수 분 걸리다 응답 없이 연결을 끊는다.
+    생성 결과는 서버에 캐시되는 것으로 보여, 연결 오류/타임아웃 시 재시도한다.
     """
+    # 1) 상세 화면 — 실패해도 엑셀 요청은 시도한다 (새 CSRF 없으면 기존 것 사용)
+    load_end = "0"
+    try:
+        rv = session.post(
+            f"{BASE}/kobis/business/mast/thea/findCompanyStatDetail.do",
+            data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
+                  "sStartDt": start_dt, "sEndDt": end_dt},
+            timeout=60,
+        )
+        m = re.search(r'name="CSRFToken" value="([^"]+)"', rv.text)
+        if m:
+            csrf = m.group(1)
+            load_end = "1"  # 화면과 동일한 폼 값
+    except requests.RequestException:
+        pass
+
+    # 2) 엑셀 다운로드 (+재시도)
     last_err = None
     for attempt in range(3):
         if attempt:
@@ -154,7 +173,7 @@ def download_movie_detail_xlsx(session, csrf, movie_cd, start_dt, end_dt):
         try:
             r = session.post(
                 f"{BASE}/kobis/business/mast/thea/findCompanyStatDetailXls.do",
-                data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
+                data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": load_end,
                       "sStartDt": start_dt, "sEndDt": end_dt},
                 timeout=300,
             )
