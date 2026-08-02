@@ -1287,6 +1287,20 @@ export function ManageSettlement() {
         return ["전체", ...Array.from(set)];
     }, [settlements]);
 
+    // 헤더 클릭 정렬 (B002) — 정렬 중엔 소계 행이 위치가 맞지 않으므로 숨기고,
+    // 같은 헤더를 다시 누르면 오름→내림→해제(서버 기본 정렬+소계 복귀) 순환
+    const [sortState, setSortState] = useState<{ key: string | null; dir: "asc" | "desc" }>({
+        key: null,
+        dir: "asc",
+    });
+    const handleSortChange = (key: string) => {
+        setSortState((prev) => {
+            if (prev.key !== key) return { key, dir: "asc" };
+            if (prev.dir === "asc") return { key, dir: "desc" };
+            return { key: null, dir: "asc" };
+        });
+    };
+
     // 멀티/확인여부 필터 적용된 표시 목록
     // (확인여부 필터 중엔 소계 행이 맞지 않으므로 숨김, 멀티 필터는 해당 멀티 소계만 유지)
     const displayedSettlements = useMemo(() => {
@@ -1316,8 +1330,25 @@ export function ManageSettlement() {
                 (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
             );
         }
+        if (sortState.key) {
+            const k = sortState.key;
+            const dirMul = sortState.dir === "asc" ? 1 : -1;
+            rows = rows
+                .filter((r) => !r.is_subtotal)
+                .slice()
+                .sort((a, b) => {
+                    const av = a[k], bv = b[k];
+                    if (av == null && bv == null) return 0;
+                    if (av == null) return 1; // 빈 값은 항상 뒤로
+                    if (bv == null) return -1;
+                    if (typeof av === "number" && typeof bv === "number") {
+                        return (av - bv) * dirMul;
+                    }
+                    return String(av).localeCompare(String(bv), "ko") * dirMul;
+                });
+        }
         return rows;
-    }, [settlements, confirmFilter, multiFilter, classFilter]);
+    }, [settlements, confirmFilter, multiFilter, classFilter, sortState]);
 
     const summaryData = useMemo(() => {
         // 합계 계산 시 소계 행(is_subtotal)은 제외
@@ -1593,9 +1624,11 @@ export function ManageSettlement() {
                     <GenericTable
                         headers={headers}
                         data={displayedSettlements}
-                        // 서버가 브랜드/직영/지역 순 정렬 + 소계 행을 만들어 주므로
-                        // 클라이언트 정렬 금지 (정렬 상태가 남아 특정 행이 상단 고정되는 문제 방지)
-                        sortable={false}
+                        // 헤더 클릭 정렬은 부모(sortState)가 담당 — 정렬 중엔 소계를
+                        // 숨기고, 해제하면 서버 기본 정렬+소계로 복귀 (B002)
+                        onSortChange={handleSortChange}
+                        sortKey={sortState.key}
+                        sortOrder={sortState.dir}
                         // 행 클릭 시 줄 전체 하이라이트, 같은 행 다시 클릭하면 해제 (K003)
                         selectedItem={selectedRow}
                         onSelectItem={(item: any) => {
