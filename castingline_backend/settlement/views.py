@@ -1,5 +1,6 @@
 import calendar
 import os
+import re
 import openpyxl
 from django.conf import settings
 from decimal import Decimal, ROUND_HALF_UP
@@ -1608,6 +1609,18 @@ class SettlementExcelExportView(SettlementListView):
                         name[1:].split(" ")[0].split("]")[0])
                 return it.get("멀티구분") == multi_filter
             items = [it for it in items if _keep(it)]
+
+        # 직위(직영/위탁/기타) 필터 — 화면과 동일. 소계는 라벨 "[롯데 직영] 합계"의
+        # 구분이 선택값과 같을 때만 유지 (화면만 걸러지고 엑셀엔 위탁이 섞여 나오던 문제)
+        class_filter = request.query_params.get("classification", "")
+        if class_filter and class_filter != "전체":
+            def _keep_class(it):
+                if it.get("is_subtotal"):
+                    name = str(it.get("극장명") or "")
+                    m = re.match(r"^\[[^\s\]]+\s+([^\]]+)\]", name)
+                    return bool(m) and m.group(1).strip() == class_filter
+                return it.get("classification") == class_filter
+            items = [it for it in items if _keep_class(it)]
 
         if not items:
             return HttpResponse("조회된 데이터가 없습니다.", status=404)

@@ -1362,6 +1362,7 @@ export function ManageSettlement() {
             };
             if (confirmFilter !== "전체") params.confirm = confirmFilter;
             if (multiFilter !== "전체") params.multi = multiFilter;
+            if (classFilter !== "전체") params.classification = classFilter;
             if (selectedTheater) params.client_id = String(selectedTheater.id);
             const res = await AxiosGet("settlement-excel-export/", {
                 params,
@@ -1375,6 +1376,7 @@ export function ManageSettlement() {
             const movieTitle = movieOptions.find((m) => m.id === searchParams.movieId)?.title || "정산내역";
             const suffix =
                 (multiFilter !== "전체" ? `_${multiFilter}` : "") +
+                (classFilter !== "전체" ? `_${classFilter}` : "") +
                 (confirmFilter !== "전체" ? `_${confirmFilter}` : "");
             link.setAttribute("download", `부금정산_${movieTitle}_${searchParams.yyyyMm}${suffix}.xlsx`);
 
