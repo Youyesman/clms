@@ -79,6 +79,11 @@ export const KobisScorePage = () => {
                 excludes: exclude,
             });
             setResult(res.data as ICrawlResult);
+            // 키워드로 찾은 배급사와 매칭되는 계정이 없는 경우 등 — 빈 화면 대신 원인 안내 (K001)
+            if (res.data.warning) {
+                toast.warning(res.data.warning);
+                return;
+            }
             const files = (res.data.accounts as IAccount[]).flatMap((a) =>
                 a.movies.filter((m) => m.file_b64)
             ).length;

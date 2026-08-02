@@ -969,7 +969,7 @@ import base64 as _base64
 import urllib.parse as _urlparse
 from django.http import HttpResponse
 from crawler.megabox_score import crawl_megabox_score, crawl_all_accounts
-from crawler.score_account_filter import resolve_allowed_company_names
+from crawler.score_account_filter import resolve_allowed_company_names, filter_accounts
 
 
 class MegaboxScoreCrawlView(APIView):
@@ -1318,6 +1318,19 @@ class KobisScoreAllView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         # 영화명 키워드가 있으면 영화 관리에 등록된 배급사/제작사 계정만 로그인
         allowed_names = resolve_allowed_company_names(includes)
+        # 키워드로 배급사는 찾았지만 매칭되는 KOBIS 계정이 하나도 없으면
+        # 빈 화면 대신 원인을 알려준다 (K001 재보고 — '연결이 안 되나 봅니다')
+        if allowed_names is not None:
+            from .kobis_score import get_accounts as _get_kobis_accounts
+            if not filter_accounts(_get_kobis_accounts(), allowed_names):
+                return Response({
+                    "start": start, "end": end, "total_movies": 0, "accounts": [],
+                    "warning": (
+                        f"영화의 배급사/제작사({', '.join(allowed_names)})와 매칭되는 "
+                        f"계정이 '배급사 계정 설정'에 없습니다. 계정을 등록하거나 "
+                        f"거래처명을 확인해 주세요."
+                    ),
+                })
         try:
             summary = crawl_kobis_all_accounts(start, end, includes, excludes,
                                                allowed_names=allowed_names)
