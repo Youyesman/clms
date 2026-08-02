@@ -158,8 +158,16 @@ const LabelValue = styled.div<{
     text-overflow: ellipsis;
     padding-left: ${({ $hasLeft }) => ($hasLeft ? "10px" : "0")};
 
-    /* 칩 모드: 선택된 값은 진하게, 비어 있으면 라벨만 보이도록 */
+    /* 칩 모드: 선택된 값은 진하게 */
     ${({ $chip }) => $chip && filterChipValue}
+    /* 칩 모드 placeholder("선택")는 옅게 — 라벨과 구분되면서 빈 상태임이 보이게 */
+    ${({ $chip, $isPlaceholder }) =>
+        $chip &&
+        $isPlaceholder &&
+        css`
+            color: ${ui.color.textSubtle};
+            font-weight: ${ui.font.weight.regular};
+        `}
 `;
 
 const Option = styled.div<{ selected?: boolean }>`
@@ -288,10 +296,11 @@ export function CustomSelect({
     const showInternalLabel = label && labelPlacement === "left";
     const selected = normalizedOptions.find((opt) => opt.value === value);
     const isPlaceholder = !value || value === "";
-    /* 칩 모드에서 값이 비면 "선택" 대신 아무것도 안 띄우고 라벨만 남깁니다 */
+    /* 칩 모드에서도 값 영역을 항상 유지 — 비어 있으면 옅은 "선택" placeholder.
+       (값이 비면 라벨만 남아 칩이 너무 좁아져 누르기 어렵다는 요청) */
     const displayLabel = isChip
         ? isPlaceholder
-            ? ""
+            ? placeholder || "선택"
             : selected?.label || ""
         : selected?.label || (isPlaceholder ? "선택" : placeholder || "");
 
@@ -394,7 +403,7 @@ export function CustomSelect({
                             </InternalLabelBox>
                         )}
 
-                        {(!isChip || displayLabel) && (
+                        {(!isChip || displayLabel !== "") && (
                             <LabelValue
                                 $fs={s.fs}
                                 $hasLeft={Boolean(showInternalLabel)}
