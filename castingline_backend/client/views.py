@@ -33,6 +33,13 @@ class DefaultPagination(PageNumberPagination):
     max_page_size = 100  # 최대 몇개 항목까지 보여줄건지?
 
 
+class NoTruncatePagination(DefaultPagination):
+    # 극장당 요금/관이 20건을 넘으면(예: CGV 압구정 요금 39건, 메가박스코엑스 36관)
+    # 첫 페이지만 읽는 프론트에서 항목이 누락되므로 사실상 전량 반환 (S001)
+    page_size = 1000
+    max_page_size = 1000
+
+
 class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
@@ -123,11 +130,11 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 
 class TheaterViewSet(viewsets.ModelViewSet):
-    queryset = Theater.objects.all()
+    queryset = Theater.objects.all().order_by("id")
     serializer_class = TheaterSerializer
     authentication_classes = []
     permission_classes = [AllowAny]
-    pagination_class = DefaultPagination
+    pagination_class = NoTruncatePagination
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["number", "name"]  # 검색 필드 추가
     ordering_fields = "__all__"
@@ -141,11 +148,11 @@ class TheaterViewSet(viewsets.ModelViewSet):
 
 
 class FareViewSet(viewsets.ModelViewSet):
-    queryset = Fare.objects.all()
+    queryset = Fare.objects.all().order_by("id")
     serializer_class = FareSerializer
     authentication_classes = []
     permission_classes = [AllowAny]
-    pagination_class = DefaultPagination
+    pagination_class = NoTruncatePagination
     filter_backends = [filters.SearchFilter, KoreanOrderingFilter]
     search_fields = ["rate"]  # 검색 필드 추가
     ordering_fields = "__all__"

@@ -299,27 +299,35 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
 
     // 극장 정보(관 리스트, 요금 리스트) 페칭
     const clientId = getID(selectedScore?.client);
-    useEffect(() => {
+    const fetchTheatersAndFares = useCallback(async () => {
         if (!clientId) return;
-        const fetchData = async () => {
-            try {
-                const [tRes, fRes] = await Promise.all([
-                    AxiosGet(`theaters/?client_id=${clientId}`),
-                    AxiosGet(`fares/?client_id=${clientId}`),
-                ]);
-                setTheaterList(tRes.data.results || []);
-                const fares = Array.from(new Set<number>(
-                    fRes.data.results
-                        .map((f: { fare: string }) => parseInt(f.fare))
-                        .filter((v: number) => !isNaN(v))
-                )).sort((a, b) => a - b);
-                setDynamicFareList(fares);
-            } catch (error) {
-                toast.error(handleBackendErrors(error));
-            }
-        };
-        fetchData();
+        try {
+            const [tRes, fRes] = await Promise.all([
+                AxiosGet(`theaters/?client_id=${clientId}`),
+                AxiosGet(`fares/?client_id=${clientId}`),
+            ]);
+            setTheaterList(tRes.data.results || []);
+            const fares = Array.from(new Set<number>(
+                fRes.data.results
+                    .map((f: { fare: string }) => parseInt(f.fare))
+                    .filter((v: number) => !isNaN(v))
+            )).sort((a, b) => a - b);
+            setDynamicFareList(fares);
+        } catch (error) {
+            toast.error(handleBackendErrors(error));
+        }
     }, [clientId]);
+    useEffect(() => {
+        fetchTheatersAndFares();
+    }, [fetchTheatersAndFares]);
+
+    // Matrix 행 = 등록된 요금 ∪ 스코어에 실제 존재하는 요금.
+    // 요금 목록에서 빠진 요금(예: 요금 삭제 후 남은 스코어)도 행으로 보여야 값이 숨지 않는다 (S001)
+    const fareRows = useMemo(() => {
+        const set = new Set<number>(dynamicFareList);
+        for (const f of Object.keys(serverMatrix)) set.add(Number(f));
+        return Array.from(set).sort((a, b) => a - b);
+    }, [dynamicFareList, serverMatrix]);
 
     // 관 변경/추가 드롭다운
     const handleAuditoriumSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -386,7 +394,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     // 방향키 이동
     const moveSelection = useCallback((direction: string) => {
         if (!selectedCell) return;
-        const currentFareIdx = dynamicFareList.indexOf(selectedCell.fare);
+        const currentFareIdx = fareRows.indexOf(selectedCell.fare);
         const currentShowIdx = showCounts.indexOf(selectedCell.show);
         let nextFareIdx = currentFareIdx;
         let nextShowIdx = currentShowIdx;
@@ -396,7 +404,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 nextFareIdx = Math.max(0, currentFareIdx - 1);
                 break;
             case "ArrowDown":
-                nextFareIdx = Math.min(dynamicFareList.length - 1, currentFareIdx + 1);
+                nextFareIdx = Math.min(fareRows.length - 1, currentFareIdx + 1);
                 break;
             case "ArrowLeft":
                 nextShowIdx = Math.max(0, currentShowIdx - 1);
@@ -405,8 +413,8 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 nextShowIdx = Math.min(showCounts.length - 1, currentShowIdx + 1);
                 break;
         }
-        setSelectedCell({ fare: dynamicFareList[nextFareIdx], show: showCounts[nextShowIdx] });
-    }, [dynamicFareList, showCounts, selectedCell]);
+        setSelectedCell({ fare: fareRows[nextFareIdx], show: showCounts[nextShowIdx] });
+    }, [fareRows, showCounts, selectedCell]);
 
     // 일괄 저장 (Ctrl+S / F5)
     const handleBulkSave = useCallback(async () => {
@@ -523,7 +531,15 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
 
     const handleEditFares = () => {
         if (!clientId || !selectedScore) return;
-        openModal(<FareManagerModal clientId={clientId} onRefresh={() => setScores(selectedScore.id ?? undefined)} />, {
+        openModal(
+            <FareManagerModal
+                clientId={clientId}
+                onRefresh={() => {
+                    // 요금 추가/삭제 즉시 Matrix 행에 반영 (S001)
+                    fetchTheatersAndFares();
+                    setScores(selectedScore.id ?? undefined);
+                }}
+            />, {
             title: "요금 체계 관리",
             width: "600px",
         });
@@ -593,7 +609,7 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                             </tr>
                         </thead>
                         <tbody>
-                            {dynamicFareList.map((fare) => {
+                            {fareRows.map((fare) => {
                                 const showMap = displayMatrix[fare] || {};
                                 const rowTotal = showCounts.reduce((sum, n) => sum + (showMap[n] || 0), 0);
                                 return (
