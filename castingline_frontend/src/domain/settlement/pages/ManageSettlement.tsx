@@ -389,6 +389,12 @@ function AmountEditModal({
                 supply_original: baseSupply,
                 vat_original: baseVat,
                 payout_original: basePayout,
+                // 행 단위 수정 표시 — 같은 극장·포맷이 부율 차이로 여러 행일 때
+                // 다른 행의 조정을 덮어쓰지 않고 행마다 별도 레코드로 저장된다.
+                // 재수정이면 이 행의 조정ID로 해당 레코드를 지정한다.
+                row_scoped: true,
+                adjustment_id:
+                    row["조정ID"] ?? row["조정경고"]?.["조정ID"] ?? null,
                 note: "정산 관리 직접 수정",
                 // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
                 auto_confirm: false,

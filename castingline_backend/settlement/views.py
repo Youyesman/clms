@@ -978,16 +978,27 @@ class SettlementCompareView(SettlementListView):
                 key = max(theater_keys, key=lambda k: sys_by_theater[k]["영화사 지급금"])
             agg = sys_by_theater[key]
             if show_adjustment_info:  # 조정 내역(차액/원래값)은 관리자에게만 노출
-                agg["adjustment"] = {
-                    "id": adj.id,
-                    "supply_delta": adj.supply_delta,
-                    "vat_delta": adj.vat_delta,
-                    "payout_delta": adj.payout_delta,
-                    "note": adj.note,
-                    "original": {"공급가액": agg["공급가액"], "부가세": agg["부가세"],
-                                 "영화사 지급금": agg["영화사 지급금"],
-                                 "날짜(To)": agg.get("date_to") or ""},
-                }
+                # 행 단위 조정이 여러 건이면 델타를 합산해 표시 (원래값은 첫 조정
+                # 적용 전 값 유지 — 대사 재조정 시 base 계산이 어긋나지 않도록)
+                prev = agg.get("adjustment")
+                if prev:
+                    prev["id"] = adj.id
+                    prev["supply_delta"] += adj.supply_delta
+                    prev["vat_delta"] += adj.vat_delta
+                    prev["payout_delta"] += adj.payout_delta
+                    if adj.note:
+                        prev["note"] = adj.note
+                else:
+                    agg["adjustment"] = {
+                        "id": adj.id,
+                        "supply_delta": adj.supply_delta,
+                        "vat_delta": adj.vat_delta,
+                        "payout_delta": adj.payout_delta,
+                        "note": adj.note,
+                        "original": {"공급가액": agg["공급가액"], "부가세": agg["부가세"],
+                                     "영화사 지급금": agg["영화사 지급금"],
+                                     "날짜(To)": agg.get("date_to") or ""},
+                    }
             agg["공급가액"] += adj.supply_delta
             agg["부가세"] += adj.vat_delta
             agg["영화사 지급금"] += adj.payout_delta
@@ -1387,11 +1398,41 @@ class SettlementAdjustmentView(APIView):
                 })
                 rebased = True
 
-        obj, _created = SettlementAdjustment.objects.update_or_create(
-            yyyymm=yyyy_mm, movie_id=movie_id, client=client,
-            screen_format=(str(data.get("screen_format") or "")).strip(),
-            defaults=defaults,
-        )
+        # 대상 레코드 선택 — 같은 극장·포맷이 부율 차이로 여러 행이면 행마다
+        # 별도 조정이 필요하다. 행 단위 수정(row_scoped)은 ① 프론트가 넘긴
+        # 조정ID ② 원본 금액 일치 순으로 기존 레코드를 찾고, 없으면 새로 만든다.
+        # 대사 일괄/날짜 일괄 등 극장×포맷 단위 흐름은 기존 단건 업서트 유지.
+        fmt = (str(data.get("screen_format") or "")).strip()
+        qs = SettlementAdjustment.objects.filter(
+            yyyymm=yyyy_mm, movie_id=movie_id, client=client, screen_format=fmt,
+        ).order_by("id")
+        obj = None
+        adj_id = _i(data.get("adjustment_id"))
+        if adj_id:
+            obj = qs.filter(id=adj_id).first()
+        if obj is None:
+            if data.get("row_scoped") and "supply_delta" in defaults:
+                if _i(data.get("supply_original")) is not None:
+                    obj = qs.filter(
+                        supply_original=_i(data.get("supply_original")),
+                        vat_original=_i(data.get("vat_original")),
+                        payout_original=_i(data.get("payout_original")),
+                    ).first()
+                if obj is None:
+                    obj = SettlementAdjustment(
+                        yyyymm=yyyy_mm, movie_id=movie_id,
+                        client=client, screen_format=fmt)
+            else:
+                obj = qs.first() or SettlementAdjustment(
+                    yyyymm=yyyy_mm, movie_id=movie_id,
+                    client=client, screen_format=fmt)
+        for k, v in defaults.items():
+            setattr(obj, k, v)
+        obj.save()
+        # 극장×포맷 단위 금액 조정(대사 일괄 등)은 단건 의미 유지 — 행 단위
+        # 조정이 남아 있으면 이중 반영되므로 정리한다 (날짜만 저장 시에는 유지)
+        if "supply_delta" in defaults and not data.get("row_scoped"):
+            qs.exclude(pk=obj.pk).delete()
         # 조정을 저장했다는 것 = 그 극장 내역을 확인했다는 것 (사용자 확정).
         # 단, 일괄 조정처럼 오류 행이 남는 극장을 미확인으로 남겨야 하는 흐름은
         # auto_confirm=false 로 자동 확인을 끄고 확인 API를 따로 호출한다 (K001).

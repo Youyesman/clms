@@ -35,7 +35,10 @@ class SettlementAdjustment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("yyyymm", "movie", "client", "screen_format")
+        # 유니크 제약 없음 — 같은 극장·포맷이 부율 차이로 여러 행으로 나뉘면
+        # 행마다 별도 조정이 필요하다 (행 식별은 original 금액 매칭으로).
+        # 대사/날짜 일괄 등 극장×포맷 단위 흐름은 저장 로직에서 단건 업서트를 유지.
+        indexes = [models.Index(fields=["yyyymm", "movie", "client", "screen_format"])]
         verbose_name = "부금 정산 수동조정"
 
     def __str__(self):
