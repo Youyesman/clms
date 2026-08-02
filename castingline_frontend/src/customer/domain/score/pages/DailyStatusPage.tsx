@@ -346,6 +346,7 @@ export function DailyStatusPage() {
                         <CustomSelect
                             label="영화선택"
                             allowClear={false}
+                            chipValueMinWidth={200}
                             options={moviesList.map((m) => ({
                                 label: m.title_ko,
                                 value: m.id.toString(),

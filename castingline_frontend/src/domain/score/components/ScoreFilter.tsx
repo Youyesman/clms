@@ -230,6 +230,7 @@ export function ScoreFilter({ filters, setFilters, handleSearch }: ScoreFilterPr
             <CustomSelect
                 label="영화 선택"
                 required
+                chipValueMinWidth={200}
                 options={movies.map((mv: any) => ({ label: mv.title_ko, value: mv.id.toString() }))}
                 value={filters.movie?.id ? filters.movie.id.toString() : ""}
                 onChange={(v) => handleMovieChange({ target: { value: v } } as any)}

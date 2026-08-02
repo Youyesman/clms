@@ -445,6 +445,7 @@ export function TimeTablePage() {
                 <CustomSelect
                     label="영화 선택"
                     required
+                    chipValueMinWidth={200}
                     options={moviesList.map((mv) => ({ label: mv.title_ko, value: mv.id.toString() }))}
                     value={movieId}
                     onChange={handleMovieChange}
