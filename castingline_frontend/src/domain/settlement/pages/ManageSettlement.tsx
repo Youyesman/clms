@@ -392,8 +392,17 @@ function AmountEditModal({
                 note: "정산 관리 직접 수정",
                 // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
                 auto_confirm: false,
+                // 조회 후 부율·스코어가 바뀐 화면에서 수정해도 저장이 유효하도록
+                // 서버가 현재 계산값 기준으로 원본/델타를 재계산해 저장한다
+                rebase_on_mismatch: true,
             });
-            toast.success("저장했습니다 — 수동조정으로 반영됩니다. (확인여부는 그대로)");
+            if (res.data?.rebased) {
+                toast.success(
+                    "저장했습니다 — 조회 후 부율·스코어가 바뀌어 현재 계산값 기준으로 반영했습니다."
+                );
+            } else {
+                toast.success("저장했습니다 — 수동조정으로 반영됩니다. (확인여부는 그대로)");
+            }
             onClose();
             onSaved(res.data);
         } catch (e: any) {
@@ -772,6 +781,12 @@ export function ManageSettlement() {
 
     /** 금액 수정 저장 결과를 재조회 없이 목록에 즉시 반영 (F001) */
     const applyAmountSavedLocally = (saved: any) => {
+        if (saved?.rebased) {
+            // 화면 계산값이 낡아 서버가 현재 계산값 기준으로 재기준(rebase)해 저장한
+            // 경우 — 화면의 금액 자체가 낡았으므로 서버 기준으로 갱신 (스크롤 유지)
+            refreshSettlements();
+            return;
+        }
         const ti = findAdjustTargetIdx(
             settlements, saved.client_code, saved.screen_format || "", saved
         );
@@ -797,6 +812,9 @@ export function ManageSettlement() {
             row.is_adjusted = adjusted;
             row["조정액"] = adjusted ? savedDelta : undefined;
             if (adjusted) row["조정ID"] = saved.id;
+            // '기준 변경' 상태였던 조정을 재수정한 경우 — 새 저장이 기존 조정을
+            // 대체(업서트)했으므로 경고 태그를 지운다
+            row["조정경고"] = undefined;
             const si = findSubtotalIdx(list, ti);
             if (si >= 0) {
                 AMOUNT_KEYS.forEach((k) => {

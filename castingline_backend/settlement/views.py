@@ -250,9 +250,20 @@ class SettlementListView(APIView):
                         and it.get("부가세") == adj.vat_original
                         and it.get("영화사 지급금") == adj.payout_original
                     ]
+                    # 부금 대사에서 저장한 조정은 원본이 포맷 묶음 '합계' 기준이라
+                    # (같은 포맷이 부율 차이로 여러 행이면) 단일 행과는 안 맞는다.
+                    # 합계가 일치하면 기준이 유효한 것이므로 적용을 중지하지 않는다.
+                    orig_is_aggregate = (
+                        adj.supply_original is not None and len(candidates) > 1
+                        and sum(it.get("공급가액") or 0 for it in candidates) == adj.supply_original
+                        and sum(it.get("부가세") or 0 for it in candidates) == adj.vat_original
+                        and sum(it.get("영화사 지급금") or 0
+                                for it in candidates) == adj.payout_original
+                    )
                     amount_delta_exists = bool(adj.supply_delta or adj.vat_delta
                                                or adj.payout_delta)
-                    if (not orig_matched and adj.supply_original is not None
+                    if (not orig_matched and not orig_is_aggregate
+                            and adj.supply_original is not None
                             and amount_delta_exists):
                         # 원본 금액이 어떤 행과도 안 맞음 = 조정 이후 부율/스코어가
                         # 바뀌어 기준이 깨진 조정. 금액을 조용히 얹지 않고 적용을
@@ -1332,6 +1343,50 @@ class SettlementAdjustmentView(APIView):
         if "note" in data:
             defaults["note"] = (data.get("note") or "")[:200]
 
+        # 저장 시점 재기준(rebase) — 화면이 보내온 원본(계산값)이 현재 계산과 다르면
+        # (조회 후 부율·스코어가 바뀐 낡은 화면에서 수정한 경우) 그대로 저장 시
+        # '기준 변경'으로 적용이 중지돼 방금 한 수정이 사라진다. 사용자가 입력한
+        # 최종 금액은 보존하고 원본/델타만 현재 계산값 기준으로 다시 계산한다.
+        # (정산 관리 직접 수정 전용 — 대사 일괄 조정은 합계 기준이라 제외)
+        rebased = False
+        if (data.get("rebase_on_mismatch")
+                and "supply_delta" in defaults
+                and defaults.get("supply_original") is not None):
+            rows = SettlementListView().get_processed_data(
+                yyyy_mm, movie_id, "전체극장", client_id=client.id,
+                include_adjustments=False)
+            cands = [it for it in rows
+                     if not it.get("is_subtotal")
+                     and it.get("거래처코드") == client.client_code
+                     and it.get("영화사 지급금") is not None]
+            fmt = (str(data.get("screen_format") or "")).strip()
+            if fmt and cands:
+                from settlement.compare import format_bucket
+                fmt_matched = [it for it in cands
+                               if format_bucket(it.get("상영타입"),
+                                                client.theater_kind) == fmt]
+                if fmt_matched:
+                    cands = fmt_matched
+            matched = any(
+                it.get("공급가액") == defaults["supply_original"]
+                and it.get("부가세") == defaults["vat_original"]
+                and it.get("영화사 지급금") == defaults["payout_original"]
+                for it in cands)
+            if cands and not matched:
+                final_supply = (defaults["supply_original"] or 0) + defaults["supply_delta"]
+                final_vat = (defaults["vat_original"] or 0) + defaults["vat_delta"]
+                final_payout = (defaults["payout_original"] or 0) + defaults["payout_delta"]
+                tgt = max(cands, key=lambda it: it["영화사 지급금"])
+                defaults.update({
+                    "supply_original": tgt["공급가액"],
+                    "vat_original": tgt["부가세"],
+                    "payout_original": tgt["영화사 지급금"],
+                    "supply_delta": final_supply - tgt["공급가액"],
+                    "vat_delta": final_vat - tgt["부가세"],
+                    "payout_delta": final_payout - tgt["영화사 지급금"],
+                })
+                rebased = True
+
         obj, _created = SettlementAdjustment.objects.update_or_create(
             yyyymm=yyyy_mm, movie_id=movie_id, client=client,
             screen_format=(str(data.get("screen_format") or "")).strip(),
@@ -1344,6 +1399,7 @@ class SettlementAdjustmentView(APIView):
             SettlementConfirm.objects.get_or_create(
                 yyyymm=yyyy_mm, movie_id=movie_id, client=client,
                 defaults={"source": "조정", "confirmed_by": username})
+        obj._rebased = rebased  # 응답에 재기준 여부 전달용 (DB 저장 안 됨)
         return obj, None
 
     def post(self, request):
@@ -1370,7 +1426,10 @@ class SettlementAdjustmentView(APIView):
         obj, err = self._save_one(yyyy_mm, data, username)
         if err:
             return Response({"error": err}, status=400)
-        return Response(_serialize_adjustment(obj), status=status.HTTP_201_CREATED)
+        payload = _serialize_adjustment(obj)
+        if getattr(obj, "_rebased", False):
+            payload["rebased"] = True
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class SettlementAdjustmentDetailView(APIView):
