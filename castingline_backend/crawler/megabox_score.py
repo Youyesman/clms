@@ -13,6 +13,7 @@
 import html as _html
 import io
 import json
+import re
 from datetime import date
 
 import requests
@@ -82,13 +83,18 @@ def search_movies(session, start_de, end_de, movie_nm=""):
     return r.json().get("movieList", [])
 
 
+def _norm_title(s):
+    """영화명 비교용 정규화: 모든 공백 제거 + 소문자 (띄어쓰기 표기 차이 무시 — K001)."""
+    return re.sub(r"\s+", "", str(s or "")).lower()
+
+
 def filter_movies(movies, include="", excludes=None):
     """영화명에 include 키워드 포함 + excludes 키워드 모두 미포함인 영화만."""
-    excludes = [e for e in (excludes or []) if e]
-    inc = (include or "").strip()
+    excludes = [_norm_title(e) for e in (excludes or []) if str(e or "").strip()]
+    inc = _norm_title(include)
     picked = []
     for m in movies:
-        nm = _clean(m.get("movieNm"))
+        nm = _norm_title(_clean(m.get("movieNm")))
         if inc and inc not in nm:
             continue
         if any(ex in nm for ex in excludes):

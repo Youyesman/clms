@@ -124,13 +124,18 @@ def fetch_score_rows(session, theater_code, play_date):
     return _parse_score_table(r.text)
 
 
+def _norm_title(s):
+    """영화명 비교용 정규화: 모든 공백 제거 + 소문자 (띄어쓰기 표기 차이 무시 — K001)."""
+    return re.sub(r"\s+", "", str(s or "")).lower()
+
+
 def filter_rows(rows, includes=None, excludes=None):
     """영화명 키워드 필터. includes 비면 전체, excludes 는 모두 미포함."""
-    includes = [i for i in (includes or []) if i]
-    excludes = [e for e in (excludes or []) if e]
+    includes = [_norm_title(i) for i in (includes or []) if str(i or "").strip()]
+    excludes = [_norm_title(e) for e in (excludes or []) if str(e or "").strip()]
     out = []
     for row in rows:
-        nm = row["movie"]
+        nm = _norm_title(row["movie"])
         if includes and not any(kw in nm for kw in includes):
             continue
         if any(ex in nm for ex in excludes):

@@ -152,12 +152,18 @@ def download_movie_detail_xlsx(session, csrf, movie_cd, start_dt, end_dt):
     return _xml_to_xlsx(r.content)
 
 
+def _norm_title(s):
+    """영화명 비교용 정규화: 모든 공백 제거 + 소문자.
+    KOBIS 표기('그림자 아이')와 영화관리 표기('그림자아이')의 띄어쓰기 차이를 무시한다 (K001)."""
+    return re.sub(r"\s+", "", str(s or "")).lower()
+
+
 def _filter_movies(movies, includes, excludes):
-    includes = [i for i in (includes or []) if i]
-    excludes = [e for e in (excludes or []) if e]
+    includes = [_norm_title(i) for i in (includes or []) if str(i or "").strip()]
+    excludes = [_norm_title(e) for e in (excludes or []) if str(e or "").strip()]
     out = []
     for mv in movies:
-        nm = mv["movieNm"]
+        nm = _norm_title(mv["movieNm"])
         if includes and not any(kw in nm for kw in includes):
             continue
         if any(ex in nm for ex in excludes):
