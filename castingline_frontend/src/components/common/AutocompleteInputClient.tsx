@@ -371,6 +371,15 @@ export function AutocompleteInputClient({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    // 방향키로 선택을 옮기면 목록이 따라 스크롤되도록 (보이는 영역 밖 선택 방지)
+    useEffect(() => {
+        if (selectedIndex < 0) return;
+        const item = portalDropdownRef.current?.children[selectedIndex] as
+            | HTMLElement
+            | undefined;
+        item?.scrollIntoView({ block: "nearest" });
+    }, [selectedIndex]);
+
     const isSelected = !!formData[type]?.id;
     /* 거래처/영화가 실제로 선택되면 걸러내고 있는 필터 */
     const isApplied = isChip && isSelected;

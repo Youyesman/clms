@@ -227,9 +227,17 @@ export function AutocompleteInputMovie({
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
 
     const isChip = variant === "chip";
     const showInternalLabel = label && labelPlacement === "left";
+
+    // 방향키로 선택을 옮기면 목록이 따라 스크롤되도록 (보이는 영역 밖 선택 방지)
+    useEffect(() => {
+        if (selectedIndex < 0) return;
+        const item = listRef.current?.children[selectedIndex] as HTMLElement | undefined;
+        item?.scrollIntoView({ block: "nearest" });
+    }, [selectedIndex]);
 
     const fetchSuggestions = async (name: string) => {
         if (!name) {
@@ -360,7 +368,7 @@ export function AutocompleteInputMovie({
                 </InputBox>
 
                 {isDropdownOpen && suggestions.length > 0 && (
-                    <Dropdown>
+                    <Dropdown ref={listRef}>
                         {suggestions.map((movie, index) => (
                             <SuggestionItem
                                 key={movie.id || index}
