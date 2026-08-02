@@ -38,9 +38,9 @@ const Container = styled.div`
     width: 100%;
     height: 44px;
     padding: 0 16px;
-    background: var(--White-white, white);
+    background: #ffffff;
     border-radius: 4px;
-    outline: 1px solid var(--Gray-300, #d5d7da);
+    outline: 1px solid #cbd5e1;
     display: flex;
     align-items: center;
 `;
@@ -57,7 +57,7 @@ const Option = styled.button`
     padding: 0;
 
     input {
-        accent-color: var(--Gray-800, #252b37);
+        accent-color: #1e293b;
         margin: 0;
     }
 `;
@@ -65,11 +65,11 @@ const Option = styled.button`
 const Divider = styled.div`
     width: 1px;
     height: 24px;
-    background: var(--Gray-300, #d5d7da);
+    background: #cbd5e1;
 `;
 
 const Label = styled.span<{ $active?: boolean }>`
-    color: ${({ $active }) => ($active ? "#000" : "var(--Gray-800, #252b37)")};
+    color: ${({ $active }) => ($active ? "#0f172a" : "#1e293b")};
     font-size: 16px;
     font-weight: 500;
 `;

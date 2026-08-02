@@ -314,8 +314,8 @@ const ShowPwBtn = styled.button`
     height: 30px;
     padding: 0 12px;
     border: 1px solid #cbd5e1;
-    border-radius: 7px;
-    background: #fff;
+    border-radius: 6px;
+    background: #ffffff;
     color: #475569;
     font-size: 12px;
     font-weight: 600;
@@ -327,9 +327,9 @@ const ShowPwBtn = styled.button`
 const Table = styled.table`
     width: 100%;
     border-collapse: collapse;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
     font-size: 13px;
     thead th {
@@ -343,7 +343,7 @@ const Table = styled.table`
     tbody td {
         padding: 7px 12px;
         border-bottom: 1px solid #f1f5f9;
-        color: #334155;
+        color: #475569;
         vertical-align: middle;
     }
     tbody td.center {
@@ -404,7 +404,7 @@ const Toggle = styled.button<{ $on: boolean }>`
         width: 16px;
         height: 16px;
         border-radius: 50%;
-        background: #fff;
+        background: #f8fafc;
         transition: left 0.15s;
     }
 `;
@@ -418,7 +418,7 @@ const IconBtn = styled.button<{ $variant?: "del" | "ok" }>`
     justify-content: center;
     width: 30px;
     height: 30px;
-    border-radius: 7px;
+    border-radius: 6px;
     cursor: pointer;
     border: 1px solid
         ${({ $variant }) =>
@@ -427,9 +427,9 @@ const IconBtn = styled.button<{ $variant?: "del" | "ok" }>`
                 : $variant === "ok"
                 ? "#16a34a"
                 : "#cbd5e1"};
-    background: ${({ $variant }) => ($variant === "ok" ? "#16a34a" : "#fff")};
+    background: ${({ $variant }) => ($variant === "ok" ? "#16a34a" : "#ffffff")};
     color: ${({ $variant }) =>
-        $variant === "del" ? "#dc2626" : $variant === "ok" ? "#fff" : "#334155"};
+        $variant === "del" ? "#dc2626" : $variant === "ok" ? "#ffffff" : "#475569"};
     &:hover {
         background: ${({ $variant }) =>
             $variant === "del"
@@ -447,8 +447,8 @@ const AddBtn = styled.button`
     padding: 0 12px;
     border: 1px solid #16a34a;
     background: #16a34a;
-    color: #fff;
-    border-radius: 7px;
+    color: #ffffff;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;

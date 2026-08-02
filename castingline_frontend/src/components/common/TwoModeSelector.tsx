@@ -8,9 +8,9 @@ const ModeContainer = styled.div`
     width: 100%;
     height: 44px;
     padding: 0 16px;
-    background: var(--White-white, white);
+    background: #ffffff;
     border-radius: 4px;
-    outline: 1px var(--Gray-300, #d5d7da) solid;
+    outline: 1px #cbd5e1 solid;
     outline-offset: -1px;
     display: inline-flex;
     align-items: center;
@@ -32,11 +32,11 @@ const ModeOption = styled.button`
 const ModeDivider = styled.div`
     width: 1px;
     height: 24px;
-    background: var(--Gray-300, #d5d7da);
+    background: #cbd5e1;
 `;
 
 const ModeLabel = styled.span<{ $active?: boolean }>`
-    color: ${({ $active }) => ($active ? "black" : "var(--Gray-800, #252B37)")};
+    color: ${({ $active }) => ($active ? "black" : "#1e293b")};
     font-size: 16px;
     font-family: SUIT;
     font-weight: 500;
@@ -70,9 +70,9 @@ export function TwoModeSelector({ value, onChange, defaultValue, options }: TwoM
                     <React.Fragment key={opt.value}>
                         <ModeOption type="button" onClick={() => handleSelect(opt.value)}>
                             {isActive ? (
-                                <RadioButton size={24} weight="fill" color="var(--Gray-800)" />
+                                <RadioButton size={24} weight="fill" color="#1e293b" />
                             ) : (
-                                <Circle size={24} color="var(--Gray-400, #ccc)" />
+                                <Circle size={24} color="#94a3b8" />
                             )}
                             <ModeLabel $active={isActive}>{opt.label}</ModeLabel>
                         </ModeOption>

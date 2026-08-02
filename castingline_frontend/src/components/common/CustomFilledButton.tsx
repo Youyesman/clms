@@ -73,29 +73,29 @@ export const CustomFilledButton = styled(motion.button).withConfig({
     ${({ color = "default" }) => {
         const colors: any = {
             default: css`
-                background: var(--Gray-800, #252b37);
-                color: var(--White-white, #fff);
+                background: #1e293b;
+                color: #ffffff;
                 &:hover {
-                    background: var(--Gray-700, #1f242f);
+                    background: #475569;
                 }
             `,
             blue: css`
-                background: var(--FEG-Dark-50, #379bc8);
-                color: var(--White-white, #fff);
+                background: #2563eb;
+                color: #ffffff;
                 &:hover {
-                    background: var(--FEG-Dark-100, #318bb4);
+                    background: #1d4ed8;
                 }
             `,
             red: css`
-                background: var(--Red-600, #e11900);
-                color: var(--White-white, #fff);
+                background: #dc2626;
+                color: #ffffff;
                 &:hover {
-                    background: var(--Red-700, #c81600);
+                    background: #b91c1c;
                 }
             `,
             gray: css`
-                background: var(--Gray-200);
-                color: var(--Gray-800, #fff);
+                background: #e2e8f0;
+                color: #1e293b;
                 &:hover {
                     background: #c2c4c8;
                 }
@@ -120,8 +120,8 @@ export const CustomFilledButton = styled(motion.button).withConfig({
         `}
 
     &:disabled {
-        background: var(--Gray-200) !important;
-        color: var(--Gray-400) !important;
+        background: #e2e8f0 !important;
+        color: #94a3b8 !important;
         cursor: not-allowed;
         pointer-events: none;
     }

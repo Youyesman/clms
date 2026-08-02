@@ -154,7 +154,7 @@ export function TheaterMapHistory({ selectedPair, onCompleted }: { selectedPair:
                 onPageChange={(p) => { setHistoryPage(p); fetchHistory(p); }}
                 onUpdateCell={handleCellUpdate}
             />
-            <div style={{ padding: '8px', fontSize: '11px', color: '#64748b', textAlign: 'center', background: '#fff' }}>
+            <div style={{ padding: '8px', fontSize: '11px', color: '#64748b', textAlign: 'center', background: '#ffffff' }}>
                 * 수정하려면 칸을 <b>더블 클릭</b>하고 입력 후 <b>Enter</b>를 누르세요.
             </div>
         </div>

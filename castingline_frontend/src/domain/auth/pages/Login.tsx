@@ -19,7 +19,7 @@ const PageWrapper = styled.div`
     display: flex;
     justify-content: center;
     align-items: center;
-    background: #f3f4f6;
+    background: #f1f5f9;
     font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif;
     padding: 24px;
 `;
@@ -28,10 +28,10 @@ const LoginCard = styled.div`
     width: 100%;
     max-width: 420px;
     background: #ffffff;
-    border-radius: 12px;
+    border-radius: 6px;
     padding: 48px 40px;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    border: 1px solid #e5e7eb;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    border: 1px solid #e2e8f0;
     animation: ${slideUpFade} 0.5s ease-out both;
 `;
 
@@ -56,14 +56,14 @@ const LogoContainer = styled.div`
 `;
 
 const BrandIcon = styled.div`
-    background: #111827;
+    background: #0f172a;
     width: 40px;
     height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 8px;
-    color: #fff;
+    color: #ffffff;
     font-size: 20px;
     font-weight: 800;
 `;
@@ -71,14 +71,14 @@ const BrandIcon = styled.div`
 const BrandName = styled.h1`
     font-size: 22px;
     font-weight: 800;
-    color: #111827;
+    color: #0f172a;
     letter-spacing: -0.5px;
     margin: 0;
 `;
 
 const Subtitle = styled.p`
     font-size: 14.5px;
-    color: #4b5563;
+    color: #475569;
     margin: 0;
     line-height: 1.5;
 `;
@@ -97,26 +97,26 @@ const FormGroup = styled.div`
     label {
         font-size: 13px;
         font-weight: 600;
-        color: #374151;
+        color: #475569;
     }
 
     input {
         width: 100%;
         padding: 12px 14px;
-        border: 1px solid #d1d5db;
+        border: 1px solid #cbd5e1;
         border-radius: 6px;
         font-size: 14.5px;
-        color: #111827;
+        color: #0f172a;
         background: #ffffff;
         transition: all 0.2s ease;
 
         &::placeholder {
-            color: #9ca3af;
+            color: #94a3b8;
         }
 
         &:focus {
             outline: none;
-            border-color: #3b82f6;
+            border-color: #2563eb;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
     }
@@ -126,18 +126,18 @@ const LoginButton = styled.button`
     margin-top: 8px;
     width: 100%;
     padding: 14px;
-    background: #111827;
+    background: #0f172a;
     color: white;
-    border: 1px solid #111827;
+    border: 1px solid #0f172a;
     border-radius: 6px;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 
     &:hover {
-        background: #1f2937;
+        background: #1e293b;
         transform: translateY(-1px);
     }
     
@@ -150,11 +150,11 @@ const BackLink = styled.div`
     text-align: center;
     margin-top: 24px;
     font-size: 13px;
-    color: #6b7280;
+    color: #64748b;
     cursor: pointer;
 
     &:hover {
-        color: #111827;
+        color: #0f172a;
         text-decoration: underline;
     }
 `;

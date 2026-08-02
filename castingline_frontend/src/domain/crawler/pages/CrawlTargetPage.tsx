@@ -131,7 +131,7 @@ export const CrawlTargetPage: React.FC = () => {
                 <Td>
                   <CleanTitle>{t.clean_title}</CleanTitle>
                 </Td>
-                <Td style={{ color: "#888", fontSize: 12 }}>{t.created_at}</Td>
+                <Td style={{ color: "#64748b", fontSize: 12 }}>{t.created_at}</Td>
                 <Td>
                   <DeleteBtn onClick={() => handleDelete(t.id, t.title)}>
                     삭제
@@ -162,7 +162,7 @@ const Container = styled.div`
 `;
 const Header = styled.div`margin-bottom: 24px;`;
 const Title = styled.h2`font-size: 20px; font-weight: 700; margin: 0 0 4px;`;
-const SubTitle = styled.p`font-size: 13px; color: #888; margin: 0;`;
+const SubTitle = styled.p`font-size: 13px; color: #64748b; margin: 0;`;
 
 const AddRow = styled.div`
   display: flex;
@@ -176,33 +176,35 @@ const Input = styled.input`
   border-radius: 8px;
   font-size: 14px;
   outline: none;
-  &:focus { border-color: #6366f1; }
+  &:focus { border-color: #2563eb; }
 `;
 const AddButton = styled.button`
   padding: 9px 20px;
-  background: #6366f1;
-  color: #fff;
+  background: #2563eb;
+  color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
-  &:disabled { background: #ccc; cursor: default; }
+  &:disabled { background: #cbd5e1; cursor: default; }
 `;
 
 const CountBar = styled.div`
   font-size: 13px;
-  color: #555;
+  color: #475569;
   margin-bottom: 12px;
-  strong { color: #222; }
+  strong { color: #0f172a; }
 `;
 const EmptyMsg = styled.div`
-  padding: 32px;
+  padding: 28px 16px;
   text-align: center;
-  color: #aaa;
-  font-size: 14px;
-  border: 1px dashed #e0e0e0;
+  color: #94a3b8;
+  font-size: 12.5px;
+  border: 1px dashed #e2e8f0;
   border-radius: 8px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 const Table = styled.table`
@@ -216,37 +218,37 @@ const Th = styled.th`
   background: #f7f8fa;
   border-bottom: 1px solid #e8e8e8;
   font-weight: 600;
-  color: #555;
+  color: #475569;
 `;
 const Td = styled.td`
   padding: 10px 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
 `;
 const Toggle = styled.button<{ $active: boolean }>`
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 6px;
   border: none;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  background: ${(p) => (p.$active ? "#dcfce7" : "#f3f4f6")};
-  color: ${(p) => (p.$active ? "#16a34a" : "#9ca3af")};
+  background: ${(p) => (p.$active ? "#dcfce7" : "#f1f5f9")};
+  color: ${(p) => (p.$active ? "#16a34a" : "#94a3b8")};
 `;
 const TitleText = styled.span<{ $active: boolean }>`
   font-weight: 500;
-  color: ${(p) => (p.$active ? "#222" : "#aaa")};
+  color: ${(p) => (p.$active ? "#0f172a" : "#94a3b8")};
 `;
 const CleanTitle = styled.span`
-  color: #6366f1;
+  color: #2563eb;
   font-size: 12px;
   font-family: monospace;
 `;
 const DeleteBtn = styled.button`
   padding: 3px 10px;
-  border: 1px solid #fca5a5;
-  background: #fff;
-  color: #ef4444;
+  border: 1px solid #fecaca;
+  background: #ffffff;
+  color: #dc2626;
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
@@ -257,9 +259,9 @@ const InfoBox = styled.div`
   padding: 16px;
   background: #f0f4ff;
   border-radius: 8px;
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid #2563eb;
 `;
 const InfoTitle = styled.div`font-weight: 600; font-size: 13px; margin-bottom: 6px;`;
-const InfoText = styled.div`font-size: 13px; color: #555; line-height: 1.6;
+const InfoText = styled.div`font-size: 13px; color: #475569; line-height: 1.6;
   code { background: #e8e8ff; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 `;

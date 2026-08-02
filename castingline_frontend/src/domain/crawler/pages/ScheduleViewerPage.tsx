@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { AxiosGet } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
+import { EmptyState } from "../../../components/common/EmptyState";
+import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { CustomInput } from "../../../components/common/CustomInput";
+import { CustomSelect } from "../../../components/common/CustomSelect";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +46,7 @@ interface IResponse {
 // ─── Styled Components ────────────────────────────────────────────────────────
 
 const PageWrapper = styled.div`
-    padding: 28px 32px;
+    padding: 20px;
     background: #f8fafc;
     min-height: 100%;
     font-family: "SUIT", sans-serif;
@@ -63,68 +67,15 @@ const PageHeader = styled.div`
     }
 `;
 
-const FilterBar = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: flex-end;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin-bottom: 20px;
-`;
 
-const FilterGroup = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    label {
-        font-size: 11px;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-`;
 
-const FilterInput = styled.input`
-    height: 34px;
-    padding: 0 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 13px;
-    color: #0f172a;
-    background: #f8fafc;
-    min-width: 130px;
-    &:focus {
-        outline: none;
-        border-color: #3b82f6;
-        background: #fff;
-    }
-`;
 
-const FilterSelect = styled.select`
-    height: 34px;
-    padding: 0 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 13px;
-    color: #0f172a;
-    background: #f8fafc;
-    min-width: 110px;
-    cursor: pointer;
-    &:focus {
-        outline: none;
-        border-color: #3b82f6;
-    }
-`;
 
 const ApplyButton = styled.button`
-    height: 34px;
+    height: 30px;
     padding: 0 18px;
-    background: #0f172a;
-    color: #fff;
+    background: #2563eb;
+    color: #ffffff;
     border: none;
     border-radius: 6px;
     font-size: 13px;
@@ -136,7 +87,7 @@ const ApplyButton = styled.button`
 `;
 
 const ResetButton = styled.button`
-    height: 34px;
+    height: 30px;
     padding: 0 12px;
     background: transparent;
     color: #64748b;
@@ -156,11 +107,11 @@ const StatsGrid = styled.div`
 `;
 
 const StatCard = styled.div<{ $accent?: string }>`
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 6px;
     padding: 16px 18px;
-    border-left: 3px solid ${({ $accent }) => $accent || "#3b82f6"};
+    border-left: 3px solid ${({ $accent }) => $accent || "#2563eb"};
 
     .label {
         font-size: 11px;
@@ -184,9 +135,9 @@ const StatCard = styled.div<{ $accent?: string }>`
 `;
 
 const TableWrapper = styled.div`
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
 `;
 
@@ -245,9 +196,9 @@ const BrandBadge = styled.span<{ $brand: string }>`
     font-size: 11px;
     font-weight: 700;
     ${({ $brand }) => {
-        if ($brand === "CGV") return `background:#fee2e2; color:#dc2626;`;
+        if ($brand === "CGV") return `background:#fecaca; color:#dc2626;`;
         if ($brand === "LOTTE") return `background:#f3e8ff; color:#7c3aed;`;
-        if ($brand === "MEGABOX") return `background:#dbeafe; color:#1d4ed8;`;
+        if ($brand === "MEGABOX") return `background:#bfdbfe; color:#1d4ed8;`;
         if ($brand === "일반극장") return `background:#dcfce7; color:#15803d;`;
         return `background:#f1f5f9; color:#475569;`;
     }}
@@ -261,15 +212,15 @@ const SeatBar = styled.div<{ $ratio: number }>`
         width: 60px;
         height: 6px;
         background: #e2e8f0;
-        border-radius: 3px;
+        border-radius: 4px;
         overflow: hidden;
     }
     .bar-fill {
         height: 100%;
-        border-radius: 3px;
+        border-radius: 4px;
         width: ${({ $ratio }) => Math.min(100, $ratio)}%;
         background: ${({ $ratio }) =>
-            $ratio > 70 ? "#22c55e" : $ratio > 30 ? "#f59e0b" : "#ef4444"};
+            $ratio > 70 ? "#16a34a" : $ratio > 30 ? "#d97706" : "#dc2626"};
     }
     .text { font-size: 12px; color: #64748b; white-space: nowrap; }
 `;
@@ -298,9 +249,9 @@ const PageBtn = styled.button<{ $active?: boolean }>`
     height: 32px;
     padding: 0 8px;
     border-radius: 6px;
-    border: 1px solid ${({ $active }) => ($active ? "#3b82f6" : "#e2e8f0")};
-    background: ${({ $active }) => ($active ? "#3b82f6" : "#fff")};
-    color: ${({ $active }) => ($active ? "#fff" : "#374151")};
+    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#e2e8f0")};
+    background: ${({ $active }) => ($active ? "#2563eb" : "#ffffff")};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#475569")};
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -308,12 +259,6 @@ const PageBtn = styled.button<{ $active?: boolean }>`
     &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
-const EmptyState = styled.div`
-    text-align: center;
-    padding: 60px 20px;
-    color: #94a3b8;
-    font-size: 14px;
-`;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -427,50 +372,40 @@ export function ScheduleViewerPage() {
             </PageHeader>
 
             {/* Filter Bar */}
-            <FilterBar>
-                <FilterGroup>
-                    <label>시작일</label>
-                    <FilterInput type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </FilterGroup>
-                <FilterGroup>
-                    <label>종료일</label>
-                    <FilterInput type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </FilterGroup>
-                <FilterGroup>
-                    <label>브랜드</label>
-                    <FilterSelect value={brand} onChange={(e) => setBrand(e.target.value)}>
-                        <option value="">전체</option>
-                        <option value="CGV">CGV</option>
-                        <option value="LOTTE">롯데시네마</option>
-                        <option value="MEGABOX">메가박스</option>
-                        <option value="일반극장">일반극장</option>
-                    </FilterSelect>
-                </FilterGroup>
-                <FilterGroup>
-                    <label>극장명</label>
-                    <FilterInput
-                        type="text"
-                        placeholder="예: 강남"
-                        value={theaterName}
-                        onChange={(e) => setTheaterName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleApply()}
-                    />
-                </FilterGroup>
-                <FilterGroup>
-                    <label>영화제목</label>
-                    <FilterInput
-                        type="text"
-                        placeholder="예: 주토피아"
-                        value={movieTitle}
-                        onChange={(e) => setMovieTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleApply()}
-                    />
-                </FilterGroup>
-                <ApplyButton onClick={handleApply} disabled={loading}>
-                    {loading ? "조회 중..." : "조회"}
-                </ApplyButton>
-                <ResetButton onClick={handleReset}>초기화</ResetButton>
-            </FilterBar>
+            <CommonFilterBar
+                actions={
+                    <>
+                        <ApplyButton onClick={handleApply} disabled={loading}>
+                            {loading ? "조회 중..." : "조회"}
+                        </ApplyButton>
+                        <ResetButton onClick={handleReset}>초기화</ResetButton>
+                    </>
+                }>
+                <CustomInput label="시작일" inputType="date" value={startDate} setValue={setStartDate} />
+                <CustomInput label="종료일" inputType="date" value={endDate} setValue={setEndDate} />
+                <CustomSelect
+                    label="브랜드"
+                    options={["전체", "CGV", "롯데시네마", "메가박스", "일반극장"]}
+                    value={brand === "" ? "전체" : brand === "LOTTE" ? "롯데시네마" : brand === "MEGABOX" ? "메가박스" : brand}
+                    onChange={(v) =>
+                        setBrand(v === "전체" ? "" : v === "롯데시네마" ? "LOTTE" : v === "메가박스" ? "MEGABOX" : v)
+                    }
+                />
+                <CustomInput
+                    label="극장명"
+                    placeholder="예: 강남"
+                    value={theaterName}
+                    setValue={setTheaterName}
+                    onKeyDown={(e) => e.key === "Enter" && handleApply()}
+                />
+                <CustomInput
+                    label="영화제목"
+                    placeholder="예: 주토피아"
+                    value={movieTitle}
+                    setValue={setMovieTitle}
+                    onKeyDown={(e) => e.key === "Enter" && handleApply()}
+                />
+            </CommonFilterBar>
 
             {/* Stats Cards */}
             {stats && (
@@ -540,10 +475,10 @@ export function ScheduleViewerPage() {
                                     <Tr key={row.id}>
                                         <Td><BrandBadge $brand={row.brand}>{row.brand}</BrandBadge></Td>
                                         <Td>{row.theater_name}</Td>
-                                        <Td style={{ color: row.target_title ? "#334155" : "#94a3b8", fontSize: 13 }}>
+                                        <Td style={{ color: row.target_title ? "#475569" : "#94a3b8", fontSize: 13 }}>
                                             {row.target_title || "-"}
                                         </Td>
-                                        <Td style={{ fontSize: 13, color: row.target_title && row.target_title !== row.movie_title ? "#f59e0b" : "#334155" }}>
+                                        <Td style={{ fontSize: 13, color: row.target_title && row.target_title !== row.movie_title ? "#d97706" : "#475569" }}>
                                             {row.movie_title}
                                         </Td>
                                         <Td style={{ color: "#64748b" }}>{row.screen_name}</Td>
@@ -573,7 +508,7 @@ export function ScheduleViewerPage() {
                                         <Td style={{
                                             whiteSpace: "nowrap",
                                             fontSize: 12,
-                                            color: row.updated_at && row.created_at && row.updated_at !== row.created_at ? "#f59e0b" : "#64748b",
+                                            color: row.updated_at && row.created_at && row.updated_at !== row.created_at ? "#d97706" : "#64748b",
                                             fontWeight: row.updated_at && row.created_at && row.updated_at !== row.created_at ? 600 : 400,
                                         }}>
                                             {row.updated_at || "-"}

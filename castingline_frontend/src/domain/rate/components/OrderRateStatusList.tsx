@@ -50,9 +50,9 @@ const BulkSaveButton = styled.button`
   background-color: #1e293b;
   color: #ffffff;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0 12px;
-  height: 28px;
+  height: 30px;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -224,9 +224,9 @@ export function OrderRateStatusList({ activeFilters, onRefreshMaster }: Props) {
       width: "80px",
       renderCell: (_: any, row: any) =>
         row.has_rate ? (
-          <CheckCircle size={20} weight="fill" color="#10b981" />
+          <CheckCircle size={20} weight="fill" color="#16a34a" />
         ) : (
-          <XCircle size={20} weight="fill" color="#ef4444" />
+          <XCircle size={20} weight="fill" color="#dc2626" />
         ),
     },
     {

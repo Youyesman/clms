@@ -24,7 +24,7 @@ const IconButton = styled.button<{ $isLoading?: boolean }>`
     padding: 0;
     background-color: white;
     border: 1px solid #cbd5e1; /* Slate 300 */
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
     color: ${EXCEL_GREEN}; /* 아이콘 기본 색상을 엑셀 초록색으로 설정 */

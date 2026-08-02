@@ -33,7 +33,7 @@ const ModalPositioner = styled.div`
 
 const ModalBox = styled.div<{ $width?: string | number }>`
     background: white;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
     animation: ${scaleIn} 0.2s ease-out;
     pointer-events: auto;
     position: relative;
@@ -59,7 +59,7 @@ const CloseButton = styled.button`
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: all 0.2s;
 
     &:hover {
@@ -104,7 +104,7 @@ const ModalHeader = styled.div`
     font-family: SUIT;
     font-size: 24px;
     font-weight: 700;
-    color: #252b37;
+    color: #1e293b;
 `;
 
 const ModalContent = styled.div`
@@ -117,6 +117,6 @@ const ModalContent = styled.div`
     }
     &::-webkit-scrollbar-thumb {
         background: #cbd5e1;
-        border-radius: 10px;
+        border-radius: 8px;
     }
 `;

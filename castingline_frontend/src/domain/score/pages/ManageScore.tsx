@@ -19,6 +19,7 @@ import { CommonListHeader } from "../../../components/common/CommonListHeader";
 
 // 도메인 컴포넌트
 import { ScoreDetailMatrix } from "../components/ScoreDetailMatrix";
+import { EmptyState } from "../../../components/common/EmptyState";
 
 /* ---------------- Interfaces ---------------- */
 
@@ -85,7 +86,7 @@ const ListSection = styled.div`
     width: 100%;
     background-color: #ffffff;
     border: 1px solid #94a3b8;
-    border-radius: 4px;
+    border-radius: 6px;
     overflow: hidden;
 `;
 
@@ -108,7 +109,7 @@ const ScoreTable = styled.table`
         z-index: 10;
         th {
             padding: 10px;
-            border-bottom: 2px solid #cbd5e1;
+            border-bottom: 1px solid #e2e8f0;
             border-right: 1px solid #e2e8f0;
             color: #475569;
         }
@@ -129,11 +130,11 @@ const ScoreTable = styled.table`
 `;
 
 const ClientTotalRow = styled.tr`
-    background-color: #f0fdf4;
+    background-color: #f8fafc;
     font-weight: 800;
-    color: #166534;
+    color: #15803d;
     td {
-        border-bottom: 1px solid #bbf7d0 !important;
+        border-bottom: 1px solid #dcfce7 !important;
     }
 `;
 
@@ -151,19 +152,10 @@ const MovieTotalRow = styled.tr`
     font-weight: 900;
     color: #1e293b;
     td {
-        border-bottom: 2px solid #64748b !important;
+        border-bottom: 1px solid #cbd5e1 !important;
     }
 `;
 
-const EmptyState = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 200px;
-    color: #94a3b8;
-    font-size: 13px;
-    background-color: #f8fafc;
-`;
 
 /* ---------------- Main Component ---------------- */
 
@@ -294,14 +286,13 @@ export function ManageScore() {
             >
                 {/* 왼쪽 영역: 검색 필터들 */}
                 <CustomInput
-                    style={{ width: "200px" }}
                     label="입회일자"
                     inputType="date"
                     value={searchParams.entry_date}
                     setValue={(v) => setSearchParams((p) => ({ ...p, entry_date: v }))}
                     labelWidth="60px"
                 />
-                <div style={{ width: "300px" }}>
+                <div>
                     <AutocompleteInputClient
                         type="client"
                         label="극장명"
@@ -313,7 +304,7 @@ export function ManageScore() {
                         labelWidth="50px"
                     />
                 </div>
-                <div style={{ width: "300px" }}>
+                <div>
                     <AutocompleteInputMovie
                         label="영화명"
                         formData={searchParams}
@@ -554,10 +545,10 @@ export function ManageScore() {
                                                                         <CheckSquare
                                                                             size={18}
                                                                             weight="fill"
-                                                                            color="#166534"
+                                                                            color="#15803d"
                                                                         />
                                                                     ) : (
-                                                                        <Square size={18} color="#166534" />
+                                                                        <Square size={18} color="#15803d" />
                                                                     ))}
                                                             </td>
                                                             <td colSpan={4} style={{ textAlign: "right" }}>

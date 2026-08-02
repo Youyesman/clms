@@ -50,7 +50,7 @@ const UserInformContainer = styled.section`
             transition: all 0.2s;
             &:hover {
                 background-color: #f1f5f9;
-                color: #ef4444;
+                color: #dc2626;
             }
         }
     }

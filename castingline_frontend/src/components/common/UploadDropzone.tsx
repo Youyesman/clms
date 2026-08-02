@@ -47,11 +47,11 @@ export default function UploadDropzone({ onFilesAdded }: Props) {
             <InnerBox>
                 {!isDragging ? (
                     <>
-                        <p style={{ color: "var(--Gray-400)", fontSize: 16 }}>드래그 또는 파일을 선택하여 첨부하세요</p>
+                        <p style={{ color: "#94a3b8", fontSize: 16 }}>드래그 또는 파일을 선택하여 첨부하세요</p>
                         <ChooseButton>파일 선택하기</ChooseButton>
                     </>
                 ) : (
-                    <p style={{ color: "#1570EF", fontSize: 16, fontWeight: 600 }}>여기에 파일을 놓으세요</p>
+                    <p style={{ color: "#2563eb", fontSize: 16, fontWeight: 600 }}>여기에 파일을 놓으세요</p>
                 )}
             </InnerBox>
 
@@ -73,11 +73,11 @@ const DropzoneContainer = styled.div<{ isDragging: boolean }>`
     height: 120px;
     border-radius: 8px;
 
-    background: ${({ isDragging }) => (isDragging ? "#F5FAFF" : "var(--Gray-50)")};
+    background: ${({ isDragging }) => (isDragging ? "#F5FAFF" : "#f8fafc")};
 
-    border: ${({ isDragging }) => (isDragging ? "none" : "1px solid var(--Gray-300)")};
+    border: ${({ isDragging }) => (isDragging ? "none" : "1px solid #cbd5e1")};
 
-    outline: ${({ isDragging }) => (isDragging ? "2px dashed #1570ef" : "none")};
+    outline: ${({ isDragging }) => (isDragging ? "2px dashed #2563eb" : "none")};
 
     outline-offset: -2px;
 
@@ -98,7 +98,7 @@ const InnerBox = styled.div`
 `;
 
 const ChooseButton = styled.span`
-    color: #1570ef;
+    color: #2563eb;
     text-decoration: underline;
     font-size: 14px;
     font-weight: 500;

@@ -3,8 +3,8 @@ import styled from "styled-components";
 
 /* ── 스타일 ── */
 const ChartContainer = styled.div`
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 24px;
     position: relative;
@@ -13,7 +13,7 @@ const ChartContainer = styled.div`
 const ChartTitle = styled.div`
     font-size: 14px;
     font-weight: 700;
-    color: #374151;
+    color: #475569;
     margin-bottom: 16px;
 `;
 
@@ -102,14 +102,14 @@ const BarColumn = styled.div`
     position: relative;
     cursor: pointer;
 
-    &:hover { background: rgba(0,0,0,0.02); }
+    &:hover { background: rgba(15, 23, 42, 0.02); }
 `;
 
 const Bar = styled.div<{ $height: number }>`
     width: 36px;
     height: ${({ $height }) => $height}%;
-    background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
-    border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+    border-radius: 4px 3px 0 0;
     transition: height 0.6s cubic-bezier(0.4,0,0.2,1);
     position: absolute;
     bottom: 0;
@@ -133,13 +133,13 @@ const Popover = styled.div<{ $x: number; $y: number }>`
     top: ${({ $y }) => $y}px;
     transform: translate(-50%, -120%);
     background: #1e293b;
-    color: #fff;
+    color: #ffffff;
     padding: 10px 16px;
     border-radius: 8px;
     font-size: 12px;
     z-index: 10;
     pointer-events: none;
-    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.2);
     white-space: nowrap;
     line-height: 1.6;
 
@@ -209,8 +209,8 @@ export function ScoreChart({ data }: ScoreChartProps) {
         <ChartContainer>
             <ChartTitle>관객수 & 스크린수</ChartTitle>
             <LegendWrap>
-                <LegendItem color="#3b82f6">관객수 (막대)</LegendItem>
-                <LegendItem color="#f59e0b" isLine>스크린수 (꺾은선)</LegendItem>
+                <LegendItem color="#2563eb">관객수 (막대)</LegendItem>
+                <LegendItem color="#d97706" isLine>스크린수 (꺾은선)</LegendItem>
             </LegendWrap>
 
             <div style={{ position: "relative" }}>
@@ -234,7 +234,7 @@ export function ScoreChart({ data }: ScoreChartProps) {
                     >
                         <polyline
                             fill="none"
-                            stroke="#f59e0b"
+                            stroke="#d97706"
                             strokeWidth="0.8"
                             vectorEffect="non-scaling-stroke"
                             points={linePoints.map(p => `${p.x},${p.y}`).join(" ")}
@@ -245,7 +245,7 @@ export function ScoreChart({ data }: ScoreChartProps) {
                                 cx={p.x}
                                 cy={p.y}
                                 r="1.5"
-                                fill="#f59e0b"
+                                fill="#d97706"
                                 style={{ pointerEvents: "all", cursor: "pointer" }}
                                 onMouseEnter={(e) => {
                                     setHoverIndex(i);

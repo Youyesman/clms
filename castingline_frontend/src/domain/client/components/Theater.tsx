@@ -9,6 +9,7 @@ import dayjs from "dayjs";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
+import { EmptyState } from "../../../components/common/EmptyState";
 
 /** 1. 스타일 정의: 테이블 레이아웃 **/
 
@@ -25,18 +26,18 @@ const IconButton = styled.button<{ $color?: "blue" | "red" }>`
     align-items: center;
     justify-content: center;
     width: 28px;
-    height: 28px;
+    height: 30px;
     border: 1px solid #cbd5e1;
-    border-radius: 4px;
+    border-radius: 6px;
     background: white;
     cursor: pointer;
     color: #64748b;
     transition: all 0.15s ease;
 
     &:hover {
-        border-color: ${({ $color }) => ($color === "red" ? "#ef4444" : "#2b5797")};
-        color: ${({ $color }) => ($color === "red" ? "#ef4444" : "#2b5797")};
-        background-color: ${({ $color }) => ($color === "red" ? "#fef2f2" : "#f1f8fc")};
+        border-color: ${({ $color }) => ($color === "red" ? "#dc2626" : "#2563eb")};
+        color: ${({ $color }) => ($color === "red" ? "#dc2626" : "#2563eb")};
+        background-color: ${({ $color }) => ($color === "red" ? "#fef2f2" : "#eff6ff")};
     }
 
     &:active {
@@ -63,8 +64,8 @@ const TableWrapper = styled.div`
         background: #f8fafc;
     }
     &::-webkit-scrollbar-thumb {
-        background: #94a3b8;
-        border-radius: 10px;
+        background: #cbd5e1;
+        border-radius: 8px;
     }
 `;
 
@@ -74,7 +75,7 @@ const StyledTable = styled.table`
     border-collapse: separate;
     border-spacing: 0;
     font-family: "SUIT", sans-serif;
-    font-size: 11.5px;
+    font-size: 12.5px;
 `;
 
 const THead = styled.thead`
@@ -94,23 +95,22 @@ const THead = styled.thead`
 `;
 
 const TR = styled.tr`
-    height: 30px;
+    height: 34px;
     background-color: #ffffff;
     border-bottom: 1px solid #f1f5f9;
-    &:nth-child(even) {
-        background-color: #f8fafc;
-    }
     &:hover {
         background-color: #f1f5f9 !important;
         cursor: pointer;
     }
 
+    /* 선택 행: 검정 반전 대신 옅은 파랑 — GenericTable과 동일 규칙 */
     &.selected {
-        background-color: #1e293b !important;
+        background-color: #eff6ff !important;
         &,
         td {
-            color: #ffffff !important;
-            border-right-color: #334155 !important;
+            color: #1d4ed8 !important;
+            font-weight: 600 !important;
+            background-color: #eff6ff !important;
         }
     }
 `;
@@ -128,7 +128,7 @@ const EditInput = styled.input`
     width: 100%;
     border: 1px solid #0f172a;
     padding: 2px 4px;
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-family: "SUIT", sans-serif;
     outline: none;
     text-align: center;
@@ -393,8 +393,8 @@ export const Theater = ({
                             </>
                         ) : (
                             <TR>
-                                <TD colSpan={4} style={{ padding: "40px", color: "#94a3b8" }}>
-                                    데이터가 없습니다.
+                                <TD colSpan={4} style={{ padding: 0 }}>
+                                    <EmptyState size="sm">등록된 극장관이 없습니다</EmptyState>
                                 </TD>
                             </TR>
                         )}

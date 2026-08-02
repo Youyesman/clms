@@ -12,7 +12,7 @@ const PageContainer = styled.div`
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 40px 20px;
+    padding: 20px;
     background-color: #f8fafc;
     min-height: 100vh;
 `;
@@ -22,8 +22,8 @@ const ProfileCard = styled.div`
     max-width: 600px;
     background: #ffffff;
     border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
     overflow: hidden;
 `;
 

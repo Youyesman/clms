@@ -135,7 +135,7 @@ const LabelRow = styled.div`
 const Label = styled.div`
     min-width: 60px;
     padding-top: 12px;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
-    color: var(--Gray-700);
+    color: #475569;
 `;

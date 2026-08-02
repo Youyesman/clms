@@ -50,15 +50,15 @@ const PageContainer = styled.div`
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background-color: #f4f6f8;
+    background-color: #f8fafc;
     min-height: 100vh;
     font-family: "SUIT", sans-serif;
 `;
 
 const Card = styled.div`
-    background: #fff;
-    border-radius: 10px;
-    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
     overflow: hidden;
 `;
 
@@ -72,12 +72,81 @@ const StatusBadge = styled.span<{ status: string }>`
     font-weight: 600;
     white-space: nowrap;
     ${({ status }) => {
-        if (status === 'SUCCESS') return `background: #ecfdf5; color: #059669;`;
+        if (status === 'SUCCESS') return `background: #f0fdf4; color: #16a34a;`;
         if (status === 'SUCCESS_PARTIAL') return `background: #fffbeb; color: #d97706;`;
         if (status === 'FAILED') return `background: #fef2f2; color: #dc2626;`;
         if (status === 'RUNNING') return `background: #eff6ff; color: #2563eb;`;
-        return `background: #f3f4f6; color: #6b7280;`;
+        return `background: #f1f5f9; color: #64748b;`;
     }}
+`;
+
+/* 인라인 style로 흩어져 있던 반복 모양을 이름 있는 컴포넌트로 회수.
+   같은 버튼인데 높이 32/34/38, 폰트 12/13, 패딩 14/16/20px로 조금씩 달랐습니다. */
+
+/** 화면의 주요 동작 (수동 크롤링·추가·저장) */
+const PrimaryBtn = styled.button`
+    height: 32px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+
+    &:hover:not(:disabled) {
+        background: #1d4ed8;
+    }
+    &:disabled {
+        background: #cbd5e1;
+        cursor: not-allowed;
+    }
+`;
+
+/** 보조 동작 (취소·닫기) */
+const GhostBtn = styled.button`
+    height: 32px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+
+    &:hover:not(:disabled) {
+        background: #f8fafc;
+        border-color: #94a3b8;
+    }
+`;
+
+/** 엑셀 다운로드 — 엑셀은 초록이 관례라 색만 다르고 규격은 동일 */
+const ExcelBtn = styled(PrimaryBtn)`
+    background: #16a34a;
+    &:hover:not(:disabled) {
+        background: #15803d;
+    }
+`;
+
+/** 영화코드처럼 짧은 식별자를 감싸는 칩 (같은 모양이 3곳에 복사돼 있었음) */
+const CodeChip = styled.span`
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #64748b;
+    font-family: monospace;
+    margin-left: 4px;
 `;
 
 // --- Initial State ---
@@ -392,7 +461,7 @@ export const CrawlerPage = () => {
                 const isAuto = val === 'SCHEDULED';
                 const isTransform = val === 'TRANSFORM';
                 return (
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: isTransform ? '#8b5cf6' : isAuto ? '#f59e0b' : '#3b82f6' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: isTransform ? '#d97706' : isAuto ? '#d97706' : '#2563eb' }}>
                         {isTransform ? '변환' : isAuto ? '자동' : '수동'}
                     </span>
                 );
@@ -415,7 +484,7 @@ export const CrawlerPage = () => {
                     const selected = Object.keys(nameMap).filter(k => conf.choiceCompany[k]).map(k => nameMap[k]);
                     label = selected.length === 0 ? '-' : selected.length >= 4 ? '전체' : selected.join('/');
                 }
-                return <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>{label}</span>;
+                return <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>{label}</span>;
             }
         },
         {
@@ -465,15 +534,15 @@ export const CrawlerPage = () => {
             renderCell: (_: any, item: ICrawlerHistory) => (
                 (item.status === 'RUNNING' || item.status === 'PENDING') ? (
                     <button onClick={() => handleStop(item.id)} title="중단"
-                        style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#e11d48', fontSize: '11px', fontWeight: 600 }}>
+                        style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#dc2626', fontSize: '11px', fontWeight: 600 }}>
                         <StopCircleIcon size={13} /> 중단
                     </button>
                 ) : item.status === 'FAILED' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: '10px', color: '#ef4444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 60 }} title={item.error_message || ''}>{item.error_message?.slice(0, 8)}..</span>
+                        <span style={{ fontSize: '10px', color: '#dc2626', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: 60 }} title={item.error_message || ''}>{item.error_message?.slice(0, 8)}..</span>
                         {item.excel_file_path && (
                             <button onClick={() => handleDownload(item)} title="로그 다운로드"
-                                style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 4, padding: '2px 5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#e11d48' }}>
+                                style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, padding: '2px 5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: '#dc2626' }}>
                                 <DownloadSimple size={12} />
                             </button>
                         )}
@@ -481,7 +550,7 @@ export const CrawlerPage = () => {
                 ) : (item.status === 'SUCCESS' && (item.result_summary?.total_failures ?? 0) > 0) ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <button onClick={() => setFailureModalItem(item)} title="실패 상세 보기"
-                            style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#d97706', fontSize: '11px', fontWeight: 600, fontFamily: '"SUIT",sans-serif' }}>
+                            style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#d97706', fontSize: '11px', fontWeight: 600 }}>
                             <WarningCircle size={12} /> 상세
                         </button>
                         {item.excel_file_path && (
@@ -501,23 +570,21 @@ export const CrawlerPage = () => {
             {/* ===== 상단 버튼 영역 ===== */}
             <Card>
                 <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>크롤러 관리</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>크롤러 관리</span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                            onClick={handleExcelDownload}
+                        <ExcelBtn onClick={handleExcelDownload}
                             disabled={!targets.some(t => t.movie_type === 'main' && t.is_active)}
-                            style={{ height: 34, padding: '0 16px', border: 'none', borderRadius: 6, background: '#16a34a', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, fontFamily: '"SUIT",sans-serif' }}
+                            
                         >
                             <FileXls size={14} weight="fill" />
                             엑셀 다운로드
-                        </button>
-                        <button
-                            onClick={() => setShowCrawlModal(true)}
-                            style={{ height: 34, padding: '0 16px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: '"SUIT",sans-serif' }}
+                        </ExcelBtn>
+                        <PrimaryBtn onClick={() => setShowCrawlModal(true)}
+                            
                         >
                             <Play size={14} weight="fill" />
                             수동 크롤링
-                        </button>
+                        </PrimaryBtn>
                     </div>
                 </div>
             </Card>
@@ -527,42 +594,41 @@ export const CrawlerPage = () => {
 
             {/* ===== 크롤 대상 영화 ===== */}
             <Card style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <FilmStrip size={15} weight="fill" color="#6b7280" />
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>크롤 대상 영화</span>
-                        <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400 }}>
+                        <FilmStrip size={15} weight="fill" color="#64748b" />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>크롤 대상 영화</span>
+                        <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>
                             등록된 영화만 수집 대상에 포함됩니다
                         </span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#6b7280' }}>
-                        <span>전체 <b style={{ color: '#111827' }}>{targets.length}</b></span>
-                        <span style={{ color: '#d1d5db' }}>|</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#64748b' }}>
+                        <span>전체 <b style={{ color: '#0f172a' }}>{targets.length}</b></span>
+                        <span style={{ color: '#cbd5e1' }}>|</span>
                         <span>주요작 <b style={{ color: '#b45309' }}>{targets.filter(t => t.movie_type === 'main').length}</b></span>
-                        <span style={{ color: '#d1d5db' }}>|</span>
-                        <span>경쟁작 <b style={{ color: '#059669' }}>{targets.filter(t => t.movie_type === 'competitor').length}</b></span>
+                        <span style={{ color: '#cbd5e1' }}>|</span>
+                        <span>경쟁작 <b style={{ color: '#16a34a' }}>{targets.filter(t => t.movie_type === 'competitor').length}</b></span>
                     </div>
                 </div>
 
                 {/* 입력 폼 */}
-                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 8, background: '#fafbfc', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 8, background: '#fafbfc', borderBottom: '1px solid #f1f5f9' }}>
                     <input
                         placeholder="영화 제목을 입력하세요"
                         value={targetInput}
                         onChange={(e) => setTargetInput(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleAddTarget()}
-                        style={{ flex: 1, height: 34, padding: '0 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, outline: 'none', fontFamily: '"SUIT",sans-serif', background: '#fff' }}
+                        style={{ flex: 1, height: 32, padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, outline: 'none', background: '#ffffff' }}
                     />
-                    <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
                         {(['main', 'competitor'] as const).map(type => (
                             <button
                                 key={type}
                                 onClick={() => setTargetMovieType(type)}
                                 style={{
-                                    height: 34, padding: '0 14px', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                    fontFamily: '"SUIT",sans-serif',
-                                    background: targetMovieType === type ? '#111827' : '#fff',
-                                    color: targetMovieType === type ? '#fff' : '#6b7280',
+                                    height: 32, padding: '0 14px', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    background: targetMovieType === type ? '#2563eb' : '#ffffff',
+                                    color: targetMovieType === type ? '#ffffff' : '#64748b',
                                 }}
                             >
                                 {type === 'main' ? '주요작' : '경쟁작'}
@@ -572,46 +638,36 @@ export const CrawlerPage = () => {
                     <button
                         onClick={() => setShowJsonInput(v => !v)}
                         style={{
-                            height: 34, padding: '0 12px', border: `1px solid ${showJsonInput ? '#3b82f6' : '#d1d5db'}`, borderRadius: 6,
-                            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif',
-                            background: showJsonInput ? '#eff6ff' : '#fff', color: showJsonInput ? '#2563eb' : '#6b7280', whiteSpace: 'nowrap' as const,
+                            height: 32, padding: '0 12px', border: `1px solid ${showJsonInput ? '#2563eb' : '#cbd5e1'}`, borderRadius: 6,
+                            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            background: showJsonInput ? '#eff6ff' : '#ffffff', color: showJsonInput ? '#2563eb' : '#64748b', whiteSpace: 'nowrap' as const,
                         }}
                     >
                         JSON
                     </button>
-                    <button
-                        onClick={handleAddTarget}
+                    <PrimaryBtn onClick={handleAddTarget}
                         disabled={targetLoading || !targetInput.trim()}
-                        style={{
-                            height: 34, padding: '0 16px', background: targetLoading || !targetInput.trim() ? '#d1d5db' : '#2563eb',
-                            color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: targetLoading || !targetInput.trim() ? 'default' : 'pointer',
-                            fontFamily: '"SUIT",sans-serif', whiteSpace: 'nowrap' as const,
-                        }}
+                        
                     >
                         추가
-                    </button>
+                    </PrimaryBtn>
                 </div>
 
                 {/* JSON 입력 */}
                 {showJsonInput && (
-                    <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #f0f0f0', display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                    <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                         <textarea
                             placeholder={`{\n  "movieName": "극장판엉덩이탐정:스타앤드문",\n  "rivalMovieNames": ["왕과사는남자", "휴민트"]\n}`}
                             value={jsonInput}
                             onChange={(e) => setJsonInput(e.target.value)}
-                            style={{ flex: 1, minHeight: 80, padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', color: '#111827', resize: 'vertical' as const, outline: 'none', background: '#fff', lineHeight: 1.5 }}
+                            style={{ flex: 1, minHeight: 80, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', color: '#0f172a', resize: 'vertical' as const, outline: 'none', background: '#ffffff', lineHeight: 1.5 }}
                         />
-                        <button
-                            onClick={handleBulkAddFromJson}
+                        <PrimaryBtn onClick={handleBulkAddFromJson}
                             disabled={targetLoading || !jsonInput.trim()}
-                            style={{
-                                height: 34, padding: '0 16px', background: targetLoading || !jsonInput.trim() ? '#d1d5db' : '#2563eb',
-                                color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: targetLoading || !jsonInput.trim() ? 'default' : 'pointer',
-                                fontFamily: '"SUIT",sans-serif', flexShrink: 0, whiteSpace: 'nowrap' as const,
-                            }}
+                            
                         >
                             일괄 추가
-                        </button>
+                        </PrimaryBtn>
                     </div>
                 )}
 
@@ -623,13 +679,13 @@ export const CrawlerPage = () => {
                         </span>
                         <button
                             onClick={handleBulkDeleteTargets}
-                            style={{ padding: '4px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}
+                            style={{ padding: '4px 14px', background: '#dc2626', color: '#ffffff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                         >
                             일괄 삭제
                         </button>
                         <button
                             onClick={() => setSelectedTargetIds([])}
-                            style={{ padding: '4px 10px', background: 'transparent', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}
+                            style={{ padding: '4px 10px', background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}
                         >
                             선택 해제
                         </button>
@@ -638,14 +694,14 @@ export const CrawlerPage = () => {
 
                 {/* 영화 목록 테이블 */}
                 {targets.length === 0 ? (
-                    <div style={{ padding: '40px 20px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                         등록된 대상 영화가 없습니다. 영화를 추가하면 해당 영화만 크롤링됩니다.
                     </div>
                 ) : (
                     <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontFamily: '"SUIT",sans-serif' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <thead>
-                                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                                     <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
                                         <input
                                             type="checkbox"
@@ -657,14 +713,14 @@ export const CrawlerPage = () => {
                                                     setSelectedTargetIds([]);
                                                 }
                                             }}
-                                            style={{ cursor: 'pointer', accentColor: '#3b82f6' }}
+                                            style={{ cursor: 'pointer', accentColor: '#2563eb' }}
                                         />
                                     </th>
-                                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9ca3af', width: 52, whiteSpace: 'nowrap' }}>상태</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9ca3af', width: 70, whiteSpace: 'nowrap' }}>구분</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>입력 제목</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>정규화 제목</th>
-                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9ca3af', width: 140 }}>등록일</th>
+                                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', width: 52, whiteSpace: 'nowrap' }}>상태</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', width: 70, whiteSpace: 'nowrap' }}>구분</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>입력 제목</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>정규화 제목</th>
+                                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', width: 140 }}>등록일</th>
                                     <th style={{ padding: '10px 12px', width: 48 }}></th>
                                 </tr>
                             </thead>
@@ -673,7 +729,7 @@ export const CrawlerPage = () => {
                                     if (a.movie_type === b.movie_type) return 0;
                                     return a.movie_type === 'main' ? -1 : 1;
                                 }).map((t) => (
-                                    <tr key={t.id} style={{ borderBottom: '1px solid #f3f4f6', background: selectedTargetIds.includes(t.id) ? '#eff6ff' : undefined }}>
+                                    <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedTargetIds.includes(t.id) ? '#eff6ff' : undefined }}>
                                         <td style={{ padding: '8px 8px 8px 16px' }}>
                                             <input
                                                 type="checkbox"
@@ -685,7 +741,7 @@ export const CrawlerPage = () => {
                                                         setSelectedTargetIds((prev) => prev.filter((id) => id !== t.id));
                                                     }
                                                 }}
-                                                style={{ cursor: 'pointer', accentColor: '#3b82f6' }}
+                                                style={{ cursor: 'pointer', accentColor: '#2563eb' }}
                                             />
                                         </td>
                                         <td style={{ padding: '8px 16px' }}>
@@ -693,10 +749,9 @@ export const CrawlerPage = () => {
                                                 onClick={() => handleToggleTarget(t.id)}
                                                 title={t.is_active ? "클릭하여 비활성화" : "클릭하여 활성화"}
                                                 style={{
-                                                    padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                                                    fontFamily: '"SUIT",sans-serif', border: 'none',
-                                                    background: t.is_active ? '#ecfdf5' : '#f3f4f6',
-                                                    color: t.is_active ? '#059669' : '#9ca3af',
+                                                    padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                                                    background: t.is_active ? '#f0fdf4' : '#f1f5f9',
+                                                    color: t.is_active ? '#16a34a' : '#94a3b8',
                                                 }}
                                             >
                                                 {t.is_active ? 'ON' : 'OFF'}
@@ -705,27 +760,27 @@ export const CrawlerPage = () => {
                                         <td style={{ padding: '8px 12px' }}>
                                             <span style={{
                                                 display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' as const,
-                                                background: t.movie_type === 'main' ? '#fef3c7' : '#ecfdf5',
-                                                color: t.movie_type === 'main' ? '#b45309' : '#059669',
+                                                background: t.movie_type === 'main' ? '#fffbeb' : '#f0fdf4',
+                                                color: t.movie_type === 'main' ? '#b45309' : '#16a34a',
                                             }}>
                                                 {t.movie_type === 'main' ? '주요작' : '경쟁작'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '8px 12px', fontWeight: 500, color: t.is_active ? '#111827' : '#9ca3af' }}>
+                                        <td style={{ padding: '8px 12px', fontWeight: 500, color: t.is_active ? '#0f172a' : '#94a3b8' }}>
                                             {t.title}
                                         </td>
-                                        <td style={{ padding: '8px 12px', color: '#6b7280', fontSize: 12, fontFamily: 'monospace' }}>
+                                        <td style={{ padding: '8px 12px', color: '#64748b', fontSize: 12, fontFamily: 'monospace' }}>
                                             {t.clean_title}
                                         </td>
-                                        <td style={{ padding: '8px 12px', color: '#9ca3af', fontSize: 11 }}>
+                                        <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 11 }}>
                                             {t.created_at}
                                         </td>
                                         <td style={{ padding: '8px 12px' }}>
                                             <button
                                                 onClick={() => handleDeleteTarget(t.id, t.title)}
-                                                style={{ padding: '3px 8px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#6b7280', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontFamily: '"SUIT",sans-serif', whiteSpace: 'nowrap' }}
-                                                onMouseOver={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#fca5a5'; }}
-                                                onMouseOut={(e) => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
+                                                style={{ padding: '3px 8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', borderRadius: 4, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                                onMouseOver={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.borderColor = '#fecaca'; }}
+                                                onMouseOut={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
                                             >
                                                 삭제
                                             </button>
@@ -738,11 +793,11 @@ export const CrawlerPage = () => {
                 )}
 
                 {/* 하단 안내 */}
-                <div style={{ padding: '10px 20px 14px', fontSize: 11, color: '#9ca3af', lineHeight: 1.6 }}>
+                <div style={{ padding: '10px 20px 14px', fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
                     입력 제목에서 특수문자/괄호/태그를 제거 후 크롤 데이터와 비교합니다.
-                    <code style={{ background: '#f3f4f6', padding: '1px 5px', borderRadius: 3, fontSize: 11, color: '#6b7280', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재</code> 입력 시
-                    <code style={{ background: '#f3f4f6', padding: '1px 5px', borderRadius: 3, fontSize: 11, color: '#6b7280', fontFamily: 'monospace', marginLeft: 4 }}>아바타- 불의재(3D)</code>,
-                    <code style={{ background: '#f3f4f6', padding: '1px 5px', borderRadius: 3, fontSize: 11, color: '#6b7280', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재 [IMAX]</code> 모두 매칭
+                    <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재</code> 입력 시
+                    <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타- 불의재(3D)</code>,
+                    <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재 [IMAX]</code> 모두 매칭
                 </div>
             </Card>
 
@@ -776,18 +831,18 @@ export const CrawlerPage = () => {
                 const totalFailures: number = summary?.total_failures ?? 0;
                 return (
                     <div
-                        style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(15, 23, 42, 0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         onClick={() => setFailureModalItem(null)}
                     >
                         <div
-                            style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+                            style={{ background: '#ffffff', borderRadius: 6, width: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(15, 23, 42, 0.2)' }}
                             onClick={(e) => e.stopPropagation()}
                         >
                             {/* 모달 헤더 */}
-                            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <WarningCircle size={18} weight="fill" color="#d97706" />
-                                    <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>
+                                    <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
                                         실패 상세 내역
                                     </span>
                                     <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
@@ -796,7 +851,7 @@ export const CrawlerPage = () => {
                                 </div>
                                 <button
                                     onClick={() => setFailureModalItem(null)}
-                                    style={{ background: 'none', border: 'none', fontSize: 18, color: '#9ca3af', cursor: 'pointer', padding: '4px 8px', lineHeight: 1 }}
+                                    style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', padding: '4px 8px', lineHeight: 1 }}
                                 >
                                     &times;
                                 </button>
@@ -805,25 +860,25 @@ export const CrawlerPage = () => {
                             {/* 모달 본문 */}
                             <div style={{ overflow: 'auto', flex: 1, padding: '0' }}>
                                 {failures.length === 0 ? (
-                                    <div style={{ padding: '40px 24px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                                    <div style={{ padding: '40px 24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                                         상세 실패 내역이 기록되지 않았습니다.
                                     </div>
                                 ) : (
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: '"SUIT",sans-serif' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                                         <thead>
-                                            <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 70 }}>극장사</th>
-                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 100 }}>극장</th>
-                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280', width: 100 }}>날짜</th>
-                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#6b7280' }}>실패 사유</th>
+                                            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', width: 70 }}>극장사</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', width: 100 }}>극장</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', width: 100 }}>날짜</th>
+                                                <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b' }}>실패 사유</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {failures.map((f, idx) => (
-                                                <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                                    <td style={{ padding: '8px 14px', fontWeight: 600, color: '#374151' }}>{f.brand || '-'}</td>
-                                                    <td style={{ padding: '8px 14px', color: '#4b5563' }}>{f.theater || '-'}</td>
-                                                    <td style={{ padding: '8px 14px', color: '#6b7280', fontFamily: 'monospace', fontSize: 11 }}>{f.date || '-'}</td>
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px 14px', fontWeight: 600, color: '#475569' }}>{f.brand || '-'}</td>
+                                                    <td style={{ padding: '8px 14px', color: '#475569' }}>{f.theater || '-'}</td>
+                                                    <td style={{ padding: '8px 14px', color: '#64748b', fontFamily: 'monospace', fontSize: 11 }}>{f.date || '-'}</td>
                                                     <td style={{ padding: '8px 14px', color: '#dc2626', fontSize: 11 }}>{f.reason || '-'}</td>
                                                 </tr>
                                             ))}
@@ -833,8 +888,8 @@ export const CrawlerPage = () => {
                             </div>
 
                             {/* 모달 푸터 */}
-                            <div style={{ padding: '14px 24px', borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f9fafb', borderRadius: '0 0 12px 12px' }}>
-                                <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                            <div style={{ padding: '14px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: '0 0 12px 12px' }}>
+                                <span style={{ fontSize: 11, color: '#94a3b8' }}>
                                     {totalFailures > failures.length
                                         ? `* 상위 ${failures.length}건만 표시됩니다. 전체 내역은 엑셀을 다운로드하세요.`
                                         : `총 ${failures.length}건`
@@ -842,19 +897,17 @@ export const CrawlerPage = () => {
                                 </span>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     {failureModalItem.excel_file_path && (
-                                        <button
-                                            onClick={() => { handleDownload(failureModalItem); }}
-                                            style={{ height: 32, padding: '0 14px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: '"SUIT",sans-serif' }}
+                                        <PrimaryBtn onClick={() => { handleDownload(failureModalItem); }}
+                                            
                                         >
                                             <DownloadSimple size={13} /> 엑셀 다운로드
-                                        </button>
+                                        </PrimaryBtn>
                                     )}
-                                    <button
-                                        onClick={() => setFailureModalItem(null)}
-                                        style={{ height: 32, padding: '0 14px', background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}
+                                    <GhostBtn onClick={() => setFailureModalItem(null)}
+                                        
                                     >
                                         닫기
-                                    </button>
+                                    </GhostBtn>
                                 </div>
                             </div>
                         </div>
@@ -873,16 +926,16 @@ export const CrawlerPage = () => {
             {/* ===== 수동 크롤링 모달 ===== */}
             {showCrawlModal && (
                 <div
-                    style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(15, 23, 42, 0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     onClick={() => setShowCrawlModal(false)}
                 >
                     <div
-                        style={{ background: '#fff', borderRadius: 12, width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
+                        style={{ background: '#ffffff', borderRadius: 6, width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)' }}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>수동 크롤링</span>
-                            <button onClick={() => setShowCrawlModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 18 }}>&times;</button>
+                            <button onClick={() => setShowCrawlModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 16 }}>&times;</button>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -890,10 +943,10 @@ export const CrawlerPage = () => {
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <input type="date" value={config.crawlStartDate} onChange={(e) => handleConfigChange('crawlStartDate', e.target.value)}
-                                        style={{ flex: 1, height: 36, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#334155', outline: 'none' }} />
+                                        style={{ flex: 1, height: 32, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }} />
                                     <span style={{ color: '#94a3b8', fontSize: 13 }}>~</span>
                                     <input type="date" value={config.crawlEndDate} onChange={(e) => handleConfigChange('crawlEndDate', e.target.value)}
-                                        style={{ flex: 1, height: 36, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', color: '#334155', outline: 'none' }} />
+                                        style={{ flex: 1, height: 32, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }} />
                                 </div>
                             </div>
 
@@ -910,14 +963,14 @@ export const CrawlerPage = () => {
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                             <button onClick={() => setShowCrawlModal(false)}
-                                style={{ height: 38, padding: '0 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: '"SUIT",sans-serif' }}>
+                                style={{ height: 32, padding: '0 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                                 취소
                             </button>
-                            <button onClick={handleRun}
-                                style={{ height: 38, padding: '0 20px', background: '#111827', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: '"SUIT",sans-serif' }}>
+                            <PrimaryBtn onClick={handleRun}
+                                >
                                 <Play size={14} weight="fill" />
                                 크롤링 시작
-                            </button>
+                            </PrimaryBtn>
                         </div>
                     </div>
                 </div>

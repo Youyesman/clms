@@ -19,17 +19,17 @@ const LabelRow = styled.div`
 `;
 
 const LabelText = styled.label`
-    color: var(--Gray-500);
+    color: #64748b;
     font-size: 14px;
     font-family: SUIT;
     font-weight: 700;
 `;
 const RequiredMark = styled.span`
-    color: var(--Red-600);
+    color: #dc2626;
 `;
 
 const ErrorMessage = styled.div`
-    color: var(--Red-600);
+    color: #dc2626;
     font-size: 13px;
     font-weight: 500;
     margin-left: 4px;
@@ -48,22 +48,22 @@ const InputWrapper = styled.div<{ $hasError?: boolean; $color?: string }>`
     height: 44px;
     display: flex;
     align-items: center;
-    background: var(--White-white);
-    border: 1px solid var(--Gray-300);
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
     border-radius: 4px;
     overflow: hidden;
 
     ${({ $hasError }) =>
         $hasError &&
         css`
-            border-color: var(--Red-600);
+            border-color: #dc2626;
         `}
 
     &:focus-within {
         ${({ $hasError, $color }) =>
             !$hasError &&
             css`
-                border-color: ${$color === "gray" ? "var(--Gray-800)" : "var(--FEG-Dark-50)"};
+                border-color: ${$color === "gray" ? "#1e293b" : "#2563eb"};
             `}
     }
 `;
@@ -74,7 +74,7 @@ const LeftBar = styled.div`
     top: 0;
     width: 4px;
     height: 100%;
-    background-color: var(--FEG-Dark-50);
+    background-color: #2563eb;
     border-radius: 4px 0 0 4px;
     z-index: 1;
 `;
@@ -91,7 +91,7 @@ const StyledInput = styled.input`
     padding-right: 36px;
 
     &::placeholder {
-        color: var(--Gray-400);
+        color: #94a3b8;
     }
 `;
 
@@ -101,17 +101,17 @@ const IconButton = styled.button`
     top: 50%;
     transform: translateY(-50%);
     width: 28px;
-    height: 28px;
+    height: 30px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border: 0;
     background: transparent;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 6px;
 
     &:focus-visible {
-        outline: 2px solid var(--FEG-Dark-50);
+        outline: 2px solid #2563eb;
         outline-offset: 2px;
     }
 `;
@@ -157,9 +157,9 @@ export function ZipCodeSearchInput({
     const resolveIconColor = (color?: string) => {
         if (!color) return undefined;
         const lower = color.toLowerCase();
-        if (lower === "gray") return "var(--Gray-800)";
-        if (lower === "dark") return "var(--FEG-Dark-50)";
-        if (lower === "light") return "var(--Gray-400)";
+        if (lower === "gray") return "#1e293b";
+        if (lower === "dark") return "#2563eb";
+        if (lower === "light") return "#94a3b8";
         return color;
     };
 

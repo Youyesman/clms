@@ -8,6 +8,9 @@ import {
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
+import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
+import { CustomInput } from "../../../../components/common/CustomInput";
+import { CustomSelect } from "../../../../components/common/CustomSelect";
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -83,64 +86,13 @@ const PageWrapper = styled.div`
     gap: 16px;
 `;
 
-const FilterCard = styled.div`
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-`;
 
-const FilterRow = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: flex-end;
-`;
 
-const FieldBox = styled.div<{ $error?: boolean }>`
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    position: relative; /* 에러 문구 absolute 배치 기준 */
-    label {
-        font-size: 11px;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-    select, input {
-        height: 34px;
-        padding: 0 10px;
-        border: 1.5px solid ${p => p.$error ? "#ef4444" : "#e2e8f0"};
-        border-radius: 6px;
-        font-size: 13px;
-        color: #1e293b;
-        background: white;
-        outline: none;
-        &:focus { border-color: ${p => p.$error ? "#ef4444" : "#3b82f6"}; }
-        &:disabled { background: #f8fafc; color: #94a3b8; cursor: default; }
-    }
-    .err-msg {
-        /* 레이아웃 공간을 차지하지 않게 입력칸 아래에 겹쳐 표시 — 입력칸 밀림 방지 */
-        position: absolute;
-        top: 100%;
-        left: 2px;
-        margin-top: 2px;
-        font-size: 11px;
-        color: #ef4444;
-        font-weight: 500;
-        white-space: nowrap;
-    }
-`;
 
 const SearchBtn = styled.button`
-    height: 34px;
+    height: 30px;
     padding: 0 20px;
-    background: #3b82f6;
+    background: #2563eb;
     color: white;
     border: none;
     border-radius: 6px;
@@ -155,7 +107,7 @@ const SearchBtn = styled.button`
 const SectionCard = styled.div`
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    border-radius: 6px;
     overflow: hidden;
 `;
 
@@ -190,7 +142,7 @@ const Tbl = styled.table`
     th {
         background: #f1f5f9;
         font-weight: 700;
-        color: #334155;
+        color: #475569;
         position: sticky;
         top: 0;
         z-index: 1;
@@ -198,8 +150,8 @@ const Tbl = styled.table`
     td { color: #475569; }
     tbody tr:hover td { background: #f8fafc; }
     .total-row td {
-        background: #dbeafe !important;
-        color: #1e40af !important;
+        background: #bfdbfe !important;
+        color: #1d4ed8 !important;
         font-weight: 700;
         font-size: 12.5px;
     }
@@ -227,14 +179,16 @@ const PopoverBox = styled.div<{ $x: number; $y: number }>`
     pointer-events: none;
     z-index: 9999;
     white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 `;
 
 const EmptyMsg = styled.div`
     text-align: center;
-    padding: 40px;
+    padding: 28px 16px;
     color: #94a3b8;
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.6;
 `;
 
 const SLOT_NAMES: (keyof SlotRow)[] = ["조조", "오전", "오후", "저녁", "심야"];
@@ -431,11 +385,11 @@ export function TimeTablePage() {
                     <thead>
                         <tr>
                             <th>계열사</th>
-                            <th>조조<br /><span style={{ fontWeight: 400, fontSize: 10 }}>05:00~10:00</span></th>
-                            <th>오전<br /><span style={{ fontWeight: 400, fontSize: 10 }}>10:01~12:00</span></th>
-                            <th>오후<br /><span style={{ fontWeight: 400, fontSize: 10 }}>12:01~17:00</span></th>
-                            <th>저녁<br /><span style={{ fontWeight: 400, fontSize: 10 }}>17:01~21:00</span></th>
-                            <th>심야<br /><span style={{ fontWeight: 400, fontSize: 10 }}>21:01~23:59</span></th>
+                            <th>조조<br /><span style={{ fontWeight: 400, fontSize: 11 }}>05:00~10:00</span></th>
+                            <th>오전<br /><span style={{ fontWeight: 400, fontSize: 11 }}>10:01~12:00</span></th>
+                            <th>오후<br /><span style={{ fontWeight: 400, fontSize: 11 }}>12:01~17:00</span></th>
+                            <th>저녁<br /><span style={{ fontWeight: 400, fontSize: 11 }}>17:01~21:00</span></th>
+                            <th>심야<br /><span style={{ fontWeight: 400, fontSize: 11 }}>21:01~23:59</span></th>
                             {"total" in (rows[0] ?? {}) ? <th>상영회차</th> : null}
                         </tr>
                     </thead>
@@ -475,109 +429,77 @@ export function TimeTablePage() {
             <PageNavTabs tabs={TIME_TABLE_TABS} />
 
             {/* ── 필터 ── */}
-            <FilterCard>
-                <FilterRow>
-                    {/* 연도 */}
-                    <FieldBox>
-                        <label>연도</label>
-                        <select value={year} onChange={e => setYear(e.target.value)} style={{ width: 90 }}>
-                            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-                        </select>
-                    </FieldBox>
-
-                    {/* 영화 선택 */}
-                    <FieldBox $error={fieldErrors.movie}>
-                        <label>영화 선택 *</label>
-                        <select
-                            value={movieId}
-                            onChange={e => handleMovieChange(e.target.value)}
-                            style={{ width: 280 }}
-                        >
-                            <option value="">-- 영화를 선택하세요 --</option>
-                            {moviesList.map(m => (
-                                <option key={m.id} value={m.id.toString()}>{m.title_ko}</option>
-                            ))}
-                        </select>
-                        {fieldErrors.movie && <span className="err-msg">필수 입력값입니다</span>}
-                    </FieldBox>
-
-                    {/* 개봉일 */}
-                    <FieldBox>
-                        <label>개봉일</label>
-                        <input
-                            type="text"
-                            readOnly
-                            value={selectedMovie?.release_date ?? "-"}
-                            style={{ width: 110, background: "#f8fafc", color: "#64748b" }}
-                        />
-                    </FieldBox>
-
-                    {/* 배급사명 */}
-                    <FieldBox>
-                        <label>배급사명</label>
-                        <input
-                            type="text"
-                            readOnly
-                            value={selectedMovie?.distributor_name ?? "-"}
-                            style={{ width: 180, background: "#f8fafc", color: "#64748b" }}
-                        />
-                    </FieldBox>
-
-                    {/* 날짜 From */}
-                    <FieldBox $error={fieldErrors.dateFrom}>
-                        <label>날짜 From *</label>
-                        <input
-                            type="date"
-                            value={dateFrom}
-                            min={minDate || undefined}
-                            max={maxDate || undefined}
-                            onChange={e => { setDateFrom(e.target.value); setFieldErrors(ev => ({ ...ev, dateFrom: false })); }}
-                            style={{ width: 140 }}
-                            disabled={!movieId}
-                        />
-                        {fieldErrors.dateFrom && <span className="err-msg">필수 입력값입니다</span>}
-                    </FieldBox>
-
-                    {/* 날짜 To */}
-                    <FieldBox $error={fieldErrors.dateTo}>
-                        <label>날짜 To *</label>
-                        <input
-                            type="date"
-                            value={dateTo}
-                            min={dateFrom || minDate || undefined}
-                            max={maxDate || undefined}
-                            onChange={e => { setDateTo(e.target.value); setFieldErrors(ev => ({ ...ev, dateTo: false })); }}
-                            style={{ width: 140 }}
-                            disabled={!movieId}
-                        />
-                        {fieldErrors.dateTo && <span className="err-msg">필수 입력값입니다</span>}
-                    </FieldBox>
-
-                    {/* 검색 버튼 */}
+            <CommonFilterBar
+                actions={
                     <SearchBtn onClick={handleSearch} disabled={loading}>
-                        {loading ? "검색 중..." : "검색"}
+                        {loading ? "조회 중…" : "검색"}
                     </SearchBtn>
-                </FilterRow>
-
-                {/* 가능 날짜 힌트 */}
-                {availableDates.length > 0 && (
-                    <div style={{ fontSize: 11, color: "#64748b" }}>
-                        데이터 범위: {availableDates[0]} ~ {availableDates[availableDates.length - 1]}
-                        &nbsp;({availableDates.length}일)
-                    </div>
-                )}
-                {movieId && availableDates.length === 0 && !loading && (
-                    <div style={{ fontSize: 11, color: "#f59e0b" }}>
-                        크롤링된 시간표 데이터가 없습니다.
-                    </div>
-                )}
-            </FilterCard>
+                }>
+                <CustomSelect
+                    label="연도"
+                    options={yearOptions}
+                    value={year}
+                    onChange={setYear}
+                    allowClear={false}
+                />
+                <CustomSelect
+                    label="영화 선택"
+                    required
+                    options={moviesList.map((mv) => ({ label: mv.title_ko, value: mv.id.toString() }))}
+                    value={movieId}
+                    onChange={handleMovieChange}
+                    hasError={fieldErrors.movie}
+                    allowClear={false}
+                />
+                <CustomInput
+                    label="개봉일"
+                    value={selectedMovie?.release_date ?? "-"}
+                    setValue={() => {}}
+                    readOnly
+                    disabled
+                />
+                <CustomInput
+                    label="배급사명"
+                    value={selectedMovie?.distributor_name ?? "-"}
+                    setValue={() => {}}
+                    readOnly
+                    disabled
+                />
+                <CustomInput
+                    label="날짜 From"
+                    required
+                    inputType="date"
+                    value={dateFrom}
+                    setValue={(v) => {
+                        setDateFrom(v);
+                        setFieldErrors((ev) => ({ ...ev, dateFrom: false }));
+                    }}
+                    min={minDate || undefined}
+                    max={maxDate || undefined}
+                    disabled={!movieId}
+                    hasError={fieldErrors.dateFrom}
+                />
+                <CustomInput
+                    label="날짜 To"
+                    required
+                    inputType="date"
+                    value={dateTo}
+                    setValue={(v) => {
+                        setDateTo(v);
+                        setFieldErrors((ev) => ({ ...ev, dateTo: false }));
+                    }}
+                    min={dateFrom || minDate || undefined}
+                    max={maxDate || undefined}
+                    disabled={!movieId}
+                    hasError={fieldErrors.dateTo}
+                />
+            </CommonFilterBar>
 
             {/* ── 검색 결과 ── */}
             {data && (
                 <>
                     {/* 영화 제목 + 개봉일 표시 */}
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b" }}>
                         {data.meta.movie_title}
                         {data.meta.release_date && (
                             <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 10 }}>
@@ -660,9 +582,9 @@ export function TimeTablePage() {
                                         <Line
                                             type="monotone"
                                             dataKey="total_seats"
-                                            stroke="#3b82f6"
+                                            stroke="#2563eb"
                                             strokeWidth={2}
-                                            dot={{ r: 3, fill: "#3b82f6" }}
+                                            dot={{ r: 3, fill: "#2563eb" }}
                                             activeDot={{ r: 5 }}
                                         />
                                     </LineChart>

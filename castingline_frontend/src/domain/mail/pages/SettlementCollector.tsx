@@ -49,6 +49,8 @@ import {
     IScanResult,
     IMonthSummary,
 } from "../settlementApi";
+import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { CustomInput } from "../../../components/common/CustomInput";
 
 type SubTab = "mailbox" | "browse" | "targets";
 
@@ -441,50 +443,31 @@ const MailboxTab = ({
     return (
         <div>
             {/* 컨트롤 바 */}
-            <Controls>
-                <Field>
-                    <label>메일함</label>
-                    <FolderFixed>
-                        {folders.find((f) => f.name === folder)?.display ||
-                            "*부금계산서*/위탁,기타"}
-                    </FolderFixed>
-                </Field>
-                <Field>
-                    <label>시작일</label>
-                    <input
-                        type="date"
-                        value={since}
-                        onChange={(e) => setSince(e.target.value)}
-                    />
-                </Field>
-                <Field>
-                    <label>종료일</label>
-                    <input
-                        type="date"
-                        value={until}
-                        onChange={(e) => setUntil(e.target.value)}
-                    />
-                </Field>
-                <Field>
-                    <label>저장 월(비우면 수신월)</label>
-                    <input
-                        type="month"
-                        value={month}
-                        onChange={(e) => setMonth(e.target.value)}
-                    />
-                </Field>
-                <PrimaryBtn onClick={runScanNow} disabled={scanning}>
-                    {scanning ? (
-                        <>
-                            <ArrowClockwise className="spin" /> 수집 중…
-                        </>
-                    ) : (
-                        <>
-                            <MagnifyingGlass /> 지금 수집
-                        </>
-                    )}
-                </PrimaryBtn>
-            </Controls>
+            <CommonFilterBar
+                actions={
+                    <PrimaryBtn onClick={runScanNow} disabled={scanning}>
+                        {scanning ? (
+                            <>
+                                <ArrowClockwise className="spin" /> 수집 중…
+                            </>
+                        ) : (
+                            <>
+                                <MagnifyingGlass /> 지금 수집
+                            </>
+                        )}
+                    </PrimaryBtn>
+                }>
+                {/* 메일함은 고정값이라 입력이 아닌 표시용 칩 */}
+                <ReadonlyChip>
+                    <span className="label">메일함</span>
+                    <span className="value">
+                        {folders.find((f) => f.name === folder)?.display || "*부금계산서*/위탁,기타"}
+                    </span>
+                </ReadonlyChip>
+                <CustomInput label="시작일" inputType="date" value={since} setValue={setSince} />
+                <CustomInput label="종료일" inputType="date" value={until} setValue={setUntil} />
+                <CustomInput label="저장 월(비우면 수신월)" inputType="month" value={month} setValue={setMonth} />
+            </CommonFilterBar>
 
             <StatusLine>
                 {lastScan && (
@@ -1637,60 +1620,42 @@ const TabBtn = styled.button<{ $active: boolean }>`
     margin-bottom: -1px;
 `;
 const Panel = styled.div``;
-const Controls = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 10px;
-    margin-bottom: 8px;
-`;
-const Field = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    label {
-        font-size: 11.5px;
-        font-weight: 600;
-        color: #475569;
-    }
-    select,
-    input {
-        height: 34px;
-        border: 1px solid #cbd5e1;
-        border-radius: 7px;
-        padding: 0 9px;
-        font-size: 13px;
-        font-family: inherit;
-        background: #fff;
-        &:focus {
-            outline: none;
-            border-color: #2563eb;
-        }
-    }
-`;
-const FolderFixed = styled.div`
+/* 값이 고정된 항목을 필터 칩과 같은 모양으로 보여줍니다 (입력은 불가) */
+const ReadonlyChip = styled.div`
     display: inline-flex;
     align-items: center;
-    height: 34px;
-    padding: 0 12px;
+    height: 30px;
+    padding: 0 10px;
     border: 1px solid #e2e8f0;
-    border-radius: 7px;
+    border-radius: 6px;
     background: #f8fafc;
-    color: #0f172a;
-    font-size: 13px;
-    font-weight: 700;
     white-space: nowrap;
+
+    .label {
+        font-size: 12.5px;
+        line-height: 20px;
+        color: #64748b;
+        padding-right: 8px;
+        border-right: 1px solid #e2e8f0;
+    }
+    .value {
+        font-size: 12.5px;
+        line-height: 20px;
+        font-weight: 600;
+        color: #0f172a;
+        padding-left: 8px;
+    }
 `;
 const PrimaryBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 34px;
+    height: 32px;
     padding: 0 14px;
     border: 1px solid #2563eb;
     background: #2563eb;
-    color: #fff;
-    border-radius: 7px;
+    color: #ffffff;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 700;
     font-family: inherit;
@@ -1743,9 +1708,9 @@ const ListPane = styled.div`
     display: flex;
     flex-direction: column;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
-    background: #fff;
+    background: #ffffff;
 `;
 const ListHeader = styled.div`
     display: flex;
@@ -1767,10 +1732,10 @@ const FilterChips = styled.div`
 `;
 const Chip = styled.button<{ $active: boolean }>`
     border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#fff")};
+    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
     color: ${({ $active }) => ($active ? "#2563eb" : "#64748b")};
     font-weight: ${({ $active }) => ($active ? 700 : 500)};
-    font-size: 11.5px;
+    font-size: 12px;
     font-family: inherit;
     border-radius: 999px;
     padding: 3px 10px;
@@ -1783,7 +1748,7 @@ const RefreshMini = styled.button`
     width: 26px;
     height: 26px;
     border: 1px solid #cbd5e1;
-    background: #fff;
+    background: #ffffff;
     border-radius: 6px;
     color: #475569;
     cursor: pointer;
@@ -1811,12 +1776,12 @@ const CollectedDivider = styled.div`
     font-weight: 700;
     color: #16a34a;
     background: #f0fdf4;
-    border-bottom: 1px solid #bbf7d0;
+    border-bottom: 1px solid #dcfce7;
     &::before,
     &::after {
         content: "";
         flex: 1;
-        border-top: 1px dashed #86efac;
+        border-top: 1px dashed #dcfce7;
     }
 `;
 
@@ -1824,7 +1789,7 @@ const MailRow = styled.div<{ $active: boolean }>`
     padding: 9px 12px;
     border-bottom: 1px solid #f1f5f9;
     cursor: pointer;
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#fff")};
+    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
     &:hover {
         background: ${({ $active }) => ($active ? "#eff6ff" : "#f8fafc")};
     }
@@ -1847,7 +1812,7 @@ const MailRow = styled.div<{ $active: boolean }>`
         justify-content: space-between;
         gap: 8px;
         margin-top: 3px;
-        font-size: 11.5px;
+        font-size: 12.5px;
         color: #94a3b8;
     }
     .from {
@@ -1886,7 +1851,7 @@ const Pager = styled.div`
         width: 28px;
         height: 28px;
         border: 1px solid #cbd5e1;
-        background: #fff;
+        background: #ffffff;
         border-radius: 6px;
         cursor: pointer;
         &:disabled {
@@ -1904,9 +1869,9 @@ const DetailPane = styled.div`
     display: flex;
     flex-direction: column;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
-    background: #fff;
+    background: #ffffff;
     .placeholder {
         flex: 1;
         display: flex;
@@ -1957,13 +1922,13 @@ const AttachRow = styled.div`
     .fn {
         flex: 1;
         font-size: 12.5px;
-        color: #334155;
+        color: #475569;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
     .sz {
-        font-size: 11.5px;
+        font-size: 12.5px;
         color: #94a3b8;
     }
     .ctag {
@@ -1992,7 +1957,7 @@ const BodyFrame = styled.iframe`
     flex: 1;
     width: 100%;
     border: 0;
-    background: #fff;
+    background: #ffffff;
 `;
 const SearchRow = styled.div`
     display: flex;
@@ -2003,7 +1968,7 @@ const SearchRow = styled.div`
         max-width: 360px;
         height: 36px;
         border: 1px solid #cbd5e1;
-        border-radius: 7px;
+        border-radius: 6px;
         padding: 0 12px;
         font-size: 13px;
         font-family: inherit;
@@ -2017,9 +1982,9 @@ const SearchResults = styled.ul`
     list-style: none;
     margin: 0 0 16px;
     padding: 6px;
-    border: 1px solid #dbeafe;
+    border: 1px solid #bfdbfe;
     background: #eff6ff;
-    border-radius: 10px;
+    border-radius: 8px;
     max-height: 280px;
     overflow: auto;
     li {
@@ -2027,15 +1992,15 @@ const SearchResults = styled.ul`
         align-items: center;
         gap: 10px;
         padding: 7px 8px;
-        border-radius: 7px;
+        border-radius: 6px;
         &:hover {
-            background: #dbeafe;
+            background: #bfdbfe;
         }
     }
     .t {
         font-weight: 600;
         color: #0f172a;
-        font-size: 13.5px;
+        font-size: 13px;
     }
     .sub {
         flex: 1;
@@ -2046,9 +2011,9 @@ const SearchResults = styled.ul`
 const Table = styled.table`
     width: 100%;
     border-collapse: collapse;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
     font-size: 13px;
     thead th {
@@ -2062,7 +2027,7 @@ const Table = styled.table`
     tbody td {
         padding: 8px 12px;
         border-bottom: 1px solid #f1f5f9;
-        color: #334155;
+        color: #475569;
         vertical-align: middle;
     }
     tbody td.center {
@@ -2084,7 +2049,7 @@ const Table = styled.table`
         color: #0f172a;
     }
     .sub {
-        font-size: 11.5px;
+        font-size: 12.5px;
         color: #94a3b8;
         margin-top: 2px;
     }
@@ -2161,7 +2126,7 @@ const Toggle = styled.button<{ $on: boolean }>`
         width: 16px;
         height: 16px;
         border-radius: 50%;
-        background: #fff;
+        background: #f8fafc;
         transition: left 0.15s;
     }
 `;
@@ -2177,7 +2142,7 @@ const IconBtn = styled.button<{ $variant?: "del" | "ok" }>`
     justify-content: center;
     width: 30px;
     height: 30px;
-    border-radius: 7px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
     border: 1px solid
@@ -2187,9 +2152,9 @@ const IconBtn = styled.button<{ $variant?: "del" | "ok" }>`
                 : $variant === "ok"
                 ? "#16a34a"
                 : "#cbd5e1"};
-    background: ${({ $variant }) => ($variant === "ok" ? "#16a34a" : "#fff")};
+    background: ${({ $variant }) => ($variant === "ok" ? "#16a34a" : "#ffffff")};
     color: ${({ $variant }) =>
-        $variant === "del" ? "#dc2626" : $variant === "ok" ? "#fff" : "#334155"};
+        $variant === "del" ? "#dc2626" : $variant === "ok" ? "#ffffff" : "#475569"};
     &:hover {
         background: ${({ $variant }) =>
             $variant === "del"
@@ -2206,14 +2171,14 @@ const SourceBtn = styled.button`
     width: 30px;
     height: 30px;
     padding: 0;
-    border: 1px solid #c7d2fe;
-    background: #eef2ff;
-    color: #4338ca;
-    border-radius: 7px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #2563eb;
+    border-radius: 6px;
     font-size: 13px;
     cursor: pointer;
     &:hover {
-        background: #e0e7ff;
+        background: #eff6ff;
     }
 `;
 const AddBtn = styled.button`
@@ -2224,8 +2189,8 @@ const AddBtn = styled.button`
     padding: 0 12px;
     border: 1px solid #16a34a;
     background: #16a34a;
-    color: #fff;
-    border-radius: 7px;
+    color: #ffffff;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 700;
     font-family: inherit;
@@ -2238,7 +2203,7 @@ const CollectBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    height: 24px;
+    height: 26px;
     padding: 0 8px;
     border: 1px solid #16a34a;
     background: #f0fdf4;
@@ -2256,7 +2221,7 @@ const ModalOverlay = styled.div`
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(15, 23, 42, 0.45);
+    background: rgba(15, 23, 42, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2266,10 +2231,10 @@ const ModalCard = styled.div`
     max-width: 92vw;
     max-height: 86vh;
     overflow: auto;
-    background: #fff;
-    border-radius: 12px;
+    background: #ffffff;
+    border-radius: 6px;
     padding: 20px 22px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
     h3 {
         margin: 0 0 12px;
         font-size: 16px;
@@ -2280,10 +2245,10 @@ const ModalCard = styled.div`
         align-items: center;
         gap: 6px;
         font-size: 13px;
-        color: #334155;
+        color: #475569;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        border-radius: 6px;
         padding: 8px 10px;
         margin-bottom: 14px;
         word-break: break-all;
@@ -2303,8 +2268,8 @@ const ModalCard = styled.div`
     }
     .quick button {
         border: 1px solid #cbd5e1;
-        background: #fff;
-        color: #334155;
+        background: #ffffff;
+        color: #475569;
         border-radius: 999px;
         padding: 4px 12px;
         font-size: 12.5px;
@@ -2325,7 +2290,7 @@ const ModalCard = styled.div`
         flex: 1;
         height: 34px;
         border: 1px solid #cbd5e1;
-        border-radius: 7px;
+        border-radius: 6px;
         padding: 0 10px;
         font-size: 13px;
         font-family: inherit;
@@ -2341,9 +2306,9 @@ const ModalCard = styled.div`
         height: 34px;
         padding: 0 12px;
         border: 1px solid #cbd5e1;
-        background: #fff;
+        background: #ffffff;
         color: #475569;
-        border-radius: 7px;
+        border-radius: 6px;
         font-size: 12.5px;
         font-weight: 600;
         font-family: inherit;
@@ -2366,8 +2331,8 @@ const ModalCard = styled.div`
         justify-content: space-between;
         gap: 8px;
         border: 1px solid #e2e8f0;
-        background: #fff;
-        border-radius: 7px;
+        background: #ffffff;
+        border-radius: 6px;
         padding: 7px 10px;
         font-size: 13px;
         font-family: inherit;
@@ -2379,7 +2344,7 @@ const ModalCard = styled.div`
         }
         em {
             font-style: normal;
-            font-size: 11.5px;
+            font-size: 12.5px;
             color: #94a3b8;
         }
     }
@@ -2411,7 +2376,7 @@ const ModalCard = styled.div`
         width: 180px;
         height: 34px;
         border: 1px solid #cbd5e1;
-        border-radius: 7px;
+        border-radius: 6px;
         padding: 0 10px;
         font-size: 13px;
         font-family: inherit;
@@ -2429,7 +2394,7 @@ const ModalCard = styled.div`
     .actions button {
         height: 36px;
         padding: 0 18px;
-        border-radius: 8px;
+        border-radius: 6px;
         font-size: 13px;
         font-weight: 700;
         font-family: inherit;
@@ -2437,13 +2402,13 @@ const ModalCard = styled.div`
     }
     .actions .cancel {
         border: 1px solid #cbd5e1;
-        background: #fff;
+        background: #ffffff;
         color: #475569;
     }
     .actions .save {
         border: 1px solid #2563eb;
         background: #2563eb;
-        color: #fff;
+        color: #ffffff;
         &:disabled {
             opacity: 0.5;
             cursor: default;
@@ -2465,7 +2430,7 @@ const MonthSide = styled.div`
     width: 160px;
     flex-shrink: 0;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 8px;
     .head {
         font-size: 12px;
@@ -2486,12 +2451,12 @@ const MonthItem = styled.button<{ $active: boolean }>`
     width: 100%;
     border: 0;
     background: ${({ $active }) => ($active ? "#eff6ff" : "transparent")};
-    color: ${({ $active }) => ($active ? "#2563eb" : "#334155")};
+    color: ${({ $active }) => ($active ? "#2563eb" : "#475569")};
     font-weight: ${({ $active }) => ($active ? 700 : 500)};
     font-family: inherit;
     font-size: 13px;
     padding: 8px 10px;
-    border-radius: 7px;
+    border-radius: 6px;
     cursor: pointer;
     &:hover {
         background: #f1f5f9;
@@ -2501,7 +2466,7 @@ const MonthItem = styled.button<{ $active: boolean }>`
         font-size: 11px;
         color: #94a3b8;
         background: #f1f5f9;
-        border-radius: 10px;
+        border-radius: 6px;
         padding: 1px 7px;
     }
 `;
@@ -2514,8 +2479,8 @@ const RefreshBtn = styled.button`
     margin-top: 8px;
     height: 32px;
     border: 1px solid #cbd5e1;
-    background: #fff;
-    border-radius: 7px;
+    background: #ffffff;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
     color: #475569;
@@ -2564,7 +2529,7 @@ const GroupToggle = styled.button`
     margin-left: -2px;
     background: none;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     font: inherit;
     color: inherit;
     cursor: pointer;
@@ -2608,7 +2573,7 @@ const CollapseAllBtn = styled.button`
     gap: 5px;
     height: 26px;
     padding: 0 10px;
-    background: #fff;
+    background: #ffffff;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     font-size: 12px;
@@ -2627,7 +2592,7 @@ const BulkBar = styled.div`
     gap: 10px;
     padding: 8px 12px;
     margin-bottom: 12px;
-    background: #fff7ed;
+    background: #fffbeb;
     border: 1px solid #fdba74;
     border-radius: 8px;
     font-size: 13px;
@@ -2640,19 +2605,19 @@ const BulkDownBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 28px;
+    height: 30px;
     padding: 0 12px;
     border: 1px solid #2563eb;
     background: #eff6ff;
     color: #2563eb;
-    border-radius: 7px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     white-space: nowrap;
     &:hover {
-        background: #dbeafe;
+        background: #bfdbfe;
     }
     &:disabled {
         opacity: 0.7;
@@ -2663,28 +2628,28 @@ const BulkDelBtn = styled.button`
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 28px;
+    height: 30px;
     padding: 0 12px;
     border: 1px solid #dc2626;
     background: #fef2f2;
     color: #dc2626;
-    border-radius: 7px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     white-space: nowrap;
     &:hover {
-        background: #fee2e2;
+        background: #fecaca;
     }
 `;
 const BulkClearBtn = styled.button`
-    height: 28px;
+    height: 30px;
     padding: 0 10px;
     border: 1px solid #cbd5e1;
-    background: #fff;
+    background: #ffffff;
     color: #64748b;
-    border-radius: 7px;
+    border-radius: 6px;
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -2699,9 +2664,9 @@ const MailModalCard = styled.div`
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+    background: #ffffff;
+    border-radius: 6px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
     .mhead {
         display: flex;
         align-items: flex-start;
@@ -2715,7 +2680,7 @@ const MailModalCard = styled.div`
         min-width: 0;
     }
     .subject {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 700;
         color: #0f172a;
         white-space: nowrap;
@@ -2745,23 +2710,23 @@ const MailModalCard = styled.div`
         border: 1px solid #2563eb;
         background: #eff6ff;
         color: #2563eb;
-        border-radius: 7px;
+        border-radius: 6px;
         font-size: 12px;
         font-weight: 700;
         font-family: inherit;
         cursor: pointer;
         white-space: nowrap;
         &:hover {
-            background: #dbeafe;
+            background: #bfdbfe;
         }
     }
     .mactions .close {
         width: 30px;
         height: 30px;
         border: 1px solid #cbd5e1;
-        background: #fff;
+        background: #ffffff;
         color: #64748b;
-        border-radius: 7px;
+        border-radius: 6px;
         font-size: 13px;
         cursor: pointer;
         &:hover {
@@ -2780,8 +2745,8 @@ const MailModalCard = styled.div`
         align-items: center;
         gap: 5px;
         border: 1px solid #cbd5e1;
-        background: #fff;
-        color: #334155;
+        background: #ffffff;
+        color: #475569;
         border-radius: 999px;
         padding: 4px 12px;
         font-size: 12px;
@@ -2812,7 +2777,7 @@ const PreviewFrame = styled.iframe`
     flex: 1;
     width: 100%;
     border: 0;
-    background: #fff;
+    background: #ffffff;
 `;
 const ZipBtn = styled.button`
     display: inline-flex;
@@ -2823,14 +2788,14 @@ const ZipBtn = styled.button`
     border: 1px solid #2563eb;
     background: #eff6ff;
     color: #2563eb;
-    border-radius: 7px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
     white-space: nowrap;
     &:hover {
-        background: #dbeafe;
+        background: #bfdbfe;
     }
     &:disabled {
         opacity: 0.7;

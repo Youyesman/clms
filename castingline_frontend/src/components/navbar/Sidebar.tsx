@@ -5,8 +5,9 @@ import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, MapPin, Receipt,
     SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table,
-    CurrencyDollar, EnvelopeSimple,
+    CurrencyDollar, EnvelopeSimple, Ticket, Popcorn, ChartLineUp,
 } from "@phosphor-icons/react";
+import { ui } from "../../styles/uiTokens";
 import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
 import { AccountState } from "../../atom/AccountState";
 import { AxiosGet } from "../../axios/Axios";
@@ -52,9 +53,10 @@ const MENU: NavMenuGroup[] = [
             { path: "/manage/manage_theater_map", label: "극장명 매핑", icon: <MapPin /> },
             { path: "/manage/crawler", label: "크롤러 관리", icon: <Bug /> },
             { path: "/manage/crawler/schedules", label: "시간표 수집", icon: <Table /> },
-            { path: "/manage/crawler/megabox_score", label: "메가박스 스코어", icon: <FilmSlate /> },
-            { path: "/manage/crawler/cineq_score", label: "씨네큐 스코어", icon: <FilmSlate /> },
-            { path: "/manage/crawler/kobis_score", label: "KOBIS 상세내역", icon: <FilmSlate /> },
+            /* 아이콘이 겹치면 접힌 상태에서 구분이 안 되므로 항목마다 다른 아이콘 사용 */
+            { path: "/manage/crawler/megabox_score", label: "메가박스 스코어", icon: <Popcorn /> },
+            { path: "/manage/crawler/cineq_score", label: "씨네큐 스코어", icon: <Ticket /> },
+            { path: "/manage/crawler/kobis_score", label: "KOBIS 상세내역", icon: <ChartLineUp /> },
             { path: "/manage/mailbox", label: "메일함", icon: <EnvelopeSimple /> },
             { path: "/manage/settlement_mail", label: "정산서 수집", icon: <Receipt /> },
         ],
@@ -97,10 +99,12 @@ const Wrapper = styled.aside<{ $open: boolean }>`
     z-index: 1001;
     display: flex;
     flex-direction: column;
-    background: #0f172a;
-    border-right: 1px solid #1e293b;
+    background: ${ui.color.shellBg};
+    border-right: 1px solid ${ui.color.shellBorder};
     overflow: hidden;
-    transition: width 0.2s ease;
+    transition: width 0.18s ease, box-shadow 0.18s ease;
+    /* 펼쳐질 때만 그림자 — 본문 위에 겹쳐 뜬다는 것이 보이도록 (본문은 밀리지 않음) */
+    box-shadow: ${({ $open }) => ($open ? ui.shadow.lg : "none")};
 `;
 
 /* ── 로고 ── */
@@ -134,22 +138,26 @@ const Nav = styled.nav`
     &::-webkit-scrollbar { width: 0; }
 `;
 
-const Group = styled.div`
-    & + & { margin-top: 4px; }
+const Group = styled.div<{ $open: boolean }>`
+    /* 접힌 상태에서는 그룹 제목이 사라져 메뉴가 한 덩어리로 보이므로 구분선으로 대체 */
+    & + & {
+        margin-top: ${({ $open }) => ($open ? "4px" : "8px")};
+        padding-top: ${({ $open }) => ($open ? "0" : "8px")};
+        border-top: ${({ $open }) => ($open ? "none" : `1px solid ${ui.color.shellBorder}`)};
+    }
 `;
 
 const GroupLabel = styled.div<{ $open: boolean }>`
-    padding: 8px 16px 4px;
-    font-size: 10px;
-    font-weight: 700;
-    color: #475569;
+    font-size: 11px;
+    font-weight: ${ui.font.weight.bold};
+    color: ${ui.color.shellTextMuted};
     letter-spacing: 0.5px;
     white-space: nowrap;
     overflow: hidden;
     height: ${({ $open }) => ($open ? "auto" : "0")};
-    padding: ${({ $open }) => ($open ? "8px 16px 4px" : "0")};
+    padding: ${({ $open }) => ($open ? "10px 16px 4px" : "0")};
     opacity: ${({ $open }) => ($open ? 1 : 0)};
-    transition: all 0.15s ease;
+    transition: opacity 0.15s ease;
 `;
 
 const Item = styled.div<{ $active: boolean; $open: boolean }>`
@@ -163,30 +171,32 @@ const Item = styled.div<{ $active: boolean; $open: boolean }>`
     cursor: pointer;
     transition: all 0.15s ease;
 
-    font-size: 12.5px;
-    font-weight: ${({ $active }) => ($active ? 700 : 500)};
-    color: ${({ $active }) => ($active ? "#e2e8f0" : "#94a3b8")};
-    background: ${({ $active }) => ($active ? "#1e293b" : "transparent")};
+    font-size: ${ui.font.size.md};
+    font-weight: ${({ $active }) => ($active ? ui.font.weight.semibold : ui.font.weight.regular)};
+    color: ${({ $active }) => ($active ? ui.color.shellTextActive : ui.color.shellText)};
+    background: ${({ $active }) => ($active ? ui.color.shellBgHover : "transparent")};
     white-space: nowrap;
 
-    ${({ $active }) => $active && "box-shadow: inset 3px 0 0 #3b82f6;"}
+    ${({ $active }) => $active && `box-shadow: inset 2px 0 0 ${ui.color.shellAccent};`}
 
     svg {
         width: 18px;
         height: 18px;
         flex-shrink: 0;
-        color: ${({ $active }) => ($active ? "#3b82f6" : "#64748b")};
+        color: ${({ $active }) => ($active ? ui.color.shellAccent : ui.color.shellText)};
         transition: color 0.15s ease;
     }
 
     .label {
         display: ${({ $open }) => ($open ? "inline" : "none")};
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     &:hover {
-        background: #1e293b;
-        color: #e2e8f0;
-        svg { color: #94a3b8; }
+        background: ${ui.color.shellBgHover};
+        color: ${ui.color.shellTextActive};
+        svg { color: ${ui.color.shellTextActive}; }
     }
 `;
 
@@ -216,7 +226,7 @@ const UserMeta = styled.div<{ $open: boolean }>`
         text-overflow: ellipsis;
     }
     .role {
-        font-size: 10px;
+        font-size: 11px;
         color: #64748b;
     }
 `;
@@ -229,8 +239,8 @@ const LogoutBtn = styled.button<{ $open: boolean }>`
     display: ${({ $open }) => ($open ? "flex" : "none")};
     align-items: center;
     padding: 4px;
-    border-radius: 4px;
-    &:hover { background: #334155; color: #ef4444; }
+    border-radius: 6px;
+    &:hover { background: #475569; color: #dc2626; }
 `;
 
 /* ================================================================
@@ -276,7 +286,7 @@ export function Sidebar() {
 
             <Nav>
                 {MENU.map((group) => (
-                    <Group key={group.title}>
+                    <Group key={group.title} $open={hovered}>
                         <GroupLabel $open={hovered}>{group.title}</GroupLabel>
                         {group.items.map((item) => (
                             <Item
@@ -295,7 +305,7 @@ export function Sidebar() {
             </Nav>
 
             <UserArea $open={hovered}>
-                <UserCircle size={26} weight="duotone" color="#3b82f6" style={{ flexShrink: 0 }} />
+                <UserCircle size={26} weight="duotone" color="#2563eb" style={{ flexShrink: 0 }} />
                 <UserMeta $open={hovered} onClick={() => handleNavClick("/manage/my_profile")}>
                     <div className="name">{nowAccount?.username || "Guest"}</div>
                     <div className="role">{nowAccount?.is_superuser ? "Admin" : "Staff"}</div>

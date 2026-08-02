@@ -41,14 +41,14 @@ const MemoFooter = styled.div`
     justify-content: space-between;
     padding: 6px 12px;
     border-top: 1px solid #f1f5f9;
-    font-size: 11.5px;
+    font-size: 12.5px;
     color: #94a3b8;
-    background: #fff;
+    background: #ffffff;
     min-height: 28px;
 `;
 
 const SaveStatus = styled.span<{ $saving: boolean }>`
-    color: ${({ $saving }) => ($saving ? "#2563eb" : "#10b981")};
+    color: ${({ $saving }) => ($saving ? "#2563eb" : "#16a34a")};
     font-weight: 600;
 `;
 

@@ -19,8 +19,30 @@ import { FadeIn } from "../../../components/common/MotionWrapper";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../../atom/TabState";
 import SharedMemo from "../components/SharedMemo";
 
+/* 카드 헤더에 붙는 조회 조건 — 필터 칩과 같은 규격 */
+const HeaderSelect = styled.select`
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 12.5px;
+    line-height: 20px;
+    cursor: pointer;
+    max-width: 300px;
+    transition: border-color 0.12s ease;
+
+    &:hover { border-color: #cbd5e1; }
+    &:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px #eff6ff;
+    }
+`;
+
 const DashboardContainer = styled.div`
-    padding: 24px;
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -58,9 +80,9 @@ const SummaryGrid = styled.div`
 const MetricCard = styled.div`
     background: white;
     padding: 24px;
-    border-radius: 12px;
+    border-radius: 6px;
     border: 1px solid #cbd5e1;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -73,7 +95,7 @@ const MetricCard = styled.div`
     .icon-box {
         width: 48px;
         height: 48px;
-        border-radius: 10px;
+        border-radius: 6px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -124,10 +146,10 @@ const LinkButton = styled.button`
     padding: 24px;
     background: white;
     border: 1px solid #cbd5e1;
-    border-radius: 12px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.05);
 
     &:hover {
         background: #f8fafc;
@@ -146,7 +168,7 @@ const LinkButton = styled.button`
     }
 
     span {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 700;
         color: #1e293b;
     }
@@ -286,7 +308,7 @@ export default function Main() {
         { key: "seat_count", label: "좌석수", renderCell: (v: number) => `${v.toLocaleString()}석` },
         { key: "show_count", label: "상영횟수", renderCell: (v: number) => `${v.toLocaleString()}회` },
         { key: "visitor", label: "관객수(일)", renderCell: (v: number) => `${v.toLocaleString()}명` },
-        { key: "efficiency", label: "점유율(효율)", renderCell: (v: number) => <span style={{ color: v >= 50 ? '#10b981' : '#f59e0b', fontWeight: 700 }}>{v}%</span> },
+        { key: "efficiency", label: "점유율(효율)", renderCell: (v: number) => <span style={{ color: v >= 50 ? '#16a34a' : '#d97706', fontWeight: 700 }}>{v}%</span> },
     ];
 
     const quickLinks = [
@@ -374,24 +396,21 @@ export default function Main() {
                             title="🎬 알짜배기 상영관 찾기 (Top 10)"
                             actions={
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <select
-                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+                                    <HeaderSelect
                                         value={selectedYear}
                                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                                     >
                                         {Array.from({ length: 5 }, (_, i) => dayjs().year() - i).map(y => (
                                             <option key={y} value={y}>{y}년</option>
                                         ))}
-                                    </select>
-                                    <select
-                                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+                                    </HeaderSelect>
+                                    <HeaderSelect
                                         value={selectedMonth}
                                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                                     >
                                         {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}월</option>)}
-                                    </select>
-                                    <select
-                                        style={{ padding: '4px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px', minWidth: '180px', maxWidth: '300px', color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+                                    </HeaderSelect>
+                                    <HeaderSelect
                                         value={selectedMovieId}
                                         onChange={(e) => setSelectedMovieId(e.target.value)}
                                     >
@@ -400,7 +419,7 @@ export default function Main() {
                                         ) : (
                                             <option value="">데이터 없음</option>
                                         )}
-                                    </select>
+                                    </HeaderSelect>
                                 </div>
                             }
                         />

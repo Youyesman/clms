@@ -4,6 +4,8 @@ import { debounce } from "lodash";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { AxiosGet } from "../../axios/Axios";
 import { useToast } from "../common/CustomToast";
+import { ui } from "../../styles/uiTokens";
+import { filterChipBox, filterChipInput, filterChipLabel } from "../../styles/chipStyles";
 
 /* ---------------- Animation ---------------- */
 const fadeIn = keyframes`
@@ -32,16 +34,19 @@ interface AutocompleteInputProps {
     labelPlacement?: "left" | "top";
     labelWidth?: string;
     disabled?: boolean;
+    /** "chip" — 필터바용 노션식 칩 (테두리 없음, hover 시에만 배경) */
+    variant?: "default" | "chip";
     isPrimaryOnly?: boolean;
 }
 
 /* ---------------- Styled Components ---------------- */
 // ... (omitting unchanged styled components)
-const Container = styled.div`
+const Container = styled.div<{ $chip?: boolean }>`
     display: flex;
     flex-direction: column;
     gap: 4px;
-    width: 100%;
+    /* 칩은 내용만큼만 차지합니다 (필터바에서 나란히 붙이기 위함) */
+    width: ${({ $chip }) => ($chip ? "auto" : "100%")};
     position: relative;
 `;
 
@@ -60,7 +65,7 @@ const LabelText = styled.label`
 `;
 
 const RequiredMark = styled.span`
-    color: #ef4444;
+    color: #dc2626;
 `;
 
 const InputWrapper = styled.div`
@@ -70,7 +75,7 @@ const InputWrapper = styled.div`
     flex-direction: column;
 `;
 
-const InputBox = styled.div<{ $disabled?: boolean; $hasLeft?: boolean }>`
+const InputBox = styled.div<{ $disabled?: boolean; $hasLeft?: boolean; $chip?: boolean; $applied?: boolean }>`
     height: 32px;
     background: ${({ $disabled }) => ($disabled ? "#f1f5f9" : "white")};
     border-radius: 4px;
@@ -84,9 +89,21 @@ const InputBox = styled.div<{ $disabled?: boolean; $hasLeft?: boolean }>`
     &:focus-within {
         border-color: #0f172a;
     }
+    /* 칩 모드: 모양은 styles/chipStyles.ts에서 공통 관리 */
+    ${({ $chip }) =>
+        $chip &&
+        css`
+            ${filterChipBox}
+
+            &:focus-within {
+                border-color: ${ui.color.primary};
+                background: ${ui.color.surface};
+                box-shadow: 0 0 0 3px ${ui.color.primarySoft};
+            }
+        `}
 `;
 
-const InternalLabelBox = styled.div<{ $width?: string }>`
+const InternalLabelBox = styled.div<{ $width?: string; $chip?: boolean; $applied?: boolean }>`
     height: 100%;
     width: ${({ $width }) => $width || "auto"};
     min-width: fit-content;
@@ -99,12 +116,14 @@ const InternalLabelBox = styled.div<{ $width?: string }>`
     font-size: 12px;
     font-weight: 700;
     color: #475569;
-    border-radius: 3px 0 0 3px;
+    border-radius: 4px 0 0 3px;
     white-space: nowrap;
     flex-shrink: 0;
+    /* 칩 모드: 구분선 없이 라벨과 값이 한 덩어리로 읽히게 */
+    ${({ $chip }) => $chip && filterChipLabel}
 `;
 
-const InputField = styled.input<{ $hasLeft?: boolean }>`
+const InputField = styled.input<{ $hasLeft?: boolean; $chip?: boolean; $applied?: boolean }>`
     flex: 1;
     border: none;
     outline: none;
@@ -118,18 +137,20 @@ const InputField = styled.input<{ $hasLeft?: boolean }>`
     &::placeholder {
         color: #94a3b8;
     }
+    /* 칩 모드: 부모 폭이 내용에 맞춰지므로 스스로 폭을 가져야 합니다 */
+    ${({ $chip }) => $chip && filterChipInput}
 `;
 
 /** ✅ 배급사 뱃지 스타일 **/
 const DistributorBadge = styled.span`
     padding: 2px 6px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 800;
     white-space: nowrap;
     background-color: #eff6ff; /* Blue 50 */
     color: #2563eb; /* Blue 600 */
-    border: 1px solid #dbeafe; /* Blue 100 */
+    border: 1px solid #bfdbfe; /* Blue 100 */
 `;
 
 const IconBox = styled.div`
@@ -148,7 +169,7 @@ const Dropdown = styled.ul`
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     list-style: none;
     padding: 4px;
     margin: 0;
@@ -158,11 +179,11 @@ const Dropdown = styled.ul`
     animation: ${fadeIn} 0.15s ease;
 
     &::-webkit-scrollbar {
-        width: 4px;
+        width: 6px;
     }
     &::-webkit-scrollbar-thumb {
         background: #cbd5e1;
-        border-radius: 10px;
+        border-radius: 8px;
     }
 `;
 
@@ -176,7 +197,7 @@ const SuggestionItem = styled.li<{ $isSelected: boolean }>`
     font-family: SUIT;
     color: #1e293b;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 4px;
     background: ${({ $isSelected }) => ($isSelected ? "#f1f5f9" : "transparent")};
 
     &:hover {
@@ -198,6 +219,7 @@ export function AutocompleteInputMovie({
     labelWidth,
     disabled,
     isPrimaryOnly = false,
+    variant = "default",
 }: AutocompleteInputProps) {
     const toast = useToast();
     const [suggestions, setSuggestions] = useState<Movie[]>([]);
@@ -206,6 +228,7 @@ export function AutocompleteInputMovie({
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    const isChip = variant === "chip";
     const showInternalLabel = label && labelPlacement === "left";
 
     const fetchSuggestions = async (name: string) => {
@@ -292,9 +315,11 @@ export function AutocompleteInputMovie({
 
     // 영화가 실제로 선택된 상태인지 확인
     const isSelected = !!formData.movie?.id;
+    /* 거래처/영화가 실제로 선택되면 걸러내고 있는 필터 */
+    const isApplied = isChip && isSelected;
     const releaseDate = formData.movie?.release_date?.substring(0, 4);
     return (
-        <Container ref={dropdownRef}>
+        <Container ref={dropdownRef} $chip={isChip}>
             {label && labelPlacement === "top" && (
                 <LabelRow>
                     <LabelText>
@@ -304,9 +329,9 @@ export function AutocompleteInputMovie({
             )}
 
             <InputWrapper>
-                <InputBox $disabled={disabled} $hasLeft={Boolean(showInternalLabel)}>
+                <InputBox $disabled={disabled} $chip={isChip} $applied={isApplied} $hasLeft={Boolean(showInternalLabel)}>
                     {showInternalLabel && (
-                        <InternalLabelBox $width={labelWidth}>
+                        <InternalLabelBox $width={labelWidth} $chip={isChip} $applied={isApplied}>
                             {label}
                             {required && <RequiredMark style={{ marginLeft: "2px" }}>*</RequiredMark>}
                         </InternalLabelBox>
@@ -322,6 +347,8 @@ export function AutocompleteInputMovie({
                         disabled={disabled}
                         autoComplete="off"
                         $hasLeft={Boolean(showInternalLabel)}
+                        $chip={isChip}
+                        $applied={isApplied}
                     />
 
                     {/** ✅ 선택된 상태일 때 배급사 뱃지 표시 **/}

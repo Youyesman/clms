@@ -2,6 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import styled, { keyframes, css } from "styled-components";
 import { CaretDown } from "@phosphor-icons/react";
 import { createPortal } from "react-dom";
+import { ui } from "../../styles/uiTokens";
+import {
+    NEUTRAL_FILTER_VALUES,
+    filterChipBox,
+    filterChipCaret,
+    filterChipLabel,
+    filterChipValue,
+} from "../../styles/chipStyles";
 
 /* ---------------- Animation ---------------- */
 const fadeIn = keyframes`
@@ -11,11 +19,12 @@ const fadeIn = keyframes`
 
 /* ---------------- Layout Components ---------------- */
 
-const SelectContainer = styled.div<{ $placement: "left" | "top" }>`
+const SelectContainer = styled.div<{ $placement: "left" | "top"; $chip?: boolean }>`
     display: flex;
     flex-direction: column;
     gap: 4px;
-    width: 100%;
+    /* 칩은 내용만큼만 차지합니다 (필터바에서 나란히 붙이기 위함) */
+    width: ${({ $chip }) => ($chip ? "auto" : "100%")};
 `;
 
 /** 1. 외부 라벨 영역: labelPlacement가 "top"일 때만 사용 **/
@@ -27,15 +36,16 @@ const LabelRow = styled.div`
 `;
 
 const LabelText = styled.label`
-    color: #64748b;
-    font-size: 12px;
-    font-family: SUIT;
-    font-weight: 700;
+    color: ${ui.color.textMuted};
+    font-size: ${ui.font.size.sm};
+    font-family: ${ui.font.family};
+    font-weight: ${ui.font.weight.semibold};
+    line-height: 16px;
     white-space: nowrap;
 `;
 
 const RequiredMark = styled.span`
-    color: #ef4444;
+    color: ${ui.color.danger};
 `;
 
 const InnerWrapper = styled.div`
@@ -52,6 +62,19 @@ const SelectWrapper = styled.div<{ $h: number }>`
     flex-direction: column;
 `;
 
+/** 칩(노션 필터) 모드 — 모양은 styles/chipStyles.ts에서 공통 관리 */
+const chipButtonStyle = css<{ open?: boolean; $applied?: boolean }>`
+    ${filterChipBox}
+
+    /* 열려 있는 동안은 눌린 상태가 보이도록 */
+    ${({ open, $applied }) =>
+        open &&
+        css`
+            border-color: ${$applied ? ui.color.primary : ui.color.borderStrong};
+            background: ${$applied ? ui.color.primarySoft : ui.color.surfaceMuted};
+        `}
+`;
+
 /** 2. 셀렉트 버튼: 내부 라벨 유무($hasLeft)에 따라 패딩 조절 **/
 const SelectButton = styled.div<{
     open?: boolean;
@@ -63,6 +86,8 @@ const SelectButton = styled.div<{
     $borderless?: boolean;
     $disabled?: boolean;
     $hasLeft?: boolean;
+    $chip?: boolean;
+    $applied?: boolean;
 }>`
     display: inline-flex;
     width: 100%;
@@ -70,44 +95,61 @@ const SelectButton = styled.div<{
     /* 내부 라벨이 있으면 왼쪽 패딩 제거 */
     padding: ${({ $borderless, $pv, $ph, $hasLeft }) =>
         $borderless ? "0px" : `${$pv}px ${$ph}px ${$pv}px ${$hasLeft ? "0px" : `${$ph}px`}`};
-    background: ${({ $disabled }) => ($disabled ? "#f1f5f9" : "white")};
-    border-radius: 4px;
+    background: ${({ $disabled }) => ($disabled ? ui.color.surfaceSunken : ui.color.surface)};
+    border-radius: ${ui.radius.md};
 
     border: ${({ $borderless, $hasError, open }) =>
-        $borderless ? "none" : $hasError ? "1px solid #ef4444" : open ? "1px solid #0f172a" : "1px solid #cbd5e1"};
+        $borderless
+            ? "none"
+            : $hasError
+              ? `1px solid ${ui.color.danger}`
+              : open
+                ? `1px solid ${ui.color.primary}`
+                : `1px solid ${ui.color.borderStrong}`};
+    box-shadow: ${({ open, $borderless }) => (open && !$borderless ? `0 0 0 3px ${ui.color.primarySoft}` : "none")};
 
     align-items: center;
     gap: ${({ $gap }) => $gap}px;
     cursor: ${({ $disabled }) => ($disabled ? "not-allowed" : "pointer")};
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
 
     &:hover:not(:disabled) {
-        border-color: ${({ open }) => (open ? "#0f172a" : "#94a3b8")};
+        border-color: ${({ open }) => (open ? ui.color.primary : ui.color.textSubtle)};
     }
+
+    ${({ $chip }) => $chip && chipButtonStyle}
 `;
 
-/** 3. 내부 라벨 박스: 셀렉트 박스 안쪽 왼쪽 회색 영역 **/
-const InternalLabelBox = styled.div<{ $width?: string }>`
+/** 3. 내부 라벨: 회색 배경 없이 옅은 구분선만 — 라벨이 값보다 무거워 보이지 않게 **/
+const InternalLabelBox = styled.div<{ $width?: string; $chip?: boolean; $applied?: boolean }>`
     height: 100%;
     width: ${({ $width }) => $width || "auto"};
     min-width: fit-content;
-    padding: 0 12px;
-    background: #f1f5f9; /* Slate 100 */
-    border-right: 1px solid #cbd5e1;
+    padding: 0 10px;
+    background: transparent;
+    border-right: 1px solid ${ui.color.border};
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 700;
-    color: #475569; /* Slate 600 */
-    border-radius: 3px 0 0 3px;
+    font-size: ${ui.font.size.sm};
+    font-weight: ${ui.font.weight.medium};
+    color: ${ui.color.textMuted};
     white-space: nowrap;
     flex-shrink: 0;
+
+    /* 칩 모드: 구분선 없이 라벨과 값이 한 덩어리로 읽히게 */
+    ${({ $chip }) => $chip && filterChipLabel}
 `;
 
-const LabelValue = styled.div<{ $fs: number; $hasLeft?: boolean; $isPlaceholder?: boolean }>`
+const LabelValue = styled.div<{
+    $fs: number;
+    $hasLeft?: boolean;
+    $isPlaceholder?: boolean;
+    $chip?: boolean;
+    $applied?: boolean;
+}>`
     flex: 1;
-    color: ${({ $isPlaceholder }) => ($isPlaceholder ? "#94a3b8" : "#1e293b")};
+    color: ${({ $isPlaceholder }) => ($isPlaceholder ? ui.color.textSubtle : ui.color.text)};
     font-size: ${({ $fs }) => $fs}px;
     font-family: SUIT;
     font-weight: 500;
@@ -115,17 +157,20 @@ const LabelValue = styled.div<{ $fs: number; $hasLeft?: boolean; $isPlaceholder?
     overflow: hidden;
     text-overflow: ellipsis;
     padding-left: ${({ $hasLeft }) => ($hasLeft ? "10px" : "0")};
+
+    /* 칩 모드: 선택된 값은 진하게, 비어 있으면 라벨만 보이도록 */
+    ${({ $chip }) => $chip && filterChipValue}
 `;
 
 const Option = styled.div<{ selected?: boolean }>`
-    min-height: 40px;
-    padding: 0 16px;
-    border-radius: 6px;
-    background: ${({ selected }) => (selected ? "#f1f5f9" : "white")};
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: ${ui.radius.sm};
+    background: ${({ selected }) => (selected ? ui.color.primarySoft : "transparent")};
     display: flex;
     align-items: center;
     cursor: pointer;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     flex-shrink: 0;
 
     &:last-child {
@@ -133,33 +178,35 @@ const Option = styled.div<{ selected?: boolean }>`
     }
 
     &:hover {
-        background: #f8fafc;
+        background: ${({ selected }) => (selected ? ui.color.primarySoft : ui.color.surfaceHover)};
     }
     div {
         flex: 1;
-        font-size: 14px;
-        color: #1e293b;
+        font-size: ${ui.font.size.base};
+        font-weight: ${({ selected }) => (selected ? ui.font.weight.semibold : ui.font.weight.regular)};
+        color: ${({ selected }) => (selected ? ui.color.primary : ui.color.text)};
         text-align: left;
     }
 `;
 
-export const CustomCaretIcon = styled(CaretDown) <{ open?: boolean }>`
-    color: #64748b;
+export const CustomCaretIcon = styled(CaretDown) <{ open?: boolean; $applied?: boolean }>`
+    color: ${ui.color.textSubtle};
     transition: transform 0.2s ease;
     ${({ open }) => open && `transform: rotate(180deg);`}
+    ${({ $applied }) => $applied && filterChipCaret}
 `;
 
 const Dropdown = styled.div<{ $hasError?: boolean; $borderless?: boolean }>`
     position: absolute;
     white-space: nowrap;
-    padding: 6px;
-    background: white;
-    box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    border: 1px solid #cbd5e1;
+    padding: 4px;
+    background: ${ui.color.surface};
+    box-shadow: ${ui.shadow.lg};
+    border-radius: ${ui.radius.lg};
+    border: 1px solid ${ui.color.border};
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
     z-index: 10000;
     max-height: 300px;
     overflow-y: auto;
@@ -167,8 +214,8 @@ const Dropdown = styled.div<{ $hasError?: boolean; $borderless?: boolean }>`
 `;
 
 const ErrorMessage = styled.div`
-    color: #ef4444;
-    font-size: 11px;
+    color: ${ui.color.danger};
+    font-size: ${ui.font.size.xs};
     margin-top: 4px;
 `;
 
@@ -191,6 +238,8 @@ export function CustomSelect({
     labelPlacement = "left",
     labelWidth,
     allowClear = true,
+    variant = "default",
+    neutralValues = NEUTRAL_FILTER_VALUES,
 }: {
     options: any[];
     value?: string;
@@ -210,6 +259,14 @@ export function CustomSelect({
     labelPlacement?: "left" | "top";
     labelWidth?: string;
     allowClear?: boolean;
+    /** "chip" — 필터바용 노션식 칩 */
+    variant?: "default" | "chip";
+    /**
+     * 칩 모드에서 "필터가 걸리지 않은 것"으로 볼 값들.
+     * 기본은 빈 값과 "전체" — 전 페이지 쿼리 빌더가 쓰는 규칙과 같습니다.
+     * 화면에 따라 다르면 이 prop으로 재정의하세요. 예) neutralValues={["", "미지정"]}
+     */
+    neutralValues?: string[];
 }) {
     const rawOptions = options.map((opt) => (typeof opt === "string" ? { label: opt, value: opt } : opt));
     const normalizedOptions = allowClear ? [{ label: "선택", value: "" }, ...rawOptions] : rawOptions;
@@ -220,7 +277,8 @@ export function CustomSelect({
         md: { h: 40, pv: 0, ph: 12, fs: 14, gap: 8, icon: 18 },
     };
 
-    const s = sizeMap[size];
+    const isChip = variant === "chip";
+    const s = isChip ? { ...sizeMap[size], h: 30, ph: 10, icon: 12 } : sizeMap[size];
     const wrapperRef = useRef<HTMLDivElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -230,7 +288,19 @@ export function CustomSelect({
     const showInternalLabel = label && labelPlacement === "left";
     const selected = normalizedOptions.find((opt) => opt.value === value);
     const isPlaceholder = !value || value === "";
-    const displayLabel = selected?.label || (isPlaceholder ? "선택" : placeholder || "");
+    /* 칩 모드에서 값이 비면 "선택" 대신 아무것도 안 띄우고 라벨만 남깁니다 */
+    const displayLabel = isChip
+        ? isPlaceholder
+            ? ""
+            : selected?.label || ""
+        : selected?.label || (isPlaceholder ? "선택" : placeholder || "");
+
+    /* 실제로 목록을 걸러내고 있는 필터인지 — 값과 표시 라벨 양쪽 다 확인 */
+    const isApplied =
+        isChip &&
+        !isPlaceholder &&
+        !neutralValues.includes(value ?? "") &&
+        !neutralValues.includes(selected?.label ?? "");
 
     const toggle = () => !disabled && setIsOpen((prev) => !prev);
 
@@ -280,15 +350,18 @@ export function CustomSelect({
                     ? viewportHeight - rect.top + DROPDOWN_MARGIN
                     : rect.bottom + DROPDOWN_MARGIN,
                 left: rect.left,
-                width: rect.width,
+                /* 칩은 폭이 좁아 드롭다운까지 좁아지면 옵션이 잘립니다 → 최소폭만 주고 내용에 맞춥니다 */
+                ...(isChip
+                    ? { minWidth: Math.max(rect.width, 160) }
+                    : { width: rect.width }),
                 maxHeight: DROPDOWN_MAX_HEIGHT,
                 zIndex: 9999,
             });
         }
-    }, [isOpen]);
+    }, [isOpen, isChip]);
 
     return (
-        <SelectContainer className={className} style={style} $placement={labelPlacement}>
+        <SelectContainer className={className} style={style} $placement={labelPlacement} $chip={isChip}>
             {/* 외부 상단 라벨 (Top 배치일 때만) */}
             {label && labelPlacement === "top" && (
                 <LabelRow>
@@ -310,22 +383,37 @@ export function CustomSelect({
                         $gap={s.gap}
                         $borderless={borderless}
                         $disabled={disabled}
+                        $chip={isChip}
+                        $applied={isApplied}
                         $hasLeft={Boolean(showInternalLabel)}>
                         {/* 내부 라벨 (Left 배치일 때만) */}
                         {showInternalLabel && (
-                            <InternalLabelBox $width={labelWidth}>
+                            <InternalLabelBox $width={labelWidth} $chip={isChip} $applied={isApplied}>
                                 {label}
                                 {required && <RequiredMark style={{ marginLeft: "2px" }}>*</RequiredMark>}
                             </InternalLabelBox>
                         )}
 
-                        <LabelValue $fs={s.fs} $hasLeft={Boolean(showInternalLabel)} $isPlaceholder={isPlaceholder}>
-                            {displayLabel}
-                        </LabelValue>
+                        {(!isChip || displayLabel) && (
+                            <LabelValue
+                                $fs={s.fs}
+                                $hasLeft={Boolean(showInternalLabel)}
+                                $isPlaceholder={isPlaceholder}
+                                $chip={isChip}
+                                $applied={isApplied}>
+                                {displayLabel}
+                            </LabelValue>
+                        )}
 
                         {!disabled && (
-                            <div style={{ paddingRight: s.ph }}>
-                                <CustomCaretIcon size={s.icon} open={isOpen} weight="bold" />
+                            <div
+                                style={{
+                                    paddingLeft: isChip ? 5 : 0,
+                                    paddingRight: isChip ? 0 : s.ph,
+                                    display: "flex",
+                                    alignItems: "center",
+                                }}>
+                                <CustomCaretIcon size={s.icon} open={isOpen} $applied={isApplied} weight="bold" />
                             </div>
                         )}
                     </SelectButton>

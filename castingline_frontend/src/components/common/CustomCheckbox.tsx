@@ -19,7 +19,7 @@ const CheckboxWrapper = styled.div<{ disabled?: boolean }>`
 `;
 
 const LabelText = styled.label`
-    color: var(--Gray-500);
+    color: #64748b;
     font-size: 14px;
     font-family: SUIT;
     font-weight: 700;
@@ -35,9 +35,9 @@ export const CustomCheckbox: React.FC<CustomCheckboxProps> = ({ checked, onChang
     return (
         <CheckboxWrapper disabled={disabled} onClick={handleClick}>
             {checked ? (
-                <CheckSquare size={24} weight="fill" color="var(--Gray-800)" />
+                <CheckSquare size={24} weight="fill" color="#1e293b" />
             ) : (
-                <Square size={24} color="var(--Gray-400, #ccc)" />
+                <Square size={24} color="#94a3b8" />
             )}
             {label && <LabelText style={labelStyle}>{label}</LabelText>}
         </CheckboxWrapper>

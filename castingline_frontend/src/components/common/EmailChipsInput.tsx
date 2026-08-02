@@ -220,12 +220,12 @@ const InputWrapper = styled.div<{ hasError?: boolean }>`
     padding: 8px 36px 8px 12px;
     background: white;
 
-    outline: 1px solid ${({ hasError }) => (hasError ? "var(--Red-600)" : "var(--Gray-300)")};
+    outline: 1px solid ${({ hasError }) => (hasError ? "#dc2626" : "#cbd5e1")};
     border-radius: 4px;
     cursor: text;
 
     &:focus-within {
-        outline: 1px solid ${({ hasError }) => (hasError ? "var(--Red-600)" : "var(--Gray-800)")};
+        outline: 1px solid ${({ hasError }) => (hasError ? "#dc2626" : "#1e293b")};
     }
 `;
 
@@ -233,10 +233,10 @@ const Chip = styled.div`
     display: inline-flex;
     align-items: center;
     padding: 5px 10px;
-    background: var(--Gray-200);
-    border-radius: 100px;
+    background: #e2e8f0;
+    border-radius: 999px;
     font-size: 14px;
-    color: var(--Gray-800);
+    color: #1e293b;
     gap: 6px;
 `;
 
@@ -245,9 +245,9 @@ const StyledInput = styled.input`
     min-width: 120px;
     border: none;
     outline: none;
-    font-size: 15px;
+    font-size: 14px;
     font-family: SUIT;
-    color: var(--Gray-800);
+    color: #1e293b;
     background: transparent;
 `;
 
@@ -256,7 +256,7 @@ const Dropdown = styled.div`
     top: 100%;
     width: 100%;
     background: white;
-    border: 1px solid var(--Gray-300);
+    border: 1px solid #cbd5e1;
     border-radius: 4px;
     margin-top: 4px;
     max-height: 180px;
@@ -266,19 +266,19 @@ const Dropdown = styled.div`
 
 const DropdownItem = styled.div<{ highlighted: boolean }>`
     padding: 10px 12px;
-    font-size: 15px;
-    color: var(--Gray-800);
+    font-size: 14px;
+    color: #1e293b;
     cursor: pointer;
-    background: ${({ highlighted }) => (highlighted ? "var(--Gray-200)" : "transparent")};
+    background: ${({ highlighted }) => (highlighted ? "#e2e8f0" : "transparent")};
 
     &:hover {
-        background: var(--Gray-200);
+        background: #e2e8f0;
     }
 `;
 
 const ErrorText = styled.div`
     font-size: 13px;
-    color: var(--Red-600);
+    color: #dc2626;
     font-weight: 500;
 `;
 const RightWrapper = styled.div`
@@ -297,7 +297,7 @@ const RightSlot = styled.div`
 
     span {
         font-size: 14px;
-        color: var(--Gray-700);
+        color: #475569;
         cursor: pointer;
         text-decoration: underline;
     }

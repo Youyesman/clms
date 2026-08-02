@@ -27,7 +27,7 @@ const Overlay = styled.div`
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(15, 23, 42, 0.5);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -37,10 +37,10 @@ const Overlay = styled.div`
 const ModalContainer = styled.div`
     background-color: white;
     padding: 24px;
-    border-radius: 12px;
+    border-radius: 8px;
     width: 640px;
     max-width: 92%;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -63,7 +63,7 @@ const Header = styled.div`
         border: none;
         cursor: pointer;
         color: #64748b;
-        &:hover { color: #334155; }
+        &:hover { color: #475569; }
     }
 `;
 
@@ -93,10 +93,10 @@ const DateInput = styled.input`
     border-radius: 6px;
     font-size: 13px;
     font-family: "SUIT", sans-serif;
-    color: #334155;
+    color: #475569;
     &:focus {
         outline: none;
-        border-color: #3b82f6;
+        border-color: #2563eb;
     }
 `;
 
@@ -113,17 +113,17 @@ const MovieItem = styled.button<{ $selected: boolean }>`
     padding: 10px 12px;
     border: 1px solid ${({ $selected }) => ($selected ? "#2563eb" : "#e2e8f0")};
     border-radius: 6px;
-    background: ${({ $selected }) => ($selected ? "#eff6ff" : "#fff")};
+    background: ${({ $selected }) => ($selected ? "#eff6ff" : "#ffffff")};
     cursor: pointer;
     font-size: 13px;
     font-weight: ${({ $selected }) => ($selected ? 600 : 500)};
-    color: ${({ $selected }) => ($selected ? "#1d4ed8" : "#334155")};
+    color: ${({ $selected }) => ($selected ? "#1d4ed8" : "#475569")};
     font-family: "SUIT", sans-serif;
     transition: all 0.15s;
 
     &:hover {
-        border-color: #93c5fd;
-        background: #f0f7ff;
+        border-color: #bfdbfe;
+        background: #eff6ff;
     }
 `;
 
@@ -157,7 +157,7 @@ const Button = styled.button<{ $variant?: "primary" | "secondary" }>`
         background-color: #16a34a;
         color: white;
         &:hover { background-color: #15803d; }
-        &:disabled { background-color: #86efac; cursor: not-allowed; }
+        &:disabled { background-color: #dcfce7; cursor: not-allowed; }
     `
             : `
         background-color: #f1f5f9;
@@ -381,7 +381,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                             <select
                                 value={specialMovieId ?? ""}
                                 onChange={(e) => setSpecialMovieId(e.target.value ? Number(e.target.value) : null)}
-                                style={{ flex: 1, minWidth: 0, height: 38, padding: "0 10px", border: "1px solid #cbd5e1", borderRadius: 6, fontSize: 13, fontFamily: '"SUIT",sans-serif', background: "#fff", textOverflow: "ellipsis" }}
+                                style={{ flex: 1, minWidth: 0, height: 32, padding: "0 10px", border: "1px solid #cbd5e1", borderRadius: 6, fontSize: 13, background: "#ffffff", textOverflow: "ellipsis" }}
                             >
                                 <option value="">크롤 대상 영화 선택</option>
                                 {crawlTargets.map((m) => (

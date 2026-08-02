@@ -9,27 +9,32 @@ import {
   CaretUp,
   CaretDown,
 } from "@phosphor-icons/react";
+import { ui } from "../styles/uiTokens";
 
 /** 1. 테이블 컨테이너 및 스타일 **/
 const TableWrapper = styled.div`
   width: 100%;
   overflow: auto;
-  background-color: #ffffff;
-  border-radius: 4px;
+  background-color: ${ui.color.surface};
+  border-radius: ${ui.radius.md};
   flex: 1;
   min-height: 0;
 
-  /* 가로 스크롤바는 눈에 잘 띄게 두껍게 (세로는 얇게 유지) */
+  /* 스크롤바는 평소 옅게, 올려두면 진하게 — 표 위에 검은 막대가 얹힌 느낌 제거 */
   &::-webkit-scrollbar {
-    width: 6px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
   }
   &::-webkit-scrollbar-track {
-    background: #f8fafc;
+    background: transparent;
   }
   &::-webkit-scrollbar-thumb {
-    background: #94a3b8;
-    border-radius: 10px;
+    background: ${ui.color.borderStrong};
+    border-radius: 8px;
+    border: 3px solid ${ui.color.surface};
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background: ${ui.color.textSubtle};
   }
 `;
 
@@ -39,11 +44,8 @@ const StyledTable = styled.table`
      고정열 구분선이 사라지며 틈이 생김 → separate + spacing 0 사용 */
   border-collapse: separate;
   border-spacing: 0;
-  font-family:
-    "SUIT",
-    -apple-system,
-    sans-serif;
-  font-size: 11.5px;
+  font-family: ${ui.font.family};
+  font-size: ${ui.font.size.md};
   table-layout: auto;
 `;
 
@@ -51,19 +53,21 @@ const THead = styled.thead`
   position: sticky;
   top: 0;
   z-index: 10;
-  background-color: #f1f5f9;
+  background-color: ${ui.color.surfaceMuted};
 `;
 
 const StyledTH = styled.th<{ $stickyLeft?: string; $width?: string }>`
-  border-bottom: 2px solid #64748b;
-  border-right: 1px solid #cbd5e1;
+  /* 헤더 아래 굵은 선 대신 얇은 경계선 — 표 전체의 선 굵기를 통일 */
+  border-bottom: 1px solid ${ui.color.border};
+  border-right: 1px solid ${ui.color.borderSubtle};
   padding: 8px 10px;
-  font-weight: 800;
-  color: #0f172a;
+  font-size: ${ui.font.size.sm};
+  font-weight: ${ui.font.weight.semibold};
+  color: ${ui.color.textMuted};
   white-space: nowrap;
   cursor: pointer;
-  height: 34px;
-  transition: background-color 0.2s;
+  height: ${ui.table.headHeight}px;
+  transition: background-color 0.15s;
 
   ${(props) =>
     props.$width &&
@@ -78,23 +82,33 @@ const StyledTH = styled.th<{ $stickyLeft?: string; $width?: string }>`
       position: sticky;
       left: ${props.$stickyLeft};
       z-index: 20;
-      background-color: #f1f5f9;
-      border-right: 2px solid #94a3b8;
+      background-color: ${ui.color.surfaceMuted};
+      border-right: 1px solid ${ui.color.border};
       /* 고정열 폭을 선언값으로 강제 — 실제 폭이 커지면 다음 고정열 오프셋과
          어긋나 사이로 스크롤 내용이 비치는 문제 방지 */
       ${props.$width ? `max-width: ${props.$width}; overflow: hidden; text-overflow: ellipsis;` : ""}
-      box-shadow: 1px 0 0 0 #f1f5f9; /* 서브픽셀 이음새 덮기 */
+      box-shadow: 1px 0 0 0 ${ui.color.surfaceMuted}; /* 서브픽셀 이음새 덮기 */
       box-sizing: border-box;
     `}
 
   &:hover {
-    background-color: #e2e8f0;
+    background-color: ${ui.color.surfaceHover};
+    color: ${ui.color.textStrong};
   }
   .header-content {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
+  }
+  /* 정렬 안 된 컬럼의 화살표는 평소 숨김 — 30개 컬럼에 아이콘이 다 떠 있으면 산만함 */
+  .sort-idle {
+    display: inline-flex;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  &:hover .sort-idle {
+    opacity: 1;
   }
 `;
 
@@ -102,66 +116,64 @@ const TFoot = styled.tfoot`
   position: sticky;
   bottom: 0;
   z-index: 10;
-  background-color: #fff1f2;
+  background-color: ${ui.color.surfaceMuted};
   tr {
     border-top: none;
   }
   td {
     padding: 10px 12px;
-    font-weight: 900;
-    color: #9f1239;
-    border-right: 1px solid #fecdd3;
+    font-weight: ${ui.font.weight.bold};
+    color: ${ui.color.textStrong};
+    border-top: 1px solid ${ui.color.borderStrong};
+    border-right: 1px solid ${ui.color.borderSubtle};
     text-align: left;
-    background-color: #fff1f2;
-    &:first-child {
-      color: #9f1239;
-    }
+    background-color: ${ui.color.surfaceMuted};
   }
 `;
 
 const TR = styled.tr<{ $isHighlight?: boolean }>`
-  height: 30px;
-  transition: background-color 0.2s;
-  background-color: ${(props) => (props.$isHighlight ? "#fffbeb" : "#ffffff")};
+  height: ${ui.table.rowHeight}px;
+  transition: background-color 0.12s;
+  /* 얼룩무늬(zebra) 제거 — 행 높이를 키우고 아래 경계선만 남기는 편이 덜 답답합니다 */
+  background-color: ${(props) => (props.$isHighlight ? ui.color.warningSoft : ui.color.surface)};
 
   /* border-collapse: separate에서는 tr 테두리가 안 그려지므로 td에 적용 */
   & > td {
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid ${ui.color.border};
   }
   & > td:first-child {
     border-left: ${(props) =>
-      props.$isHighlight ? "4px solid #f59e0b" : "4px solid transparent"};
-  }
-
-  &:nth-child(even) {
-    background-color: ${(props) =>
-      props.$isHighlight ? "#fffbeb" : "#f8fafc"};
+      props.$isHighlight ? `3px solid ${ui.color.warning}` : "3px solid transparent"};
   }
 
   &:hover {
-    background-color: #f1f5f9 !important;
+    background-color: ${ui.color.surfaceHover} !important;
     cursor: pointer;
   }
 
+  /* 선택 행: 검정 반전 대신 옅은 파랑 — 주변 톤과 어긋나지 않게 */
   &.selected {
-    background-color: #1e293b !important;
+    background-color: ${ui.color.primarySoft} !important;
     &,
     td {
-      color: #ffffff !important;
-      border-right-color: #334155 !important;
-      background-color: #1e293b !important;
+      color: ${ui.color.primaryHover} !important;
+      font-weight: ${ui.font.weight.semibold} !important;
+      background-color: ${ui.color.primarySoft} !important;
+    }
+    & > td:first-child {
+      border-left: 3px solid ${ui.color.primary};
     }
   }
 `;
 
 const TD = styled.td<{ $stickyLeft?: string; $cellStyle?: any; $width?: string }>`
-  border-right: 1px solid #e2e8f0;
+  border-right: 1px solid ${ui.color.borderSubtle};
   padding: 6px 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
-  color: #1e293b;
-  font-weight: 500;
+  color: ${ui.color.text};
+  font-weight: ${ui.font.weight.regular};
   background-color: inherit;
 
   ${(props) =>
@@ -170,36 +182,36 @@ const TD = styled.td<{ $stickyLeft?: string; $cellStyle?: any; $width?: string }
       position: sticky;
       left: ${props.$stickyLeft};
       z-index: 5;
-      background-color: #ffffff; /* Sticky columns need background */
-      border-right: 2px solid #94a3b8; /* Separator */
+      background-color: inherit; /* 선택/hover 배경이 고정열에도 그대로 이어지도록 */
+      border-right: 1px solid ${ui.color.border};
       /* 고정열 폭 강제 (헤더 오프셋과 일치) + 서브픽셀 이음새 덮기 */
       ${props.$width
         ? `width: ${props.$width}; min-width: ${props.$width}; max-width: ${props.$width};`
         : ""}
-      box-shadow: 1px 0 0 0 #ffffff;
       box-sizing: border-box;
     `}
 
   ${(props) => props.$cellStyle && css(props.$cellStyle)}
 
   &.read-only {
-    color: #64748b;
+    color: ${ui.color.text};
   }
   &.editable {
     cursor: cell;
     &:hover {
-      background-color: rgba(0, 0, 0, 0.02);
+      background-color: ${ui.color.primarySoft};
     }
   }
 
   input {
     width: 100%;
-    border: 2px solid #3b82f6;
-    border-radius: 2px;
+    border: 1px solid ${ui.color.primary};
+    border-radius: ${ui.radius.sm};
     padding: 2px 4px;
     font-family: inherit;
     font-size: inherit;
     outline: none;
+    box-shadow: 0 0 0 2px ${ui.color.primarySoft};
   }
 `;
 
@@ -207,26 +219,33 @@ const PaginationContainer = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
-  padding: 12px 0;
-  background: #ffffff;
+  gap: 4px;
+  padding: 10px 0;
+  background: ${ui.color.surface};
+  border-top: 1px solid ${ui.color.borderSubtle};
 `;
 
-const PageButton = styled.button<{ active?: boolean }>`
+const PageButton = styled.button<{ $active?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: 28px;
-  height: 28px;
-  border: 1px solid ${(props) => (props.active ? "#0f172a" : "#cbd5e1")};
-  background: ${(props) => (props.active ? "#0f172a" : "#ffffff")};
-  color: ${(props) => (props.active ? "#ffffff" : "#1e293b")};
-  font-size: 11px;
-  font-weight: ${(props) => (props.active ? "800" : "600")};
+  height: 30px;
+  border: 1px solid ${(props) => (props.$active ? ui.color.primary : "transparent")};
+  background: ${(props) => (props.$active ? ui.color.primarySoft : "transparent")};
+  color: ${(props) => (props.$active ? ui.color.primary : ui.color.textMuted)};
+  font-size: ${ui.font.size.sm};
+  font-weight: ${(props) => (props.$active ? ui.font.weight.bold : ui.font.weight.medium)};
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: ${ui.radius.sm};
+  transition: all 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: ${ui.color.surfaceHover};
+    color: ${ui.color.textStrong};
+  }
   &:disabled {
-    opacity: 0.3;
+    opacity: 0.35;
     cursor: not-allowed;
   }
 `;
@@ -331,7 +350,7 @@ export function GenericTable({
     const endPage = Math.min(totalPages, startPage + 4);
     for (let i = startPage; i <= endPage; i++) {
       pages.push(
-        <PageButton key={i} active={i === page} onClick={() => onPageChange(i)}>
+        <PageButton key={i} $active={i === page} onClick={() => onPageChange(i)}>
           {i}
         </PageButton>,
       );
@@ -346,7 +365,7 @@ export function GenericTable({
         flexDirection: "column",
         height: "100%",
         minHeight: 0,
-        backgroundColor: "#fff",
+        backgroundColor: ui.color.surface,
       }}
     >
       <TableWrapper>
@@ -383,12 +402,14 @@ export function GenericTable({
                     {sortable &&
                       (sortKey === header.key ? (
                         sortOrder === "asc" ? (
-                          <CaretUp size={12} weight="bold" />
+                          <CaretUp size={11} weight="bold" color={ui.color.primary} />
                         ) : (
-                          <CaretDown size={12} weight="bold" />
+                          <CaretDown size={11} weight="bold" color={ui.color.primary} />
                         )
                       ) : (
-                        <ArrowsDownUp size={10} color="#64748b" />
+                        <span className="sort-idle">
+                          <ArrowsDownUp size={10} color={ui.color.textSubtle} />
+                        </span>
                       ))}
                   </div>
                 </StyledTH>

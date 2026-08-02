@@ -206,7 +206,7 @@ export function ManageFund() {
     return (
         <PageContainer>
             <CommonFilterBar onSearch={handleSearch}>
-                <div style={{ width: "150px" }}>
+                <div>
                     <CustomInput
                         label="년도"
                         value={searchParams.yyyy}
@@ -215,7 +215,7 @@ export function ManageFund() {
                     />
                 </div>
                 {/* 멀티/일반 선택 필터 */}
-                <div style={{ width: "160px" }}>
+                <div>
                     <CustomSelect
                         label="멀티"
                         options={["전체", "멀티", "일반"]}
@@ -225,7 +225,7 @@ export function ManageFund() {
                     />
                 </div>
                 {/* 기금 일반/제외 필터 */}
-                <div style={{ width: "180px" }}>
+                <div>
                     <CustomSelect
                         label="기금"
                         options={["전체", "일반", "기금제외"]}
@@ -234,7 +234,7 @@ export function ManageFund() {
                         labelWidth="40px"
                     />
                 </div>
-                <div style={{ width: "260px" }}>
+                <div>
                     <AutocompleteInputClient
                         type="client"
                         label="극장명"
@@ -322,7 +322,7 @@ export function ManageFund() {
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                backgroundColor: "#fff",
+                                backgroundColor: "#ffffff",
                                 border: "1px solid #cbd5e1",
                                 borderRadius: "4px",
                                 color: "#94a3b8",

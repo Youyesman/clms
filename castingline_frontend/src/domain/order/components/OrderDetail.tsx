@@ -250,7 +250,7 @@ export function OrderDetail({
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 border: 'none',
-                                background: '#10b981', // 초록색 계열
+                                background: '#16a34a', // 초록색 계열
                                 color: 'white',
                                 borderRadius: '4px',
                                 width: '20px',
@@ -288,19 +288,17 @@ export function OrderDetail({
         <>
             <CommonFilterBar onSearch={onClickSearch}>
                 <FilterGroup>
-                    <div className="label">기준일자:</div>
                     <CustomInput
+                        label="기준일자"
                         inputType="date"
-                        size="sm"
                         value={filterStartDate}
                         setValue={setFilterStartDate}
-                        style={{ width: "130px" }}
                     />
                 </FilterGroup>
                 <FilterGroup style={{ flex: 1, maxWidth: "350px" }}>
-                    <div className="label">극장 검색:</div>
                     <AutocompleteInputClient
                         type="theater"
+                        label="극장명"
                         placeholder="극장명 검색..."
                         formData={searchClient}
                         setFormData={setSearchClient}

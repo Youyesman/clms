@@ -2,24 +2,24 @@ import React from "react";
 import styled from "styled-components";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { CustomIconButton } from "./CustomIconButton";
+import { ui } from "../../styles/uiTokens";
 
 /** 1. 스타일 정의 **/
 const FilterBarContainer = styled.div<{ $wrap?: boolean }>`
     display: flex;
     align-items: center;
-    padding: 8px 20px;
-    background-color: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px; /* 조금 더 둥글게 */
-    box-shadow:
-        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-        0 2px 4px -1px rgba(0, 0, 0, 0.06); /* 조금 더 입체감 있는 그림자 */
+    padding: 8px 10px;
+    background-color: ${ui.color.surface};
+    border: 1px solid ${ui.color.border};
+    border-radius: ${ui.radius.md};
+    box-shadow: ${ui.shadow.xs};
     margin-bottom: 16px;
     /* wrap 모드: 필터 줄 + 우측 정렬 액션 줄의 2단 구성 */
-    height: ${({ $wrap }) => ($wrap ? "auto" : "56px")};
+    height: auto;
+    min-height: 46px;
     ${({ $wrap }) =>
         $wrap
-            ? "flex-direction: column; align-items: stretch; row-gap: 8px; min-height: 56px; padding-top: 10px; padding-bottom: 10px;"
+            ? "flex-direction: column; align-items: stretch; row-gap: 6px;"
             : ""}
     width: 100%;
     
@@ -30,15 +30,16 @@ const FilterBarContainer = styled.div<{ $wrap?: boolean }>`
     position: relative;
     z-index: 100; 
 
-    &::-webkit-scrollbar { height: 4px; }
-    &::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    &::-webkit-scrollbar { height: 6px; }
+    &::-webkit-scrollbar-thumb { background: ${ui.color.border}; border-radius: 8px; }
 `;
 
 const FilterItemsScroll = styled.div<{ $wrap?: boolean }>`
     display: flex;
     align-items: center;
     flex: 1;
-    ${({ $wrap }) => ($wrap ? "flex-wrap: wrap; row-gap: 10px;" : "")}
+    gap: 6px;
+    ${({ $wrap }) => ($wrap ? "flex-wrap: wrap; row-gap: 6px;" : "")}
 `;
 
 const FilterItemWrapper = styled.div<{ $width?: string }>`
@@ -46,68 +47,47 @@ const FilterItemWrapper = styled.div<{ $width?: string }>`
     align-items: center;
     flex-shrink: 0;
     width: ${({ $width }) => $width || "auto"};
-    padding: 0 16px;
+    /* 칩이 자체 패딩과 hover 배경을 갖고 있어 바깥 여백은 최소로 둡니다. */
     position: relative;
-    height: 32px;
-
-    /* 아이템 우측 세로 구분선 */
-    &:not(:last-child)::after {
-        content: "";
-        position: absolute;
-        right: 0;
-        top: 6px;
-        bottom: 6px;
-        width: 1px;
-        background-color: #e2e8f0;
-    }
-
-    /* 첫 번째 아이템의 왼쪽 패딩 제거 */
-    &:first-child {
-        padding-left: 0;
-    }
 `;
 
 const ActionGroup = styled.div<{ $wrap?: boolean }>`
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 8px;
     flex-shrink: 0;
     ${({ $wrap }) =>
         $wrap
             ? /* 2단 모드: 구분선 없이 아랫줄 우측 정렬 */
-              "justify-content: flex-end; border-top: 1px solid #f1f5f9; padding-top: 8px;"
-            : "padding-left: 16px; border-left: 2px solid #f1f5f9; margin-left: auto;"}
+              `justify-content: flex-end; border-top: 1px solid ${ui.color.borderSubtle}; padding-top: 6px;`
+            : `padding-left: 10px; border-left: 1px solid ${ui.color.border}; margin-left: auto;`}
 `;
 
-/* 돋보기 버튼 시인성 강화를 위한 전용 블루 버튼 스타일 */
+/* 검색 버튼: 칩들과 같은 고스트 아이콘 — 필터바에서 혼자 튀지 않도록 */
 const SearchButton = styled.button`
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    width: 30px;
+    height: 30px;
+    background: transparent;
     border: none;
-    border-radius: 6px;
-    color: #ffffff;
+    border-radius: ${ui.radius.md};
+    color: ${ui.color.textMuted};
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    transition: background-color 0.12s ease, color 0.12s ease;
 
     &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
-        background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+        background: ${ui.color.surfaceHover};
+        color: ${ui.color.textStrong};
     }
-
     &:active {
-        transform: translateY(0);
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+        background: ${ui.color.border};
     }
 
     svg {
-        width: 18px;
-        height: 18px;
+        width: 15px;
+        height: 15px;
     }
 `;
 
@@ -119,6 +99,35 @@ interface CommonFilterBarProps {
     /** 필터가 많은 페이지에서 두 줄로 자동 줄바꿈 */
     wrap?: boolean;
 }
+
+/**
+ * 필터바 안의 입력 요소를 "칩" 형태로 렌더링합니다.
+ *
+ * 노션 데이터베이스 필터와 같은 방식으로, 라벨과 값이 한 덩어리에 들어가고
+ * 평소에는 테두리가 없다가 마우스를 올리거나 열었을 때만 배경이 생깁니다.
+ * 필터가 10개 넘게 붙는 화면에서도 선이 겹치지 않고 높이도 절반으로 줄어듭니다.
+ *
+ * 호출부에서 variant를 명시했다면 그 값을 존중합니다.
+ * DOM 태그(<div> 등)에는 넘기지 않습니다 — 알 수 없는 속성 경고 방지.
+ */
+const withChipVariant = (child: React.ReactNode): React.ReactNode => {
+    if (!React.isValidElement(child)) return child;
+
+    const props = child.props as { variant?: unknown; children?: React.ReactNode };
+
+    /* <div> 같은 DOM 태그로 컨트롤을 감싼 경우가 많습니다.
+       DOM에는 variant를 넘길 수 없으니(알 수 없는 속성 경고) 안쪽으로 내려갑니다. */
+    if (typeof child.type === "string") {
+        if (props.children === undefined) return child;
+        return React.cloneElement(child as React.ReactElement<any>, {
+            children: React.Children.map(props.children, withChipVariant),
+        });
+    }
+
+    if (props.variant !== undefined) return child;
+
+    return React.cloneElement(child as React.ReactElement<any>, { variant: "chip" });
+};
 
 /** 3. 메인 컴포넌트 **/
 export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSearch, actions, wrap }) => {
@@ -134,10 +143,10 @@ export const CommonFilterBar: React.FC<CommonFilterBarProps> = ({ children, onSe
             <FilterItemsScroll $wrap={wrap}>
                 {React.Children.map(children, (child) => {
                     if (!child) return null;
-                    return <FilterItemWrapper>{child}</FilterItemWrapper>;
+                    return <FilterItemWrapper>{withChipVariant(child)}</FilterItemWrapper>;
                 })}
                 {onSearch && (
-                    <div style={{ paddingLeft: "12px" }}>
+                    <div style={{ paddingLeft: "2px", display: "flex", alignItems: "center" }}>
                         <SearchButton onClick={onSearch} title="검색 실행">
                             <MagnifyingGlass weight="bold" />
                         </SearchButton>

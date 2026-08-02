@@ -32,7 +32,7 @@ const FormContainer = styled.div`
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background: #fff;
+    background: #ffffff;
 `;
 
 const ButtonGroup = styled.div`
@@ -43,16 +43,16 @@ const ButtonGroup = styled.div`
 `;
 
 const BADGE_COLORS: Record<string, { bg: string; color: string }> = {
-    "배급사": { bg: "#dbeafe", color: "#1e40af" },
+    "배급사": { bg: "#bfdbfe", color: "#1d4ed8" },
     "제작사": { bg: "#fce7f3", color: "#9d174d" },
     "극장":   { bg: "#d1fae5", color: "#065f46" },
-    "매입처": { bg: "#fef3c7", color: "#92400e" },
+    "매입처": { bg: "#fffbeb", color: "#b45309" },
 };
 
 const Badge = styled.span<{ $bg: string; $color: string }>`
     display: inline-block;
     padding: 2px 8px;
-    border-radius: 9999px;
+    border-radius: 999px;
     font-size: 11px;
     font-weight: 600;
     background: ${(p) => p.$bg};
@@ -306,7 +306,7 @@ export function ManageUserProfile() {
     return (
         <PageContainer>
             <CommonFilterBar onSearch={handleSearch}>
-                <div style={{ width: "300px" }}>
+                <div>
                     <CustomInput
                         label="검색"
                         placeholder="아이디, 닉네임, 이메일, 소속"

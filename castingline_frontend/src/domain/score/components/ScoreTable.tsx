@@ -2,8 +2,8 @@ import styled from "styled-components";
 
 /* ── 스타일 ── */
 const TableContainer = styled.div`
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 8px;
     overflow: hidden;
 `;
@@ -13,18 +13,18 @@ const MovieInfoBar = styled.div`
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
 `;
 
 const MovieTitle = styled.div`
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    color: #111827;
+    color: #0f172a;
 
     span {
         font-weight: 400;
-        color: #6b7280;
+        color: #64748b;
         margin-left: 8px;
         font-size: 13px;
     }
@@ -35,18 +35,18 @@ const ExcelBtn = styled.button`
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    border: 1px solid #d1d5db;
+    border: 1px solid #cbd5e1;
     border-radius: 6px;
-    background: #fff;
-    color: #374151;
+    background: #ffffff;
+    color: #475569;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
 
     &:hover {
-        background: #f3f4f6;
-        border-color: #9ca3af;
+        background: #f1f5f9;
+        border-color: #94a3b8;
     }
 
     svg { width: 16px; height: 16px; }
@@ -65,8 +65,8 @@ const StyledTable = styled.table`
         padding: 10px 16px;
         text-align: right;
         font-weight: 700;
-        color: #374151;
-        border-bottom: 2px solid #cbd5e1;
+        color: #475569;
+        border-bottom: 1px solid #e2e8f0;
         white-space: nowrap;
 
         &:first-child { text-align: center; }
@@ -75,13 +75,13 @@ const StyledTable = styled.table`
     td {
         padding: 10px 16px;
         text-align: right;
-        color: #111827;
-        border-bottom: 1px solid #e5e7eb;
+        color: #0f172a;
+        border-bottom: 1px solid #e2e8f0;
 
         &:first-child {
             text-align: center;
             font-weight: 600;
-            color: #374151;
+            color: #475569;
         }
     }
 
@@ -93,8 +93,8 @@ const StyledTable = styled.table`
             font-weight: 700;
 
             td {
-                border-top: 2px solid #e5e7eb;
-                color: #111827;
+                border-top: 2px solid #e2e8f0;
+                color: #0f172a;
             }
         }
     }
@@ -161,7 +161,7 @@ export function ScoreTable({ data, movieTitle, releaseDate, onExcelDownload }: S
                 <tbody>
                     {data.length === 0 && (
                         <tr>
-                            <td colSpan={7} style={{ textAlign: "center", color: "#9ca3af", padding: "40px" }}>
+                            <td colSpan={7} style={{ textAlign: "center", color: "#94a3b8", padding: "40px" }}>
                                 검색 조건을 입력하고 검색 버튼을 눌러주세요.
                             </td>
                         </tr>

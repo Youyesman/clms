@@ -36,9 +36,9 @@ const SectionTitle = styled.div`
         content: "";
         width: 4px;
         height: 12px;
-        background-color: #3b82f6; /* Blue 500 */
+        background-color: #2563eb; /* Blue 500 */
         margin-right: 8px;
-        border-radius: 2px;
+        border-radius: 6px;
     }
 `;
 
@@ -47,9 +47,9 @@ const Title = styled.div`
         content: "";
         width: 4px;
         height: 12px;
-        background-color: #3b82f6; /* Blue 500 */
+        background-color: #2563eb; /* Blue 500 */
         margin-right: 8px;
-        border-radius: 2px;
+        border-radius: 4px;
     }
 `
 const TableInputWrapper = styled.div`
@@ -60,22 +60,21 @@ const TableInputWrapper = styled.div`
     }
 `;
 const TR = styled.tr`
-    height: 30px;
+    height: 34px;
     background-color: #ffffff;
     border-bottom: 1px solid #e2e8f0;
-    &:nth-child(even) {
-        background-color: #f8fafc;
-    }
     &:hover {
         background-color: #f1f5f9 !important;
         cursor: pointer;
     }
+    /* 선택 행: 검정 반전 대신 옅은 파랑 — GenericTable과 동일 규칙 */
     &.selected {
-        background-color: #1e293b !important;
+        background-color: #eff6ff !important;
         &,
         td {
-            color: #ffffff !important;
-            border-right-color: #334155 !important;
+            color: #1d4ed8 !important;
+            font-weight: 600 !important;
+            background-color: #eff6ff !important;
         }
     }
 `;
@@ -163,7 +162,7 @@ export function DefaultRateDetail({ selectedClient }: { selectedClient: any }) {
                     ) : (
                         <>
                             <CustomIconButton size={11} onClick={() => { setEditingId(row.id); setEditForm({ ...row }); setIsAdding(false); }} style={{ color: '#64748b' }}><PencilSimpleLine /></CustomIconButton>
-                            <CustomIconButton size={11} onClick={() => handleDelete(row.id)} style={{ color: '#ef4444' }}><Trash /></CustomIconButton>
+                            <CustomIconButton size={11} onClick={() => handleDelete(row.id)} style={{ color: '#dc2626' }}><Trash /></CustomIconButton>
                         </>
                     )}
                 </div>

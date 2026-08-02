@@ -11,6 +11,7 @@ import { FareManagerModal } from "./FareManagerModal";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
+import { EmptyState } from "../../../components/common/EmptyState";
 
 /* ---------------- Styled Components ---------------- */
 
@@ -24,7 +25,7 @@ const TableContainer = styled.div`
     }
     &::-webkit-scrollbar-thumb {
         background: #cbd5e1;
-        border-radius: 10px;
+        border-radius: 8px;
     }
 `;
 
@@ -70,14 +71,14 @@ const EditableCell = styled.td<{
     cursor: pointer;
     transition: all 0.2s;
     color: ${({ $isNegative, $hasValue, $isDirty }) =>
-        $isNegative ? "#ef4444" : $isDirty ? "#b45309" : $hasValue ? "#1e293b" : "#e2e8f0"};
+        $isNegative ? "#dc2626" : $isDirty ? "#b45309" : $hasValue ? "#1e293b" : "#e2e8f0"};
     font-weight: ${({ $hasValue }) => ($hasValue ? "800" : "400")};
     background-color: ${({ $isSelected, $isHighlight, $isNegative, $isDirty }) =>
-        $isSelected ? "#dbeafe" : $isDirty ? "#fef9c3" : $isNegative ? "#fef2f2" : $isHighlight ? "#f1f5f9" : "transparent"};
+        $isSelected ? "#bfdbfe" : $isDirty ? "#fffbeb" : $isNegative ? "#fef2f2" : $isHighlight ? "#f1f5f9" : "transparent"};
     border: ${({ $isSelected, $isDirty }) =>
-        $isSelected ? "2px solid #2563eb !important" : $isDirty ? "1px solid #f59e0b" : "1px solid #e2e8f0"};
+        $isSelected ? "2px solid #2563eb !important" : $isDirty ? "1px solid #d97706" : "1px solid #e2e8f0"};
     &:hover {
-        background-color: #dbeafe;
+        background-color: #bfdbfe;
     }
 `;
 
@@ -130,7 +131,7 @@ const AuditoriumSelect = styled.select`
     font-size: 12px;
     font-weight: 600;
     color: #2563eb;
-    background-color: #fff;
+    background-color: #ffffff;
     cursor: pointer;
     outline: none;
     &:hover {
@@ -138,20 +139,9 @@ const AuditoriumSelect = styled.select`
     }
 `;
 
-const EmptyState = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100px;
-    color: #94a3b8;
-    font-size: 13px;
-    background-color: #f8fafc;
-    border: 1px dashed #cbd5e1;
-    border-radius: 4px;
-`;
 
 const ShortcutHint = styled.span`
-    font-size: 10px;
+    font-size: 11px;
     color: #94a3b8;
     font-weight: 500;
 `;

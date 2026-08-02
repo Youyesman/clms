@@ -1,5 +1,6 @@
 import styled, { createGlobalStyle } from "styled-components";
 import { colorTokens, shadowTokens, sizeTokens, zIndexTokens } from "./designTokens";
+import { uiCssVars } from "./uiTokens";
 import { resetStyles } from "./resetStyles";
 import { commonStyles } from "./commonStyles";
 import { textStyles } from "./textStyles";
@@ -16,6 +17,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         ${colorTokens}
         ${sizeTokens}
         ${zIndexTokens}
+        ${uiCssVars}
         --input-border: var(--Gray-300);
         --sidenav-width: 60px;
         --primary-font-stack: 'SUIT'}
@@ -28,9 +30,9 @@ const CustomerGlobalStyles = createGlobalStyle`
     }
     input::placeholder{
             font-family:  ${fonts.SUIT};
-            font-size: 14px; 
-            color: #999;
-            font-style: italic; 
+            font-size: 13px;
+            color: var(--c-text-subtle);
+            font-style: normal;
     }
 
     html, body, #root {
@@ -81,12 +83,12 @@ const CustomerGlobalStyles = createGlobalStyle`
     //TuiGrid Cell에 Tooltip적용
     .tui-tooltip-content {
     padding: 6px;
-    border-radius: 2px;
+    border-radius: 4px;
     text-align: left;
     display: none;
     position: absolute;
     background-color: #f9f9f9;
-    border: 1px solid #ccc;
+    border: 1px solid #cbd5e1;
     overflow: visible;
     /* z-index: 999000999; */
     }
@@ -113,12 +115,12 @@ const CustomerGlobalStyles = createGlobalStyle`
 
     }
     ::-webkit-scrollbar-thumb {
-    background: rgba(0,0,0,0.1);/* 스크롤바 역동 부분의 색상을 설정 */
+    background: rgba(15, 23, 42, 0.1);/* 스크롤바 역동 부분의 색상을 설정 */
     border-radius: 6px; 
     }
     /* 수평 스크롤바 */
     ::-webkit-scrollbar-track {
-    background: rgba(0,0,0,0.01); /* 스크롤바 배경 색상을 설정 */
+    background: rgba(15, 23, 42, 0.01); /* 스크롤바 배경 색상을 설정 */
     border-radius: 6px; 
     }
 
@@ -268,7 +270,7 @@ const CustomerGlobalStyles = createGlobalStyle`
 
     //title
     .title-exlg{
-        color: var(--text-text-title, #2A2A2A);
+        color: var(--text-text-title, #0f172a);
         font-family: var(--primary-font-stack);
         font-size: 1.75rem;
         font-style: normal;
@@ -277,7 +279,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.0175rem;
     }
     .title-lg{
-        color: var(--text-text-title, #2A2A2A);
+        color: var(--text-text-title, #0f172a);
         font-family: var(--primary-font-stack);
         font-size: 1.25rem;
         font-style: normal;
@@ -286,7 +288,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.0125rem;
     }
     .title-md{
-        color: var(--text-text-primary, #4E4E4E);
+        color: var(--text-text-primary, #475569);
         font-family: var(--primary-font-stack);
         font-size: 1.0625rem;
         font-style: normal;
@@ -295,7 +297,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.03188rem;
     }
     .title-sm{
-        color: var(--text-text-title, #2A2A2A);
+        color: var(--text-text-title, #0f172a);
         font-family: var(--primary-font-stack);
         font-size: 0.9rem;
         font-style: normal;
@@ -304,7 +306,7 @@ const CustomerGlobalStyles = createGlobalStyle`
     }
     //body
     .bd-lg{
-        color: var(--text-text-title, #2A2A2A);
+        color: var(--text-text-title, #0f172a);
         font-family: var(--primary-font-stack);
         font-size: 0.9375rem;
         font-style: normal;
@@ -314,7 +316,7 @@ const CustomerGlobalStyles = createGlobalStyle`
     }
     //normal-caption
     .cp-exlg{
-        color: var(--text-text-primary, #4E4E4E);
+        color: var(--text-text-primary, #475569);
         font-family: var(--primary-font-stack);
         font-size: 1rem;
         font-style: normal;
@@ -323,7 +325,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.0175rem;
     }
     .cp-lg{
-        color: var(--text-text-primary, #4E4E4E);
+        color: var(--text-text-primary, #475569);
         font-family: var(--primary-font-stack);
         font-size: 0.875rem;
         font-style: normal;
@@ -332,7 +334,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.00875rem;
     }
     .cp-md{
-        color: var(--text-text-title, #2A2A2A);
+        color: var(--text-text-title, #0f172a);
         font-family: var(--primary-font-stack);
         font-size: 0.75rem;
         font-style: normal;
@@ -340,7 +342,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         line-height: 130%;
     }
     .cp-sm{
-        color: var(--color-grey-4E, #4E4E4E);
+        color: var(--color-grey-4E, #475569);
         font-family: var(--primary-font-stack);
         font-size: 0.6875rem;
         font-style: normal;
@@ -349,7 +351,7 @@ const CustomerGlobalStyles = createGlobalStyle`
         letter-spacing: -0.00875rem;
     }
     .cp-xsm{
-        color: var(--color-grey-4E, #4E4E4E);
+        color: var(--color-grey-4E, #475569);
         font-family: var(--primary-font-stack);
         font-size: 0.62rem;
         font-style: normal;
@@ -369,7 +371,7 @@ const CustomerGlobalStyles = createGlobalStyle`
     .horizontal-line {
     width: 100%;
     height: 0.0625rem;
-    background: var(--stroke-stroke-primary, rgba(0, 0, 0, 0.10));
+    background: var(--stroke-stroke-primary, rgba(15, 23, 42, 0.10));
     }
     //클릭하면 선택된객체 어떻게 나타낼건지
     .selected{
@@ -409,7 +411,7 @@ export const StyledButton = styled.button<{ size?: ButtonSize }>`
     height: ${({ size = "md" }) => sizeMap[size]};
     border-radius: 50%;
     border: none;
-    background-color: #f5f5f5;
+    background-color: #f8fafc;
     cursor: pointer;
     transition: background-color 0.3s ease;
 
@@ -419,7 +421,7 @@ export const StyledButton = styled.button<{ size?: ButtonSize }>`
 
     img {
         width: 24px;
-        height: 24px;
+        height: 26px;
         object-fit: contain;
     }
 `;
