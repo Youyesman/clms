@@ -17,6 +17,7 @@
 
 import io
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from xml.etree import ElementTree as ET
@@ -140,16 +141,31 @@ def _xml_to_xlsx(xml_bytes):
 
 
 def download_movie_detail_xlsx(session, csrf, movie_cd, start_dt, end_dt):
-    """영화 하나의 상세 통계 엑셀 다운로드 → xlsx bytes."""
-    r = session.post(
-        f"{BASE}/kobis/business/mast/thea/findCompanyStatDetailXls.do",
-        data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
-              "sStartDt": start_dt, "sEndDt": end_dt},
-        timeout=300,
-    )
-    if b"<Workbook" not in r.content[:2000]:
-        raise RuntimeError("상세 엑셀 응답 형식이 예상과 다릅니다(세션 만료 가능)")
-    return _xml_to_xlsx(r.content)
+    """영화 하나의 상세 통계 엑셀 다운로드 → xlsx bytes.
+
+    장기 상영작(예: 비긴어게인)은 KOBIS가 통계 생성에 수 분 걸려 첫 요청이
+    응답 없이 끊기는 일이 있다. 생성 결과는 서버에 캐시되는 것으로 보여
+    재시도는 빠르게 성공하므로, 연결 오류/타임아웃 시 재시도한다.
+    """
+    last_err = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(3)
+        try:
+            r = session.post(
+                f"{BASE}/kobis/business/mast/thea/findCompanyStatDetailXls.do",
+                data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
+                      "sStartDt": start_dt, "sEndDt": end_dt},
+                timeout=300,
+            )
+        except requests.RequestException as e:
+            last_err = e
+            continue
+        if b"<Workbook" not in r.content[:2000]:
+            raise RuntimeError("상세 엑셀 응답 형식이 예상과 다릅니다(세션 만료 가능)")
+        return _xml_to_xlsx(r.content)
+    raise RuntimeError(
+        f"상세 엑셀 다운로드 실패(3회 시도 — KOBIS 통계 생성 지연 가능): {last_err}")
 
 
 def _norm_title(s):
