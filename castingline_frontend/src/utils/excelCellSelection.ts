@@ -10,6 +10,8 @@
  * - Escape 또는 테이블 밖 클릭 시 선택 해제
  */
 
+import { isColumnResizing } from "./tableColumnResize";
+
 const SEL_CLASS = "xls-cell-sel";
 const STYLE_ID = "xls-cell-selection-style";
 
@@ -85,6 +87,7 @@ export function initExcelCellSelection(): () => void {
 
     const onMouseDown = (e: MouseEvent) => {
         if (e.button !== 0) return;
+        if (isColumnResizing()) return; // 열 너비 조절(E002) 드래그 중이면 비켜준다
         const target = e.target as HTMLElement;
         // 버튼/입력 등 상호작용 요소는 기존 동작 유지
         if (target.closest(INTERACTIVE)) {

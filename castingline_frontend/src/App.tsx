@@ -19,6 +19,7 @@ import { SIDEBAR_WIDTH } from "./components/navbar/Sidebar";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { initExcelCellSelection } from "./utils/excelCellSelection";
+import { initTableColumnResize } from "./utils/tableColumnResize";
 
 // AppContainer의 prop 타입 정의
 interface AppContainerProps {
@@ -57,6 +58,8 @@ function App() {
 
     // E001: 모든 테이블에서 엑셀처럼 셀 범위만 드래그 선택 + Ctrl+C 복사 (헤더 행 포함)
     useEffect(() => initExcelCellSelection(), []);
+    // E002: 모든 테이블 헤더의 열 경계 드래그로 너비 조절 (더블클릭 시 초기화)
+    useEffect(() => initTableColumnResize(), []);
 
     const isFullscreen = FULLSCREEN_PATHS.includes(location.pathname);
     const isManagePath = location.pathname.startsWith("/manage");
