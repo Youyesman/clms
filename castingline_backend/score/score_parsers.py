@@ -399,17 +399,28 @@ def handle_score_file_upload(file, movie_id=None):
     name = file.name
     # 영진위(일반극장)는 파일명 또는 내용으로 판별 (영화명 컬럼이 없어 movie_id 필수)
     if "영진위" in name or _is_kofic_file(file):
-        return preview_kofic_format(file, movie_id)
-    if "롯데" in name:
-        return preview_lotte_format(file)
+        result = preview_kofic_format(file, movie_id)
+        file_type = "영진위"
+    elif "롯데" in name:
+        result = preview_lotte_format(file)
+        file_type = "롯데"
     elif "메가박스" in name:
-        return preview_megabox_format(file)
+        result = preview_megabox_format(file)
+        file_type = "메가박스"
     elif "씨네큐" in name:
-        return preview_cineq_format(file)
+        result = preview_cineq_format(file)
+        file_type = "씨네큐"
     # CGV: 파일명에 CGV가 없어도 내용으로 판별 (예: ScoreMail_백룸_YYYYMMDD.xlsx)
     elif "CGV" in name or _is_cgv_file(file):
-        return preview_cgv_format(file)
-    return {"error": "지원하지 않는 파일 양식입니다."}
+        result = preview_cgv_format(file)
+        file_type = "CGV"
+    else:
+        return {"error": "지원하지 않는 파일 양식입니다."}
+
+    # 프론트가 멀티 종류별 저장 정책(메일함 파일명 단위 교체 — M001)을 판단할 수 있게 전달
+    if "error" not in result:
+        result["file_type"] = file_type
+    return result
 
 
 def _is_excluded_kofic_theater(theater_name):
@@ -1118,11 +1129,14 @@ def collect_replace_scope(data_list):
     return scope
 
 
-def _scope_filter(movie_id, entry_date, kinds):
+def _scope_filter(movie_id, entry_date, kinds, source_file=None):
     """(영화 × 상영일자 × 멀티집합)에 해당하는 Score 쿼리셋.
 
     theater_kind 가 비어있는(NULL/'') 극장도 하나의 그룹으로 취급한다.
     IN (NULL) 은 매칭되지 않으므로 별도 조건으로 OR 한다.
+
+    source_file 이 주어지면 같은 파일명으로 업로드된 행만으로 좁힌다.
+    (메일함 CGV/롯데 재업로드 정책 — M001)
     """
     named = sorted(k for k in kinds if k)
     cond = Q()
@@ -1130,16 +1144,21 @@ def _scope_filter(movie_id, entry_date, kinds):
         cond |= Q(client__theater_kind__in=named)
     if any(not k for k in kinds):
         cond |= Q(client__theater_kind__isnull=True) | Q(client__theater_kind="")
-    return Score.objects.filter(
+    qs = Score.objects.filter(
         Q(movie_id=movie_id, entry_date=entry_date) & cond
     )
+    if source_file:
+        qs = qs.filter(source_file=source_file)
+    return qs
 
 
-def preview_replace_scope(data_list):
+def preview_replace_scope(data_list, source_file=None, replace_by_file=False):
     """
     확정 저장 전, 삭제될 기존 스코어의 규모를 dry-run 으로 조회한다. (DB 미반영)
+    replace_by_file 이면 같은 파일명(source_file)으로 올렸던 행만 삭제 범위로 계산한다.
     반환: [{"movie_id", "movie_title", "entry_dates", "existing_count", "theater_count"}]
     """
+    scope_source_file = source_file if (replace_by_file and source_file) else None
     scope = collect_replace_scope(data_list)
     if not scope:
         return []
@@ -1152,7 +1171,7 @@ def preview_replace_scope(data_list):
     # 영화별로 (날짜 / 멀티 / 삭제될 행 수 / 실제 데이터가 있는 극장 수)를 합산
     agg = {}
     for (movie_id, entry_date), kinds in scope.items():
-        qs = _scope_filter(movie_id, entry_date, kinds)
+        qs = _scope_filter(movie_id, entry_date, kinds, source_file=scope_source_file)
         a = agg.setdefault(
             movie_id,
             {"dates": set(), "multis": set(), "existing": 0, "theaters": set()},
@@ -1177,7 +1196,7 @@ def preview_replace_scope(data_list):
     return result
 
 
-def save_confirmed_scores(data_list):
+def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
     """
     엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함.
     저장된 (영화×극장) 조합에 부율(Rate)이 없으면 국가별 기준 부율을 자동 생성함.
@@ -1186,6 +1205,10 @@ def save_confirmed_scores(data_list):
     이번 파일 내용으로 교체한다. CGV 파일을 올리면 그 날짜·영화의 CGV 스코어가 통째로
     갈아끼워지고 롯데 등 다른 멀티는 유지된다. 관/요금/회차가 바뀌어도, 이번 파일에서
     빠진 극장이 있어도 옛 행이 남지 않는다.
+
+    메일함(CGV/롯데) 예외 — M001: replace_by_file=True 이면 같은 파일명(source_file)으로
+    올렸던 기존 행만 삭제한다. 첨부파일명이 다르면 같은 (날짜×영화×멀티)라도 기존 스코어를
+    지우지 않고 누적하고, 완전히 같은 파일을 재업로드하면 그 파일 분량만 교체된다.
 
     반환: {"saved": 저장 건수, "deleted": 삭제 건수, "rates_created": 부율 생성 건수,
            "rates_skipped_no_country": [영화명],
@@ -1252,20 +1275,26 @@ def save_confirmed_scores(data_list):
             fare=i["fare"],
             show_count=i["show_count"],
             visitor=i["visitor"],
+            source_file=source_file or None,
         )
         for i in merged.values()
     ]
 
     # 4. DB 반영 (트랜잭션 보장: 기존분 삭제 + 오더 + 스코어 + 자동 부율 원자적 처리)
     replace_scope = collect_replace_scope(valid_data)
+    # 파일명 단위 교체(M001)는 파일명이 실제로 전달된 경우에만. 없으면 기존 정책으로 폴백.
+    scope_source_file = source_file if (replace_by_file and source_file) else None
     deleted_count = 0
 
     with transaction.atomic():
         # 재업로드 교체: 이번 업로드에 포함된 (상영일자 × 영화 × 멀티)의 기존 스코어를 삭제.
         # 멀티 단위로 통째로 지우므로 관/요금/회차가 바뀐 옛 행도, 이번 파일에서 빠진
         # 극장의 옛 행도 남지 않는다. 파일에 없는 다른 멀티(롯데 등)는 건드리지 않는다.
+        # 메일함(M001)에서는 scope_source_file 로 좁혀 같은 파일 분량만 지운다.
         for (movie_id, entry_date), kinds in replace_scope.items():
-            deleted, _ = _scope_filter(movie_id, entry_date, kinds).delete()
+            deleted, _ = _scope_filter(
+                movie_id, entry_date, kinds, source_file=scope_source_file
+            ).delete()
             deleted_count += deleted
 
         _apply_order_changes(ols_to_create, orders_to_create, orders_to_update)
@@ -1283,7 +1312,7 @@ def save_confirmed_scores(data_list):
                     "fare",
                     "show_count",
                 ],
-                update_fields=["visitor"],
+                update_fields=["visitor", "source_file"],
                 batch_size=500,
             )
 

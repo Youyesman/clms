@@ -195,6 +195,8 @@ export const Mailbox = () => {
         openModal(
             <ScoreExcelUploader
                 initialFile={file}
+                // 메일함 CGV/롯데: 같은 첨부파일명일 때만 교체, 파일명이 다르면 누적 (M001)
+                perFileReplace
                 onUploadSuccess={() => { /* 저장 완료 시 처리 (메일함 갱신 불필요) */ }}
             />,
             { title: "스코어 엑셀 업로드", width: "1600px" }

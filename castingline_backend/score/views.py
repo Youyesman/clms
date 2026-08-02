@@ -849,7 +849,12 @@ def preview_score_upload(request):
 @api_view(["POST"])
 def confirm_score_save(request):
     data_list = request.data.get("data", [])
-    result = save_confirmed_scores(data_list)
+    # 메일함(CGV/롯데) 업로드는 파일명 단위로만 교체 (M001)
+    source_file = request.data.get("source_file") or None
+    replace_by_file = bool(request.data.get("replace_by_file"))
+    result = save_confirmed_scores(
+        data_list, source_file=source_file, replace_by_file=replace_by_file
+    )
 
     message = f"{result['saved']}건의 데이터가 저장되었습니다."
     if result["deleted"]:
@@ -882,7 +887,16 @@ def confirm_score_save(request):
 def preview_score_replace(request):
     """확정 저장 시 삭제될 기존 스코어 규모를 미리 계산해 반환 (DB 미반영)."""
     data_list = request.data.get("data", [])
-    return Response({"data": preview_replace_scope(data_list)}, status=200)
+    source_file = request.data.get("source_file") or None
+    replace_by_file = bool(request.data.get("replace_by_file"))
+    return Response(
+        {
+            "data": preview_replace_scope(
+                data_list, source_file=source_file, replace_by_file=replace_by_file
+            )
+        },
+        status=200,
+    )
 
 
 @api_view(["POST"])

@@ -263,9 +263,12 @@ interface IReplaceScope {
 export function ScoreExcelUploader({
     onUploadSuccess,
     initialFile = null,
+    perFileReplace = false,
 }: {
     onUploadSuccess: () => void;
     initialFile?: File | null;
+    /** 메일함 업로드: CGV/롯데는 같은 첨부파일명일 때만 기존 스코어를 교체하고, 파일명이 다르면 누적 (M001) */
+    perFileReplace?: boolean;
 }) {
     const toast = useToast();
     const { closeModal } = useGlobalModal();
@@ -273,6 +276,8 @@ export function ScoreExcelUploader({
     const [previewData, setPreviewData] = useState<any[]>([]);
     const [dragging, setDragging] = useState(false);
     const [loading, setLoading] = useState(false);
+    // 서버가 판별한 파일 종류 (CGV/롯데/메가박스/씨네큐/영진위)
+    const [fileType, setFileType] = useState<string>("");
 
     // 재검사를 위해 업로드한 파일 보관 + 관 정보 인라인 수정 대상
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -328,6 +333,7 @@ export function ScoreExcelUploader({
     const handleFileProcess = async (file: File) => {
         if (!validateFile(file)) return;
         setUploadedFile(file); // 재검사용 보관
+        setFileType("");
         const formData = new FormData();
         formData.append("file", file);
         // 영진위(일반극장) 파일은 영화를 함께 전달 (선택된 경우에만)
@@ -340,6 +346,7 @@ export function ScoreExcelUploader({
                 headers: { "Content-Type": "multipart/form-data" },
             });
             setPreviewData(res.data.data);
+            setFileType(res.data.file_type || "");
             toast.info("분석이 완료되었습니다. 마이너스 관객 및 에러를 확인하세요.");
         } catch (err) {
             toast.error(handleBackendErrors(err));
@@ -369,6 +376,13 @@ export function ScoreExcelUploader({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieForm.movie?.id]);
 
+    // 메일함 CGV/롯데 업로드: 같은 첨부파일명일 때만 교체, 다르면 누적 (M001)
+    const usePerFileReplace =
+        perFileReplace && (fileType === "CGV" || fileType === "롯데") && !!uploadedFile;
+    const replaceParams = usePerFileReplace
+        ? { source_file: uploadedFile!.name, replace_by_file: true }
+        : {};
+
     // 재업로드 교체 범위 (같은 상영일자·영화의 기존 스코어가 얼마나 삭제되는지) dry-run 조회
     const [replaceScope, setReplaceScope] = useState<IReplaceScope[]>([]);
 
@@ -378,7 +392,7 @@ export function ScoreExcelUploader({
             return;
         }
         let cancelled = false;
-        AxiosPost("score/preview_replace", { data: previewData })
+        AxiosPost("score/preview_replace", { data: previewData, ...replaceParams })
             .then((res) => {
                 if (!cancelled) setReplaceScope(res.data?.data || []);
             })
@@ -388,7 +402,8 @@ export function ScoreExcelUploader({
         return () => {
             cancelled = true;
         };
-    }, [previewData]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewData, usePerFileReplace]);
 
     const replaceScopeTotal = useMemo(
         () => replaceScope.reduce((sum, r) => sum + r.existing_count, 0),
@@ -407,8 +422,12 @@ export function ScoreExcelUploader({
 
     const handleConfirmSave = () => {
         // 재업로드 교체 정책 안내: 이번 파일에 들어있는 멀티의 기존 스코어만 삭제·교체된다.
-        const subtitle =
-            replaceScopeTotal > 0
+        // 메일함 CGV/롯데(M001)는 같은 파일명 분량만 교체되고, 다른 파일 스코어는 유지·누적된다.
+        const subtitle = usePerFileReplace
+            ? replaceScopeTotal > 0
+                ? `같은 파일(${uploadedFile!.name})로 올렸던 기존 스코어 ${replaceScopeTotal.toLocaleString()}건(극장 ${replaceScopeTheaters.toLocaleString()}곳)만 삭제되고 이번 내용으로 교체됩니다. 다른 파일로 올린 스코어는 유지됩니다.`
+                : "다른 파일로 올린 기존 스코어는 유지되고, 이번 파일 내용이 추가됩니다."
+            : replaceScopeTotal > 0
                 ? `[${replaceScopeMultis.join(", ")}]의 기존 스코어 ${replaceScopeTotal.toLocaleString()}건(극장 ${replaceScopeTheaters.toLocaleString()}곳)이 삭제되고 이번 파일 내용으로 교체됩니다. 삭제된 데이터는 복구할 수 없습니다.`
                 : "저장 후에는 기존 데이터에 반영됩니다.";
         showAlert(
@@ -418,7 +437,10 @@ export function ScoreExcelUploader({
             async () => {
                 setLoading(true);
                 try {
-                    const res = await AxiosPost("score/confirm_save", { data: previewData });
+                    const res = await AxiosPost("score/confirm_save", {
+                        data: previewData,
+                        ...replaceParams,
+                    });
                     toast.success(res.data?.message || "데이터가 성공적으로 저장되었습니다.");
                     const skippedMovies: string[] = res.data?.rates_skipped_no_country || [];
                     if (skippedMovies.length > 0) {
