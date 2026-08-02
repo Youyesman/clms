@@ -5,6 +5,8 @@ import CustomModal from "../components/common/CustomModal";
 type ModalOptions = {
     width?: string | number; // ← width 전달 가능
     title?: string;
+    /** true면 바깥(배경) 클릭으로 닫히지 않음 — 작업 중 데이터가 날아가면 안 되는 모달용 */
+    disableBackdropClose?: boolean;
 };
 
 type ModalContextType = {
@@ -33,7 +35,11 @@ export function GlobalModalProvider({ children }) {
             {children}
 
             {modalContent && (
-                <CustomModal onClose={closeModal} width={modalOptions.width} title={modalOptions.title}>
+                <CustomModal
+                    onClose={closeModal}
+                    width={modalOptions.width}
+                    title={modalOptions.title}
+                    disableBackdropClose={modalOptions.disableBackdropClose}>
                     {modalContent}
                 </CustomModal>
             )}

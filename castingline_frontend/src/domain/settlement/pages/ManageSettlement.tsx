@@ -1434,7 +1434,12 @@ export function ManageSettlement() {
                             onClick={() =>
                                 openModal(
                                     <SettlementCompareModal yyyyMm={searchParams.yyyyMm} />,
-                                    { title: "부금정산서 대사 (직영 엑셀 · 위탁/일반 PDF)", width: "1500px" }
+                                    {
+                                        title: "부금정산서 대사 (직영 엑셀 · 위탁/일반 PDF)",
+                                        width: "1500px",
+                                        // 대사 작업 중 바깥을 클릭해도 작업 내용이 사라지지 않게 (B001)
+                                        disableBackdropClose: true,
+                                    }
                                 )
                             }
                             title="부금정산서 파일과 화면 데이터 비교 (직영 엑셀 + 위탁/일반극장 PDF, 파일 내 전체 영화 자동 대사)"

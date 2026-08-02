@@ -73,11 +73,13 @@ interface CustomModalProps {
     onClose: () => void;
     width?: string | number;
     title?: string; // 타이틀 Props 추가
+    /** true면 바깥(배경) 클릭으로 닫히지 않음 — X 버튼으로만 닫힘 */
+    disableBackdropClose?: boolean;
 }
 
-export default function CustomModal({ children, onClose, width, title }: CustomModalProps) {
+export default function CustomModal({ children, onClose, width, title, disableBackdropClose }: CustomModalProps) {
     return (
-        <Backdrop onClick={onClose}>
+        <Backdrop onClick={disableBackdropClose ? undefined : onClose}>
             <ModalPositioner>
                 <ModalBox $width={width} onClick={(e) => e.stopPropagation()}>
                     <CloseButton onClick={onClose} title="닫기">
