@@ -27,6 +27,13 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
 
+# HTTPS 리버스 프록시(Apache) 뒤에서 동작 — admin 등 POST 시 CSRF Origin 검증용
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    "https://castingline.co.kr,https://www.castingline.co.kr",
+).split(",")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
