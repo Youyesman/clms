@@ -147,6 +147,7 @@ const LabelValue = styled.div<{
     $isPlaceholder?: boolean;
     $chip?: boolean;
     $applied?: boolean;
+    $minW?: number;
 }>`
     flex: 1;
     color: ${({ $isPlaceholder }) => ($isPlaceholder ? ui.color.textSubtle : ui.color.text)};
@@ -167,6 +168,12 @@ const LabelValue = styled.div<{
         css`
             color: ${ui.color.textSubtle};
             font-weight: ${ui.font.weight.regular};
+        `}
+    /* 인스턴스별 값 영역 최소폭 (영화명처럼 넓은 선택 버튼이 필요한 곳) */
+    ${({ $minW }) =>
+        $minW &&
+        css`
+            min-width: ${$minW}px;
         `}
 `;
 
@@ -248,6 +255,7 @@ export function CustomSelect({
     allowClear = true,
     variant = "default",
     neutralValues = NEUTRAL_FILTER_VALUES,
+    chipValueMinWidth,
 }: {
     options: any[];
     value?: string;
@@ -275,6 +283,11 @@ export function CustomSelect({
      * 화면에 따라 다르면 이 prop으로 재정의하세요. 예) neutralValues={["", "미지정"]}
      */
     neutralValues?: string[];
+    /**
+     * 칩 값 영역 최소폭(px). 지정하면 값이 비어도 옅은 "선택" placeholder와
+     * 함께 이 폭을 유지한다 — 영화명처럼 넓은 선택 버튼이 필요한 곳용.
+     */
+    chipValueMinWidth?: number;
 }) {
     const rawOptions = options.map((opt) => (typeof opt === "string" ? { label: opt, value: opt } : opt));
     const normalizedOptions = allowClear ? [{ label: "선택", value: "" }, ...rawOptions] : rawOptions;
@@ -296,11 +309,13 @@ export function CustomSelect({
     const showInternalLabel = label && labelPlacement === "left";
     const selected = normalizedOptions.find((opt) => opt.value === value);
     const isPlaceholder = !value || value === "";
-    /* 칩 모드에서도 값 영역을 항상 유지 — 비어 있으면 옅은 "선택" placeholder.
-       (값이 비면 라벨만 남아 칩이 너무 좁아져 누르기 어렵다는 요청) */
+    /* 칩 모드에서 값이 비면 라벨만 남긴다. 단 chipValueMinWidth가 지정된 칩은
+       (영화명처럼 넓은 버튼이 필요한 곳) 옅은 "선택" placeholder로 폭을 유지한다 */
     const displayLabel = isChip
         ? isPlaceholder
-            ? placeholder || "선택"
+            ? chipValueMinWidth
+                ? placeholder || "선택"
+                : ""
             : selected?.label || ""
         : selected?.label || (isPlaceholder ? "선택" : placeholder || "");
 
@@ -409,7 +424,8 @@ export function CustomSelect({
                                 $hasLeft={Boolean(showInternalLabel)}
                                 $isPlaceholder={isPlaceholder}
                                 $chip={isChip}
-                                $applied={isApplied}>
+                                $applied={isApplied}
+                                $minW={isChip ? chipValueMinWidth : undefined}>
                                 {displayLabel}
                             </LabelValue>
                         )}

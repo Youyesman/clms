@@ -67,9 +67,6 @@ export const filterChipLabel = css<{ $applied?: boolean }>`
 /** 칩 안의 값 */
 export const filterChipValue = css<{ $applied?: boolean }>`
     flex: 0 0 auto;
-    /* 값이 비거나 짧아도 셀렉트 칩이 너무 좁아지지 않게 최소폭을 확보한다
-       (펼침 버튼이 좁아 누르기 어렵다는 요청) */
-    min-width: 90px;
     line-height: ${CHIP_LINE_HEIGHT};
     padding-left: 8px;
     font-size: ${ui.font.size.md};

@@ -1479,6 +1479,7 @@ export function ManageSettlement() {
                         }}
                         labelWidth="50px"
                         disabled={movieLoading}
+                        chipValueMinWidth={200}
                     />
                     {movieLoading && (
                         <div style={{ position: "absolute", right: "32px", top: "8px", zIndex: 5 }}>
