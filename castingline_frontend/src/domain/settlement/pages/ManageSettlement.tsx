@@ -9,6 +9,7 @@ import {
     PencilSimple,
     Checks,
     CalendarCheck,
+    Warning,
 } from "@phosphor-icons/react";
 import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
@@ -82,7 +83,7 @@ const Spinner = styled(CircleNotch)`
 // ... (omitting ListHeader unchanged)
 
 /* 필터바 액션 버튼 — 통일된 소프트 톤 (연한 배경 + 컬러 텍스트) */
-const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
+const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" }>`
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -100,6 +101,8 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
             ? "background:#f0fdf4; border:1px solid #dcfce7; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#16a34a;}"
             : $tone === "sky"
             ? "background:#eff6ff; border:1px solid #bfdbfe; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
+            : $tone === "amber"
+            ? "background:#fffbeb; border:1px solid #fde68a; color:#b45309; &:hover:not(:disabled){background:#fde68a; border-color:#f59e0b;}"
             : "background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; &:hover:not(:disabled){background:#bfdbfe; border-color:#60a5fa;}"}
     &:disabled {
         background: #f8fafc;
@@ -638,6 +641,160 @@ function BulkDateModal({
     );
 }
 
+const StaleModalBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: "SUIT", sans-serif;
+    font-size: 13px;
+    color: #475569;
+    .hint {
+        font-size: 12px;
+        color: #64748b;
+    }
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 40px 0;
+        color: #64748b;
+    }
+    .empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 40px 0;
+        color: #15803d;
+        font-weight: 600;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        th, td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            white-space: nowrap;
+        }
+        th {
+            background: #f8fafc;
+            font-weight: 700;
+            color: #334155;
+        }
+        td.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .go {
+            padding: 2px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid #bfdbfe;
+            border-radius: 4px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            cursor: pointer;
+            &:hover { background: #bfdbfe; }
+        }
+    }
+`;
+
+/** '기준 변경'(적용 중지) 상태인 수동 조정 점검 — 선택한 부금년월에 조정이 있는
+ *  영화를 서버가 재계산해 깨진 조정만 모아 보여준다. '이동'으로 해당 영화 화면 점프. */
+function StaleCheckModal({
+    yyyyMm,
+    onJump,
+}: {
+    yyyyMm: string;
+    onJump: (yyyyMm: string, movieId: number) => void;
+}) {
+    const [loading, setLoading] = useState(true);
+    const [checked, setChecked] = useState(0);
+    const [stale, setStale] = useState<any[]>([]);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        AxiosGet("settlement-adjustments-stale/", { params: { yyyyMm } })
+            .then((res) => {
+                setChecked(res.data?.checked ?? 0);
+                setStale(res.data?.stale ?? []);
+            })
+            .catch((e) => setError(handleBackendErrors(e)))
+            .finally(() => setLoading(false));
+    }, [yyyyMm]);
+
+    if (loading)
+        return (
+            <StaleModalBody>
+                <div className="loading">
+                    <Spinner size={18} weight="bold" />
+                    {yyyyMm}월에 조정이 저장된 영화를 재계산해 점검하는 중…
+                </div>
+            </StaleModalBody>
+        );
+    if (error)
+        return (
+            <StaleModalBody>
+                <div className="loading" style={{ color: "#dc2626" }}>{error}</div>
+            </StaleModalBody>
+        );
+    return (
+        <StaleModalBody>
+            {stale.length === 0 ? (
+                <div className="empty">
+                    <CheckCircle size={18} weight="fill" />
+                    {yyyyMm}월에 기준 변경 상태인 조정이 없습니다. (영화 {checked}개 점검)
+                </div>
+            ) : (
+                <>
+                    <div className="hint">
+                        조정 후 부율·스코어가 바뀌어 <b>적용이 중지된 조정 {stale.length}건</b>
+                        입니다 ({yyyyMm}월, 영화 {checked}개 점검). '이동'을 눌러 해당
+                        화면에서 해제하거나 재수정해주세요.
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>영화</th>
+                                <th>극장</th>
+                                <th>지역</th>
+                                <th style={{ textAlign: "right" }}>중지된 조정액(지급금)</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {stale.map((s) => (
+                                <tr key={`${s.yyyyMm}-${s.movie_id}-${s.adjustment_id}`}>
+                                    <td>{s.movie_title}</td>
+                                    <td title={s.client_code}>{s.client_name}</td>
+                                    <td>{s.region}</td>
+                                    <td className="num" title={s.reason}>
+                                        {typeof s.payout_delta === "number"
+                                            ? `${s.payout_delta >= 0 ? "+" : ""}${s.payout_delta.toLocaleString()}`
+                                            : "-"}
+                                    </td>
+                                    <td>
+                                        <button
+                                            className="go"
+                                            onClick={() => onJump(s.yyyyMm, s.movie_id)}
+                                            title="해당 월·영화 정산 화면으로 이동"
+                                        >
+                                            이동
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </>
+            )}
+        </StaleModalBody>
+    );
+}
+
 export function ManageSettlement() {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
@@ -697,6 +854,9 @@ export function ManageSettlement() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    // 기준변경 점검 모달 '이동' 대기 상태 — 영화 전환 후 자동 조회용
+    const pendingJumpRef = useRef<{ yyyyMm: string; movieId: string } | null>(null);
+
     // 1. 년월 변경 시 영화 목록 자동 호출
     const fetchMoviesByMonth = useCallback(async () => {
         setMovieLoading(true);
@@ -748,6 +908,36 @@ export function ManageSettlement() {
 
     /** 목록만 다시 불러오기 (스크롤 유지) — 로컬 반영이 불가능한 경우의 폴백 */
     const refreshSettlements = useCallback(() => fetchSettlements(true), [fetchSettlements]);
+
+    // 기준변경 점검 '이동' — 영화 선택 상태가 목표에 도달하면 자동 조회
+    useEffect(() => {
+        const jump = pendingJumpRef.current;
+        if (
+            jump &&
+            searchParams.yyyyMm === jump.yyyyMm &&
+            searchParams.movieId === jump.movieId
+        ) {
+            pendingJumpRef.current = null;
+            fetchSettlements();
+        }
+    }, [searchParams.yyyyMm, searchParams.movieId, fetchSettlements]);
+
+    /** 기준변경 점검 모달 '이동' — 해당 영화로 전환해 자동 조회 (같은 부금년월).
+     *  대상 행이 필터에 가려 안 보이지 않게 극장 검색·필터도 초기화한다. */
+    const jumpToStale = useCallback(
+        (yyyyMm: string, movieId: number) => {
+            closeModal();
+            pendingJumpRef.current = { yyyyMm, movieId: String(movieId) };
+            setSelectedTheater(null);
+            setTheaterInput("");
+            setConfirmFilter("전체");
+            setMultiFilter("전체");
+            setClassFilter("전체");
+            setSettlements([]);
+            setSearchParams((p) => ({ ...p, movieId: String(movieId), target: "전체극장" }));
+        },
+        [closeModal]
+    );
 
     const AMOUNT_KEYS = ["공급가액", "부가세", "영화사 지급금"] as const;
 
@@ -1459,6 +1649,25 @@ export function ManageSettlement() {
                         >
                             <Checks weight="bold" size={16} />
                             전체 확인
+                        </EseroButton>
+                        <EseroButton
+                            $tone="amber"
+                            onClick={() =>
+                                openModal(
+                                    <StaleCheckModal
+                                        yyyyMm={searchParams.yyyyMm}
+                                        onJump={jumpToStale}
+                                    />,
+                                    {
+                                        title: `기준 변경 조정 점검 (${searchParams.yyyyMm})`,
+                                        width: "700px",
+                                    }
+                                )
+                            }
+                            title="선택한 부금년월에서 부율·스코어 변경으로 적용이 중지된(기준 변경) 조정을 한 번에 점검"
+                        >
+                            <Warning weight="bold" size={16} />
+                            기준변경 점검
                         </EseroButton>
                         <EseroButton
                             $tone="blue"

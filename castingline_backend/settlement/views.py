@@ -1509,6 +1509,65 @@ class SettlementAdjustmentDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SettlementStaleAdjustmentView(APIView):
+    """'기준 변경'으로 적용이 중지된 수동 조정 전체 점검 (관리자 전용).
+
+    GET /Api/settlement-adjustments-stale/?yyyyMm=
+    조정이 저장된 월·영화 조합을 전부 재계산해 조정경고(기준 변경)가 붙은
+    건만 모아 반환한다. 영화를 하나씩 열어봐야만 발견되는 경고를 한 번에
+    확인하는 용도. yyyyMm을 주면 해당 월만 점검한다.
+    """
+
+    def get(self, request):
+        denied = _require_admin(request)
+        if denied:
+            return denied
+        from settlement.models import SettlementAdjustment
+        qs = SettlementAdjustment.objects.select_related("client")
+        yyyy_mm = request.query_params.get("yyyyMm")
+        if yyyy_mm:
+            qs = qs.filter(yyyymm=yyyy_mm)
+        adj_map = {a.id: a for a in qs}
+        combos = sorted({(a.yyyymm, a.movie_id) for a in adj_map.values()})
+        titles = {m.id: m.title_ko for m in Movie.objects.filter(
+            id__in={mid for _, mid in combos})}
+
+        sv = SettlementListView()
+        stale, errors = [], []
+        for ym, mid in combos:
+            try:
+                rows = sv.get_processed_data(
+                    ym, mid, "전체극장",
+                    include_adjustments=True, show_adjustment_info=True)
+            except Exception:
+                errors.append({"yyyyMm": ym, "movie_id": mid,
+                               "movie_title": titles.get(mid, "")})
+                continue
+            for it in rows:
+                warn = it.get("조정경고")
+                if not warn:
+                    continue
+                a = adj_map.get(warn.get("조정ID"))
+                stale.append({
+                    "yyyyMm": ym,
+                    "movie_id": mid,
+                    "movie_title": titles.get(mid, ""),
+                    "client_code": it.get("거래처코드"),
+                    "client_name": it.get("극장명"),
+                    "region": it.get("지역"),
+                    "adjustment_id": warn.get("조정ID"),
+                    "reason": warn.get("사유"),
+                    "supply_original": a.supply_original if a else None,
+                    "supply_delta": a.supply_delta if a else None,
+                    "vat_delta": a.vat_delta if a else None,
+                    "payout_delta": a.payout_delta if a else None,
+                    "note": a.note if a else "",
+                    "updated_at": a.updated_at if a else None,
+                })
+        return Response({"checked": len(combos), "stale": stale,
+                         "errors": errors})
+
+
 # 2-3. 부금 정산 극장별 확인 처리
 
 
