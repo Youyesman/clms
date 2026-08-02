@@ -163,11 +163,11 @@ const IconBox = styled.div`
     flex-shrink: 0;
 `;
 
+/* body로 portal 되어 뜨는 목록 — 위치(top|bottom/left/width)는 열 때 계산한
+   인라인 스타일이 전담한다. 여기에 top 같은 offset을 두면 위로 펼치는 경우
+   (인라인이 bottom만 설정) top이 살아남아 화면 밖으로 밀려난다 (O001). */
 const Dropdown = styled.ul`
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
+    position: fixed;
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
