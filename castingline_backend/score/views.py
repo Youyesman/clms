@@ -2311,7 +2311,7 @@ def score_settlement_detail(request):
     # 클라이언트 정보
     clients = {
         c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
-            "id", "theater_name", "client_name", "excel_theater_name",
+            "id", "client_code", "theater_name", "client_name", "excel_theater_name",
             "region_code", "theater_kind", "classification"
         )
     }
@@ -2360,6 +2360,7 @@ def score_settlement_detail(request):
         if group_key not in aggregated:
             aggregated[group_key] = {
                 "theater": get_system_name(cid),
+                "client_code": client_info.get("client_code") or "",
                 "distributor_theater": dist_theater_name_map.get(cid, ""),
                 "format": row_format,
                 "region": client_info.get("region_code") or "",
@@ -2416,6 +2417,7 @@ def score_settlement_detail(request):
 
         rows.append({
             "theater": data["theater"],
+            "client_code": data["client_code"],
             "distributor_theater": data["distributor_theater"],
             "format": data["format"],
             "region": data["region"],
@@ -2433,6 +2435,77 @@ def score_settlement_detail(request):
             "total_payment": total_out,
             "unit_price": unit_out,
         })
+
+    # 부금 정산 수동조정 반영 (F001) — 부금 정산 관리(월 단위)에서 대사/수기
+    # 수정으로 조정한 금액을 배급사뷰에도 동일하게 반영한다.
+    # 조회 기간에 '완전히 포함되는' 월마다 정산 계산(조정 적용/미적용)의 극장별
+    # 차액을 구해 해당 극장의 지급금 최대 행에 합산한다 — 정산 관리의 적용
+    # 규칙(기준 변경으로 적용 중지된 조정 제외 등)이 그대로 따라온다.
+    # 포맷을 골라 조회할 때는 월 단위 조정을 포맷별로 나눌 수 없어 반영하지 않는다.
+    if not format_movie_ids_list and rows:
+        import calendar as _cal
+        from settlement.models import SettlementAdjustment
+
+        months = []
+        d = date_from_obj.replace(day=1)
+        while d <= date_to_obj:
+            last = d.replace(day=_cal.monthrange(d.year, d.month)[1])
+            if d >= date_from_obj and last <= date_to_obj:
+                months.append(d.strftime("%Y-%m"))
+            d = last + timedelta(days=1)
+
+        adjustments = list(SettlementAdjustment.objects.filter(
+            yyyymm__in=months, movie_id=movie_id).select_related("client")) if months else []
+        if adjustments:
+            from settlement.views import SettlementListView
+            sv = SettlementListView()
+
+            def _sums(items):
+                out = defaultdict(lambda: [0, 0, 0])
+                for it in items:
+                    code = it.get("거래처코드")
+                    if it.get("is_subtotal") or not code:
+                        continue
+                    out[code][0] += it.get("공급가액") or 0
+                    out[code][1] += it.get("부가세") or 0
+                    out[code][2] += it.get("영화사 지급금") or 0
+                return out
+
+            deltas = defaultdict(lambda: [0, 0, 0])
+            for ym in months:
+                adj_sums = _sums(sv.get_processed_data(ym, movie_id, "전체극장"))
+                base_sums = _sums(sv.get_processed_data(
+                    ym, movie_id, "전체극장", include_adjustments=False))
+                for code in set(adj_sums) | set(base_sums):
+                    for i in range(3):
+                        deltas[code][i] += adj_sums[code][i] - base_sums[code][i]
+
+            rows_by_code = defaultdict(list)
+            for r in rows:
+                if r.get("client_code"):
+                    rows_by_code[r["client_code"]].append(r)
+
+            for code, (ds, dv, dp) in deltas.items():
+                if not (ds or dv or dp):
+                    continue
+                cands = rows_by_code.get(code)
+                if not cands:
+                    continue  # 조회 조건(지역/멀티/직위)에 걸러진 극장은 건드리지 않음
+                tgt = max(cands, key=lambda r: r.get("total_payment") or 0)
+                tgt["supply_value"] = (tgt.get("supply_value") or 0) + ds
+                tgt["vat"] = (tgt.get("vat") or 0) + dv
+                tgt["total_payment"] = (tgt.get("total_payment") or 0) + dp
+                if tgt.get("visitor"):
+                    tgt["unit_price"] = round((tgt["supply_value"] or 0) / tgt["visitor"])
+
+            # 날짜(To) 확정도 동일하게 반영 — 그 극장 행의 마지막 상영일 표기
+            for adj in adjustments:
+                if not adj.date_to_override:
+                    continue
+                cands = rows_by_code.get(adj.client.client_code)
+                if cands:
+                    tgt = max(cands, key=lambda r: r.get("total_payment") or 0)
+                    tgt["max_date"] = adj.date_to_override.strftime("%Y-%m-%d")
 
     # 정렬: 멀티순 → 직영/위탁 → 지역(부금정산 탭과 동일한 고정 순서) → 극장명
     _MULTI_ORD = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3}
