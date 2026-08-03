@@ -232,8 +232,11 @@ class SettlementListView(APIView):
         if include_adjustments:
             from settlement.compare import format_bucket
             from settlement.models import SettlementAdjustment
+            # 극장 단위("") 조정을 포맷 지정 조정보다 먼저 적용 — "" 조정의 원본
+            # 합계 검증(orig_is_aggregate)이 포맷 조정 반영 전 값 기준이 되도록.
             adjustments = SettlementAdjustment.objects.filter(
-                yyyymm=yyyy_mm, movie_id=movie_id).select_related("client")
+                yyyymm=yyyy_mm, movie_id=movie_id).select_related(
+                    "client").order_by("screen_format", "id")
             if client_id:
                 adjustments = adjustments.filter(client_id=client_id)
             for adj in adjustments:
@@ -857,8 +860,10 @@ class SettlementCompareView(SettlementListView):
           엑셀 행은 시스템에 데이터가 있는 구분(직영→위탁→기타 순)으로 귀속,
           PDF(AI) 행은 매칭된 거래처의 구분 그대로.
         - 포맷 버킷은 포맷 식별이 가능한 직영 체인(FORMAT_SPLIT_CHAINS: CGV=영화명
-          괄호 표기, 메가박스=상영종류 컬럼)만 분리. 위탁/기타 정산서는 포맷 정보가
-          없어 극장 단위(버킷 "") 비교.
+          괄호 표기, 메가박스=상영종류 컬럼)만 분리. 위탁/기타 PDF는 기본 극장
+          단위(버킷 "") 비교하되, 파일 제명에 포맷 표기가 있는 극장(예: CGV 위탁관
+          '눈동자(DOLBY ATMOS 2D)')은 포맷 버킷으로 분리해 포맷별 계산서와 1원
+          단위까지 맞춘다.
         """
         import re as _re
 
@@ -867,6 +872,25 @@ class SettlementCompareView(SettlementListView):
 
         def _fmt_split(chain, cls):
             return chain in FORMAT_SPLIT_CHAINS and cls == "직영"
+
+        primary_title = primary_movie.title_ko or ""
+
+        # 위탁/기타 PDF(AI) 행도 파일 제명에 포맷 표기가 있으면(예: '눈동자(DOLBY
+        # ATMOS 2D)') 해당 극장은 포맷 버킷으로 분리해 대사한다 — 극장 단위 합산은
+        # 포맷별 ±1원 반올림 잔차가 상쇄돼 일괄 조정이 한 행에 몰리는 문제가 있음.
+        # 포맷 표기가 전혀 없는 극장은 기존대로 극장 단위(버킷 "") 비교 — 위탁
+        # 정산서 다수는 포맷 정보가 없고, 이때 분리하면 시스템측 포맷 행과 가짜
+        # 불일치가 생기기 때문.
+        ai_row_fmt = {}          # id(row) → 포맷 버킷
+        ai_fmt_theaters = set()  # 분리 대상 (체인, 구분, 정규화극장명)
+        for row in file_rows:
+            if row.get("source") != "ai" or row.get("client") is None:
+                continue
+            fmt = format_bucket(str(row["movie"]).replace(primary_title, ""), row["chain"])
+            ai_row_fmt[id(row)] = fmt
+            if fmt != "2D":
+                ai_fmt_theaters.add((row["chain"], row["cls"],
+                                     norm_theater(row["client_name"])))
 
         # 시스템측: 화면과 동일 계산(get_processed_data, 조정 미포함 — 아래에서 자체 적용)
         # → 극장×포맷별 합산. 전 구분을 집계하되 표시 범위는 아래 allowed_pairs 로 거른다.
@@ -878,8 +902,12 @@ class SettlementCompareView(SettlementListView):
                 continue  # 수동조정 행은 아래에서 별도 적용 (메가박스 재계산이 덮지 않도록)
             row_chain = row.get("멀티구분") or ""
             cls = row.get("classification") or ""
-            fmt = format_bucket(row.get("상영타입"), row_chain) if _fmt_split(row_chain, cls) else ""
-            key = (row_chain, cls, norm_theater(row["극장명"]), fmt)
+            norm_name = norm_theater(row["극장명"])
+            if _fmt_split(row_chain, cls) or (row_chain, cls, norm_name) in ai_fmt_theaters:
+                fmt = format_bucket(row.get("상영타입"), row_chain)
+            else:
+                fmt = ""
+            key = (row_chain, cls, norm_name, fmt)
             agg = sys_by_theater.setdefault(key, {
                 # 발전기금면제관 별도 거래처는 본 극장에 합산되므로 표시명에서 접미사 제거
                 "name": row["극장명"].replace("(발전기금면제관)", ""),
@@ -905,7 +933,6 @@ class SettlementCompareView(SettlementListView):
         # 포맷 버킷: 메가박스는 상영종류 컬럼(screen_kind), CGV는 파일 영화명에서
         # 영화 제목을 뗀 나머지(포맷/이벤트 표기)로 판정 — 제목 자체에 3D/IMAX 등이
         # 들어간 영화가 오분류되지 않게 한다.
-        primary_title = primary_movie.title_ko or ""
         file_by_theater = {}
         file_movie_names = set()
         for row in file_rows:
@@ -915,9 +942,12 @@ class SettlementCompareView(SettlementListView):
                 # 미매칭(cls None)은 파일에만 있는 행으로 남는다.
                 if row.get("client") is not None:
                     ch, cls, norm = row["chain"], row["cls"], norm_theater(row["client_name"])
+                    # 포맷 분리 대상 극장이면 제명 표기 기준 버킷 (표기 없는 행은 기본관)
+                    fmt = (ai_row_fmt.get(id(row), "2D")
+                           if (ch, cls, norm) in ai_fmt_theaters else "")
                 else:
                     ch, cls, norm = row["chain"], None, norm_theater(row["theater"])
-                fmt = ""
+                    fmt = ""
             else:
                 ch = row["chain"]
                 norm = norm_theater(row["theater"])
@@ -975,8 +1005,11 @@ class SettlementCompareView(SettlementListView):
         # 포맷 지정 조정은 해당 (극장, 포맷) 행에, 포맷 미지정(구버전/극장 전체) 조정은
         # 그 극장에서 지급금이 가장 큰 포맷 행에 적용 (정산 화면과 동일 규칙).
         from settlement.models import SettlementAdjustment
+        # screen_format "" (극장 단위 구버전) → 포맷 지정 순으로 적용 — 포맷 분리
+        # 전환기에 두 종류 조정이 공존해도 적용 결과가 순서에 따라 달라지지 않게.
         for adj in SettlementAdjustment.objects.filter(
-                yyyymm=yyyy_mm, movie=primary_movie).select_related("client"):
+                yyyymm=yyyy_mm, movie=primary_movie).select_related(
+                    "client").order_by("screen_format", "id"):
             chain_k = adj.client.theater_kind or ""
             cls_k = adj.client.classification or ""
             name_k = norm_theater(adj.client.client_name)
