@@ -328,9 +328,9 @@ export function GenericTable({
   } | null>(null);
   const [editValue, setEditValue] = useState<any>("");
 
-  const handleDoubleClick = (item: any, header: any) => {
+  const handleDoubleClick = (item: any, header: any, rowKey: any) => {
     if (header.editable) {
-      setEditingCell({ rowId: getRowKey(item), key: header.key });
+      setEditingCell({ rowId: rowKey, key: header.key });
       setEditValue(item[header.key] ?? "");
     }
   };
@@ -343,6 +343,14 @@ export function GenericTable({
       setEditingCell(null);
     }
   };
+
+  // 선택 행 비교용 key — 행 key에 인덱스가 포함되므로 선택 항목도 같은
+  // 인덱스로 key를 만들어야 비교가 어긋나지 않는다. 목록에 없으면(갱신 후
+  // 이전 객체) 인덱스 없이 만들어 id 기반 key 테이블의 선택 유지를 보존한다.
+  const selectedIdx = selectedItem ? sortedData.indexOf(selectedItem) : -1;
+  const selectedKey = selectedItem
+    ? getRowKey(selectedItem, selectedIdx === -1 ? undefined : selectedIdx)
+    : null;
 
   const renderPageNumbers = () => {
     const pages: React.ReactNode[] = [];
@@ -380,7 +388,7 @@ export function GenericTable({
                       checked={sortedData.length > 0 && selectedIds.length === sortedData.length}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          onSelectionChange(sortedData.map((item: any) => getRowKey(item)));
+                          onSelectionChange(sortedData.map((item: any, i: number) => getRowKey(item, i)));
                         } else {
                           onSelectionChange([]);
                         }
@@ -418,10 +426,14 @@ export function GenericTable({
           </THead>
           <tbody>
             {topRow && topRow}
-            {sortedData.map((item: any) => {
-              const rowKey = getRowKey(item);
+            {sortedData.map((item: any, rowIdx: number) => {
+              // 인덱스를 반드시 넘겨 key 중복을 막는다 — 호출처가 idx를 키에 쓰는데
+              // undefined가 들어가면 같은 key의 행이 생겨 정렬 반복 시 React가
+              // 행을 복제/누락시킴 (부금 정산 멀티포맷 극장 중복 표시 버그)
+              const rowKey = getRowKey(item, rowIdx);
               const isSelected =
-                selectedItem && rowKey === getRowKey(selectedItem);
+                selectedItem &&
+                (selectedItem === item || rowKey === selectedKey);
               const shouldHighlight = getRowHighlight
                 ? getRowHighlight(item)
                 : false;
@@ -462,7 +474,7 @@ export function GenericTable({
                         className={header.editable ? "editable" : "read-only"}
                         onDoubleClick={(e) => {
                           e.stopPropagation(); // 행 선택 이벤트 방지
-                          handleDoubleClick(item, header);
+                          handleDoubleClick(item, header, rowKey);
                         }}
                       >
                         {isEditing ? (
