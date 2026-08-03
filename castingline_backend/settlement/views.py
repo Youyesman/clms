@@ -119,19 +119,29 @@ class SettlementListView(APIView):
             return []
 
         # 스코어 데이터 조회 (합산된 영화 ID들 사용)
-        scores = Score.objects.filter(
+        # 월 스코어가 수십만 행이라 모델 객체로 만들면 ORM 인스턴스 생성이
+        # 전체 조회 시간의 대부분을 차지함 → 필요한 컬럼만 튜플로 가져오고
+        # Client/Movie는 id별로 한 번만 로드해서 재사용한다 (P001)
+        scores_qs = Score.objects.filter(
             entry_date__year=yyyy, entry_date__month=mm, movie_id__in=all_related_movie_ids
-        ).select_related("client", "movie").order_by("entry_date")
-
+        )
         if client_id:
-            scores = scores.filter(client_id=client_id)
+            scores_qs = scores_qs.filter(client_id=client_id)
 
-        if not scores.exists():
+        # entry_date 정렬 유지 — 같은 극장의 포맷별 행 순서(그룹 생성 순서)가
+        # 정렬에 따라 달라지므로 기존 표시 순서를 보존한다
+        score_rows = list(scores_qs.order_by("entry_date").values_list(
+            "client_id", "movie_id", "entry_date", "auditorium", "fare", "visitor"))
+        if not score_rows:
             return []
 
         # 캐싱 데이터 준비
-        client_ids = list(scores.values_list(
-            "client_id", flat=True).distinct())
+        client_ids = list({r[0] for r in score_rows})
+        client_map = Client.objects.in_bulk(client_ids)
+        movie_map = Movie.objects.in_bulk({r[1] for r in score_rows})
+        # 상영타입 문자열은 영화별로 한 번만 조합
+        screening_type_map = {
+            m_id: self._get_screening_type(m) for m_id, m in movie_map.items()}
         daily_fund_map = {(f.client_id, f.dd): f.fund_yn for f in DailyFund.objects.filter(
             client_id__in=client_ids, yyyy=yyyy, mm=mm)}
         monthly_fund_map = {(f.client_id, f.mm): f.fund_yn for f in MonthlyFund.objects.filter(
@@ -162,33 +172,31 @@ class SettlementListView(APIView):
 
         # 데이터 집계
         aggregated_data = {}
-        for score in scores:
+        for c_id, m_id, entry_date, auditorium, fare_raw, visitor_raw in score_rows:
             # 음수 인원(환불) 행도 정산 합계에 반영 (S001). 파싱 불가 행만 제외.
             try:
-                int(score.visitor or 0)
+                int(visitor_raw or 0)
             except (ValueError, TypeError):
                 continue
 
-            client = score.client
-            c_id = client.id
-            entry_date = score.entry_date
+            client = client_map[c_id]
 
             # 부율 조회는 해당 스코어의 실제 하위영화(상영 포맷) 기준
             share_rate = self._get_cached_rate(
-                c_id, score.movie_id, entry_date, score.auditorium, rate_map, theater_rate_map, default_rate_map, client)
+                c_id, m_id, entry_date, auditorium, rate_map, theater_rate_map, default_rate_map, client)
             is_fund_exempt = self._get_cached_fund(
                 c_id, entry_date, daily_fund_map, monthly_fund_map, yearly_fund_map)
 
             # 하위영화별 상영타입을 구분하여 그룹핑 (필름/디지털, 자막/더빙, 2D/3D 등 모든 타입 조합)
-            screening_type = self._get_screening_type(score.movie)
+            screening_type = screening_type_map[m_id]
             group_key = (c_id, share_rate, is_fund_exempt, screening_type)
             if group_key not in aggregated_data:
                 aggregated_data[group_key] = self.init_data_struct(
-                    client, score.movie, share_rate, is_fund_exempt, entry_date)
+                    client, movie_map[m_id], share_rate, is_fund_exempt, entry_date)
 
             target = aggregated_data[group_key]
-            visitor_count = int(score.visitor or 0)
-            fare = Decimal(str(score.fare or 0))
+            visitor_count = int(visitor_raw or 0)
+            fare = Decimal(str(fare_raw or 0))
 
             unit_excl_fund = fare if is_fund_exempt else (
                 fare / Decimal("1.03")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
@@ -507,7 +515,10 @@ class SettlementListView(APIView):
             class_idx = 0 if x["classification"] == "직영" else 1
             region_idx = region_order.index(
                 x["지역"]) if x["지역"] in region_order else 99
-            return (brand_idx, class_idx, region_idx, x["극장명"])
+            # 같은 극장의 포맷별 행 순서가 스코어 조회 순서(비결정적)에 따라
+            # 뒤바뀌지 않도록 상영타입까지 정렬 키에 포함해 고정한다
+            return (brand_idx, class_idx, region_idx, x["극장명"],
+                    str(x.get("상영타입") or ""))
 
         items.sort(key=get_sort_key)
         if not items:
