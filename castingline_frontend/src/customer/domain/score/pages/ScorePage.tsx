@@ -93,6 +93,23 @@ const ExcelSlot = styled.div`
     padding-bottom: 2px;
 `;
 
+// 검색 버튼 (정산조회와 동일 규격)
+const SearchBtn = styled.button`
+    height: 30px;
+    padding: 0 14px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+    &:hover {
+        background: #1d4ed8;
+    }
+`;
+
 const TableSection = styled.div`
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -208,32 +225,20 @@ export function ScorePage() {
             .catch((err) => toast.error(handleBackendErrors(err)));
     }, [activeFilters, compareMode, selectedFormats, formatOptions]);
 
+    // 조회는 검색 버튼으로만 실행 — 필터를 바꿔도 자동 조회하지 않는다 (정산조회와 동일).
+    // compareMode 는 이미 조회한 데이터의 차트 표시 방식이라 즉시 반영한다.
     useEffect(() => {
-        fetchStatistics();
-    }, [fetchStatistics]);
+        if (activeFilters.movie_id) fetchStatistics();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeFilters, compareMode]);
 
-    // 필터 변경 시 자동 검색: movie_id가 선택된 상태에서 필터가 바뀌면 즉시 반영
-    useEffect(() => {
-        if (searchParams.movie_id) {
-            setActiveFilters({ ...searchParams });
+    const handleSearch = () => {
+        if (!searchParams.movie_id) {
+            toast.error("영화를 선택해 주세요.");
+            return;
         }
-    }, [
-        searchParams.yyyy,
-        searchParams.movie_id,
-        searchParams.sort_by,
-        searchParams.region,
-        searchParams.multi,
-        searchParams.theater_type,
-    ]);
-
-    // 날짜 변경 시 디바운스 적용 (500ms)
-    useEffect(() => {
-        if (!searchParams.movie_id) return;
-        const timer = setTimeout(() => {
-            setActiveFilters((prev) => ({ ...prev, date: searchParams.date }));
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [searchParams.date]);
+        setActiveFilters({ ...searchParams });
+    };
 
     const handleSortChange = (newSort: string) => {
         setSearchParams((prev) => ({ ...prev, sort_by: newSort }));
@@ -443,6 +448,7 @@ export function ScorePage() {
                                 value={searchParams.multi}
                                 onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))} variant="chip" />
                         </div>
+                        <SearchBtn onClick={handleSearch}>검색</SearchBtn>
                         <ExcelSlot>
                             <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
                         </ExcelSlot>

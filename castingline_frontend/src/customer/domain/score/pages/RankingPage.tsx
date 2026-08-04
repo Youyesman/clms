@@ -51,7 +51,15 @@ const PageWrapper = styled.div`
     background-color: #f8fafc;
     /* 높이를 고정해 테이블이 내부 스크롤되게 함 — 헤더 틀고정(sticky)이 동작하는 조건 */
     height: calc(100vh - 60px);
+`;
+
+/* 탭바 아래 본문 — 스코어 현황 메인과 동일하게 탭은 상단에 붙이고 내용에만 패딩 */
+const MainSection = styled.div`
+    flex: 1;
+    min-height: 0; /* 내부 테이블 스크롤(sticky 헤더) 유지 조건 */
     padding: 20px;
+    display: flex;
+    flex-direction: column;
     gap: 16px;
 `;
 
@@ -64,6 +72,23 @@ const FilterBar = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: flex-end;
+`;
+
+// 검색 버튼 (정산조회와 동일 규격)
+const SearchBtn = styled.button`
+    height: 30px;
+    padding: 0 14px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+    &:hover {
+        background: #1d4ed8;
+    }
 `;
 
 // 필터 줄 오른쪽 끝에 엑셀 버튼을 붙인다
@@ -282,23 +307,25 @@ export function RankingPage() {
         toast,
     ]);
 
-    useEffect(() => {
-        if (searchParams.movie_id) fetchData();
-    }, [
-        searchParams.movie_id,
-        searchParams.date_from,
-        searchParams.date_to,
-        searchParams.region,
-        searchParams.multi,
-        searchParams.theater_type,
-        selectedFormats,
-        sortKey,
-        fetchData,
-    ]);
+    // 조회는 검색 버튼으로만 실행 — 필터를 바꿔도 자동 조회하지 않는다 (정산조회와 동일)
+    const handleSearch = () => {
+        if (!searchParams.movie_id) {
+            toast.error("영화를 선택해 주세요.");
+            return;
+        }
+        fetchData();
+    };
 
     const handleSortClick = (key: SortKey) => {
         setSortKey(key);
     };
+
+    // 정렬은 서버에서 수행하므로, 이미 조회한 결과가 있을 때 정렬을 바꾸면
+    // 그 결과를 새 정렬로 다시 불러온다 (새 검색은 검색 버튼으로만)
+    useEffect(() => {
+        if ((data.rows || []).length > 0 && searchParams.movie_id) fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sortKey]);
 
     const { meta } = data;
 
@@ -341,179 +368,182 @@ export function RankingPage() {
     return (
         <PageWrapper>
             <PageNavTabs tabs={SCORE_TABS} />
-            {/* ── 필터 ── */}
-            <FilterBar>
-                <div>
-                    <CustomSelect
-                        label="연도"
-                        options={yearOptions}
-                        value={searchParams.yyyy}
-                        onChange={(v) => {
-                            setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
-                            setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
-                            setFormatOptions([]);
-                            setSelectedFormats([]);
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomSelect
-                        label="영화선택"
-                        allowClear={false}
-                        chipValueMinWidth={200}
-                        options={moviesList.map((m) => ({
-                            label: m.title_ko,
-                            value: m.id.toString(),
-                        }))}
-                        value={searchParams.movie_id}
-                        onChange={(val) => {
-                            setSearchParams((p) => ({ ...p, movie_id: val }));
-                            setScoreFilter((f) => ({ ...f, movieId: val }));
-                            fetchMovieFormats(val);
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomMultiSelect
-                        label="포맷"
-                        groups={FORMAT_GROUPS}
-                        value={selectedFormats}
-                        onChange={setSelectedFormats}
-                        disabled={formatOptions.length === 0} variant="chip" />
-                </div>
-                <div>
-                    <CustomSelect
-                        label="지역"
-                        options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
-                        value={searchParams.region}
-                        onChange={(v) =>
-                            setSearchParams((p) => ({ ...p, region: v }))
-                        } variant="chip" />
-                </div>
-                <div>
-                    <CustomSelect
-                        label="멀티"
-                        options={["전체", "롯데", "CGV", "메가박스", "자동차극장", "씨네큐", "작은영화관", "기타"]}
-                        value={searchParams.multi}
-                        onChange={(v) =>
-                            setSearchParams((p) => ({ ...p, multi: v }))
-                        } variant="chip" />
-                </div>
-                <div>
-                    <CustomSelect
-                        label="극장유형"
-                        options={["전체", "직영", "위탁", "기타"]}
-                        value={searchParams.theater_type}
-                        onChange={(v) =>
-                            setSearchParams((p) => ({ ...p, theater_type: v }))
-                        } variant="chip" />
-                </div>
-                <div>
-                    <CustomInput
-                        inputType="date"
-                        label="날짜 from"
-                        value={searchParams.date_from}
-                        setValue={(v) => {
-                            setSearchParams((p) => ({ ...p, date_from: v }));
-                            setScoreFilter((f) => ({ ...f, dateFrom: v, date: v }));
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomInput
-                        inputType="date"
-                        label="날짜 to"
-                        value={searchParams.date_to}
-                        setValue={(v) => {
-                            setSearchParams((p) => ({ ...p, date_to: v }));
-                            setScoreFilter((f) => ({ ...f, dateTo: v }));
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomInput
-                        label="극장 검색"
-                        placeholder="극장명 입력"
-                        value={theaterSearch}
-                        setValue={setTheaterSearch} variant="chip" />
-                </div>
-                <ExcelSlot>
-                    <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
-                </ExcelSlot>
-            </FilterBar>
+            <MainSection>
+                {/* ── 필터 ── */}
+                <FilterBar>
+                    <div>
+                        <CustomSelect
+                            label="연도"
+                            options={yearOptions}
+                            value={searchParams.yyyy}
+                            onChange={(v) => {
+                                setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                setFormatOptions([]);
+                                setSelectedFormats([]);
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomSelect
+                            label="영화선택"
+                            allowClear={false}
+                            chipValueMinWidth={200}
+                            options={moviesList.map((m) => ({
+                                label: m.title_ko,
+                                value: m.id.toString(),
+                            }))}
+                            value={searchParams.movie_id}
+                            onChange={(val) => {
+                                setSearchParams((p) => ({ ...p, movie_id: val }));
+                                setScoreFilter((f) => ({ ...f, movieId: val }));
+                                fetchMovieFormats(val);
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomMultiSelect
+                            label="포맷"
+                            groups={FORMAT_GROUPS}
+                            value={selectedFormats}
+                            onChange={setSelectedFormats}
+                            disabled={formatOptions.length === 0} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomSelect
+                            label="지역"
+                            options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
+                            value={searchParams.region}
+                            onChange={(v) =>
+                                setSearchParams((p) => ({ ...p, region: v }))
+                            } variant="chip" />
+                    </div>
+                    <div>
+                        <CustomSelect
+                            label="멀티"
+                            options={["전체", "롯데", "CGV", "메가박스", "자동차극장", "씨네큐", "작은영화관", "기타"]}
+                            value={searchParams.multi}
+                            onChange={(v) =>
+                                setSearchParams((p) => ({ ...p, multi: v }))
+                            } variant="chip" />
+                    </div>
+                    <div>
+                        <CustomSelect
+                            label="극장유형"
+                            options={["전체", "직영", "위탁", "기타"]}
+                            value={searchParams.theater_type}
+                            onChange={(v) =>
+                                setSearchParams((p) => ({ ...p, theater_type: v }))
+                            } variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            inputType="date"
+                            label="날짜 from"
+                            value={searchParams.date_from}
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date_from: v }));
+                                setScoreFilter((f) => ({ ...f, dateFrom: v, date: v }));
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            inputType="date"
+                            label="날짜 to"
+                            value={searchParams.date_to}
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date_to: v }));
+                                setScoreFilter((f) => ({ ...f, dateTo: v }));
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            label="극장 검색"
+                            placeholder="극장명 입력"
+                            value={theaterSearch}
+                            setValue={setTheaterSearch} variant="chip" />
+                    </div>
+                    <SearchBtn onClick={handleSearch}>검색</SearchBtn>
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
+                </FilterBar>
 
-            {meta && (
-                <MovieInfo>
-                    {meta.movie_title}
-                    <span>
-                        (개봉일: {meta.release_date || "-"} | 집계기간:{" "}
-                        {meta.date_from} ~ {meta.date_to})
-                    </span>
-                </MovieInfo>
-            )}
+                {meta && (
+                    <MovieInfo>
+                        {meta.movie_title}
+                        <span>
+                            (개봉일: {meta.release_date || "-"} | 집계기간:{" "}
+                            {meta.date_from} ~ {meta.date_to})
+                        </span>
+                    </MovieInfo>
+                )}
 
-            {/* ── 테이블 ── */}
-            <TableContainer>
-                <StyledTable>
-                    <thead>
-                        <tr>
-                            <th>순위</th>
-                            <th style={{ minWidth: 130, textAlign: "left" }}>극장</th>
-                            <SortableTh
-                                $active={sortKey === "visitor"}
-                                onClick={() => handleSortClick("visitor")}
-                            >
-                                누적 관객수(명)
-                                <SortArrow>
-                                    {sortKey === "visitor" ? "▼" : "▽"}
-                                </SortArrow>
-                            </SortableTh>
-                            <th>상영기간</th>
-                            <SortableTh
-                                $active={sortKey === "revenue"}
-                                onClick={() => handleSortClick("revenue")}
-                            >
-                                누적 매출액(원)
-                                <SortArrow>
-                                    {sortKey === "revenue" ? "▼" : "▽"}
-                                </SortArrow>
-                            </SortableTh>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.length === 0 && (
+                {/* ── 테이블 ── */}
+                <TableContainer>
+                    <StyledTable>
+                        <thead>
                             <tr>
-                                <EmptyTd colSpan={5}>
-                                    {loading
-                                        ? "데이터 조회 중..."
-                                        : "영화를 선택하면 데이터가 표시됩니다"}
-                                </EmptyTd>
+                                <th>순위</th>
+                                <th style={{ minWidth: 130, textAlign: "left" }}>극장</th>
+                                <SortableTh
+                                    $active={sortKey === "visitor"}
+                                    onClick={() => handleSortClick("visitor")}
+                                >
+                                    누적 관객수(명)
+                                    <SortArrow>
+                                        {sortKey === "visitor" ? "▼" : "▽"}
+                                    </SortArrow>
+                                </SortableTh>
+                                <th>상영기간</th>
+                                <SortableTh
+                                    $active={sortKey === "revenue"}
+                                    onClick={() => handleSortClick("revenue")}
+                                >
+                                    누적 매출액(원)
+                                    <SortArrow>
+                                        {sortKey === "revenue" ? "▼" : "▽"}
+                                    </SortArrow>
+                                </SortableTh>
                             </tr>
-                        )}
-                        {rows.map((row, idx) => (
-                            <tr key={idx}>
-                                <td>{idx + 1}</td>
-                                <td style={{ textAlign: "left" }}>
-                                    {row.theater}
-                                </td>
-                                <td>{fmtN(row.visitor)}</td>
-                                <td>
-                                    {row.min_date === row.max_date
-                                        ? row.min_date
-                                        : `${row.min_date} ~ ${row.max_date}`}
-                                </td>
-                                <td>{fmtN(row.revenue)}</td>
-                            </tr>
-                        ))}
-                        {rows.length > 0 && (
-                            <TotalRow>
-                                <td colSpan={2} style={{ textAlign: "right" }}>
-                                    합계
-                                </td>
-                                <td>{fmtN(totalVisitor)}</td>
-                                <td>-</td>
-                                <td>{fmtN(totalRevenue)}</td>
-                            </TotalRow>
-                        )}
-                    </tbody>
-                </StyledTable>
-            </TableContainer>
+                        </thead>
+                        <tbody>
+                            {rows.length === 0 && (
+                                <tr>
+                                    <EmptyTd colSpan={5}>
+                                        {loading
+                                            ? "데이터 조회 중..."
+                                            : "검색 조건을 선택 후 검색 버튼을 클릭하세요"}
+                                    </EmptyTd>
+                                </tr>
+                            )}
+                            {rows.map((row, idx) => (
+                                <tr key={idx}>
+                                    <td>{idx + 1}</td>
+                                    <td style={{ textAlign: "left" }}>
+                                        {row.theater}
+                                    </td>
+                                    <td>{fmtN(row.visitor)}</td>
+                                    <td>
+                                        {row.min_date === row.max_date
+                                            ? row.min_date
+                                            : `${row.min_date} ~ ${row.max_date}`}
+                                    </td>
+                                    <td>{fmtN(row.revenue)}</td>
+                                </tr>
+                            ))}
+                            {rows.length > 0 && (
+                                <TotalRow>
+                                    <td colSpan={2} style={{ textAlign: "right" }}>
+                                        합계
+                                    </td>
+                                    <td>{fmtN(totalVisitor)}</td>
+                                    <td>-</td>
+                                    <td>{fmtN(totalRevenue)}</td>
+                                </TotalRow>
+                            )}
+                        </tbody>
+                    </StyledTable>
+                </TableContainer>
+            </MainSection>
         </PageWrapper>
     );
 }

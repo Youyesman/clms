@@ -73,7 +73,15 @@ const PageWrapper = styled.div`
     background-color: #f8fafc;
     /* 높이를 고정해 상세표가 내부 스크롤되게 함 — 요약표·헤더 틀고정(sticky) 동작 조건 */
     height: calc(100vh - 60px);
+`;
+
+/* 탭바 아래 본문 — 스코어 현황 메인과 동일하게 탭은 상단에 붙이고 내용에만 패딩 */
+const MainSection = styled.div`
+    flex: 1;
+    min-height: 0; /* 내부 테이블 스크롤(sticky 헤더) 유지 조건 */
     padding: 20px;
+    display: flex;
+    flex-direction: column;
     gap: 16px;
 `;
 
@@ -92,6 +100,23 @@ const FilterBar = styled.div`
 const ExcelSlot = styled.div`
     margin-left: auto;
     padding-bottom: 2px;
+`;
+
+// 검색 버튼 (정산조회와 동일 규격)
+const SearchBtn = styled.button`
+    height: 30px;
+    padding: 0 14px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+    &:hover {
+        background: #1d4ed8;
+    }
 `;
 
 const MovieInfo = styled.div`
@@ -304,9 +329,14 @@ export function SeatRatePage() {
             .finally(() => setLoading(false));
     }, [searchParams.movie_id, searchParams.date, selectedFormats, formatOptions, toast]);
 
-    useEffect(() => {
-        if (searchParams.movie_id) fetchData();
-    }, [searchParams.movie_id, searchParams.date, selectedFormats, fetchData]);
+    // 조회는 검색 버튼으로만 실행 — 필터를 바꿔도 자동 조회하지 않는다 (정산조회와 동일)
+    const handleSearch = () => {
+        if (!searchParams.movie_id) {
+            toast.error("영화를 선택해 주세요.");
+            return;
+        }
+        fetchData();
+    };
 
     const { meta, summary } = data;
 
@@ -395,246 +425,249 @@ export function SeatRatePage() {
     return (
         <PageWrapper>
             <PageNavTabs tabs={SCORE_TABS} />
-            {/* ── 필터 ── */}
-            <FilterBar>
-                <div>
-                    <CustomSelect
-                        label="연도"
-                        options={yearOptions}
-                        value={searchParams.yyyy}
-                        onChange={(v) => {
-                            setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
-                            setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
-                            setFormatOptions([]);
-                            setSelectedFormats([]);
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomSelect
-                        label="영화선택"
-                        allowClear={false}
-                        chipValueMinWidth={200}
-                        options={moviesList.map((m) => ({
-                            label: m.title_ko,
-                            value: m.id.toString(),
-                        }))}
-                        value={searchParams.movie_id}
-                        onChange={(val) => {
-                            setSearchParams((p) => ({ ...p, movie_id: val }));
-                            setScoreFilter((f) => ({ ...f, movieId: val }));
-                            fetchMovieFormats(val);
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomMultiSelect
-                        label="포맷"
-                        groups={FORMAT_GROUPS}
-                        value={selectedFormats}
-                        onChange={setSelectedFormats}
-                        disabled={formatOptions.length === 0} variant="chip" />
-                </div>
-                <div>
-                    <CustomInput
-                        inputType="date"
-                        label="날짜"
-                        value={searchParams.date}
-                        setValue={(v) => {
-                            setSearchParams((p) => ({ ...p, date: v }));
-                            setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
-                        }} variant="chip" />
-                </div>
-                <div>
-                    <CustomInput
-                        label="극장 검색"
-                        placeholder="극장명 입력"
-                        value={theaterSearch}
-                        setValue={setTheaterSearch} variant="chip" />
-                </div>
-                <ExcelSlot>
-                    <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
-                </ExcelSlot>
-            </FilterBar>
+            <MainSection>
+                {/* ── 필터 ── */}
+                <FilterBar>
+                    <div>
+                        <CustomSelect
+                            label="연도"
+                            options={yearOptions}
+                            value={searchParams.yyyy}
+                            onChange={(v) => {
+                                setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                setFormatOptions([]);
+                                setSelectedFormats([]);
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomSelect
+                            label="영화선택"
+                            allowClear={false}
+                            chipValueMinWidth={200}
+                            options={moviesList.map((m) => ({
+                                label: m.title_ko,
+                                value: m.id.toString(),
+                            }))}
+                            value={searchParams.movie_id}
+                            onChange={(val) => {
+                                setSearchParams((p) => ({ ...p, movie_id: val }));
+                                setScoreFilter((f) => ({ ...f, movieId: val }));
+                                fetchMovieFormats(val);
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomMultiSelect
+                            label="포맷"
+                            groups={FORMAT_GROUPS}
+                            value={selectedFormats}
+                            onChange={setSelectedFormats}
+                            disabled={formatOptions.length === 0} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            inputType="date"
+                            label="날짜"
+                            value={searchParams.date}
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, date: v }));
+                                setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            label="극장 검색"
+                            placeholder="극장명 입력"
+                            value={theaterSearch}
+                            setValue={setTheaterSearch} variant="chip" />
+                    </div>
+                    <SearchBtn onClick={handleSearch}>검색</SearchBtn>
+                    <ExcelSlot>
+                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                    </ExcelSlot>
+                </FilterBar>
 
-            {meta && (
-                <MovieInfo>
-                    {meta.movie_title}
-                    <span>
-                        (개봉일: {meta.release_date || "-"} | 기준일:{" "}
-                        {meta.date})
-                    </span>
-                </MovieInfo>
-            )}
+                {meta && (
+                    <MovieInfo>
+                        {meta.movie_title}
+                        <span>
+                            (개봉일: {meta.release_date || "-"} | 기준일:{" "}
+                            {meta.date})
+                        </span>
+                    </MovieInfo>
+                )}
 
-            {/* ── 상단 요약표 ── */}
-            <SummarySection>
-                <SectionLabel>멀티별 좌석판매율 요약</SectionLabel>
-                <TableContainer>
-                    <StyledTable>
-                        <thead>
-                            <tr>
-                                <th>영화관</th>
-                                <th>관객수(명)</th>
-                                <th>좌석수</th>
-                                <th>좌석판매율(%)</th>
-                                {REGIONS.map((r) => (
-                                    <th key={r}>{r}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {summary.length === 0 && (
-                                <EmptyRow>
-                                    <td colSpan={4 + REGIONS.length}>
-                                        {loading
-                                            ? "데이터 조회 중..."
-                                            : "영화를 선택하면 데이터가 표시됩니다"}
-                                    </td>
-                                </EmptyRow>
-                            )}
-                            {summary.map((row) =>
-                                row.multi === "합계" ? (
-                                    <TotalRow key="total">
-                                        <td>합계</td>
-                                        <td>{fmtN(row.visitor)}</td>
-                                        <td>{fmtN(row.seat_count)}</td>
-                                        <td>{fmtRate(row.seat_rate)}</td>
-                                        {REGIONS.map((r) => (
-                                            <td key={r}>
-                                                {fmtRate(
-                                                    row.regions?.[r] ?? null
-                                                )}
-                                            </td>
-                                        ))}
-                                    </TotalRow>
-                                ) : (
-                                    <tr key={row.multi}>
-                                        <td style={{ fontWeight: 600 }}>
-                                            {row.multi}
+                {/* ── 상단 요약표 ── */}
+                <SummarySection>
+                    <SectionLabel>멀티별 좌석판매율 요약</SectionLabel>
+                    <TableContainer>
+                        <StyledTable>
+                            <thead>
+                                <tr>
+                                    <th>영화관</th>
+                                    <th>관객수(명)</th>
+                                    <th>좌석수</th>
+                                    <th>좌석판매율(%)</th>
+                                    {REGIONS.map((r) => (
+                                        <th key={r}>{r}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {summary.length === 0 && (
+                                    <EmptyRow>
+                                        <td colSpan={4 + REGIONS.length}>
+                                            {loading
+                                                ? "데이터 조회 중..."
+                                                : "검색 조건을 선택 후 검색 버튼을 클릭하세요"}
                                         </td>
-                                        <td>{fmtN(row.visitor)}</td>
-                                        <td>{fmtN(row.seat_count)}</td>
-                                        <td>{fmtRate(row.seat_rate)}</td>
-                                        {REGIONS.map((r) => (
-                                            <td key={r}>
-                                                {fmtRate(
-                                                    row.regions?.[r] ?? null
-                                                )}
+                                    </EmptyRow>
+                                )}
+                                {summary.map((row) =>
+                                    row.multi === "합계" ? (
+                                        <TotalRow key="total">
+                                            <td>합계</td>
+                                            <td>{fmtN(row.visitor)}</td>
+                                            <td>{fmtN(row.seat_count)}</td>
+                                            <td>{fmtRate(row.seat_rate)}</td>
+                                            {REGIONS.map((r) => (
+                                                <td key={r}>
+                                                    {fmtRate(
+                                                        row.regions?.[r] ?? null
+                                                    )}
+                                                </td>
+                                            ))}
+                                        </TotalRow>
+                                    ) : (
+                                        <tr key={row.multi}>
+                                            <td style={{ fontWeight: 600 }}>
+                                                {row.multi}
                                             </td>
-                                        ))}
-                                    </tr>
-                                )
-                            )}
-                        </tbody>
-                    </StyledTable>
-                </TableContainer>
-            </SummarySection>
+                                            <td>{fmtN(row.visitor)}</td>
+                                            <td>{fmtN(row.seat_count)}</td>
+                                            <td>{fmtRate(row.seat_rate)}</td>
+                                            {REGIONS.map((r) => (
+                                                <td key={r}>
+                                                    {fmtRate(
+                                                        row.regions?.[r] ?? null
+                                                    )}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    )
+                                )}
+                            </tbody>
+                        </StyledTable>
+                    </TableContainer>
+                </SummarySection>
 
-            {/* ── 하단 상세표 ── */}
-            <DetailSection>
-                <SectionLabel>극장별 좌석판매율 상세</SectionLabel>
-                <TableContainer>
-                    <StyledTable>
-                        <thead>
-                            <tr>
-                                <th>멀티구분</th>
-                                <th>순위</th>
-                                <th>지역</th>
-                                <th>구분</th>
-                                <th style={{ minWidth: 120, textAlign: "left" }}>
-                                    극장
-                                </th>
-                                <th>상영일</th>
-                                <th>관객수(명)</th>
-                                <th>매출액(원)</th>
-                                <th>상영횟수</th>
-                                <th>좌석수</th>
-                                <th>좌석판매율(%)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {detail.length === 0 && (
-                                <EmptyRow>
-                                    <td colSpan={11}>
-                                        {loading
-                                            ? "데이터 조회 중..."
-                                            : "영화를 선택하면 데이터가 표시됩니다"}
-                                    </td>
-                                </EmptyRow>
-                            )}
-                            {multiKeys.map((multi) => {
-                                const rows = detailByMulti[multi];
-                                const subVisitor = rows.reduce(
-                                    (s, r) => s + r.visitor,
-                                    0
-                                );
-                                const subRevenue = rows.reduce(
-                                    (s, r) => s + r.revenue,
-                                    0
-                                );
-                                const subShow = rows.reduce(
-                                    (s, r) => s + r.show_count,
-                                    0
-                                );
-                                const subSeat = rows.reduce(
-                                    (s, r) => s + r.seat_count,
-                                    0
-                                );
-                                const subRate =
-                                    subSeat > 0
-                                        ? Math.round(
-                                              (subVisitor / subSeat) * 1000
-                                          ) / 10
-                                        : 0;
-                                return (
-                                    <React.Fragment key={multi}>
-                                        {rows.map((row, idx) => (
-                                            <tr key={idx}>
-                                                <td>{row.multi}</td>
-                                                <td>{row.rank}</td>
-                                                <td>{row.region}</td>
-                                                <td>{row.classification}</td>
+                {/* ── 하단 상세표 ── */}
+                <DetailSection>
+                    <SectionLabel>극장별 좌석판매율 상세</SectionLabel>
+                    <TableContainer>
+                        <StyledTable>
+                            <thead>
+                                <tr>
+                                    <th>멀티구분</th>
+                                    <th>순위</th>
+                                    <th>지역</th>
+                                    <th>구분</th>
+                                    <th style={{ minWidth: 120, textAlign: "left" }}>
+                                        극장
+                                    </th>
+                                    <th>상영일</th>
+                                    <th>관객수(명)</th>
+                                    <th>매출액(원)</th>
+                                    <th>상영횟수</th>
+                                    <th>좌석수</th>
+                                    <th>좌석판매율(%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {detail.length === 0 && (
+                                    <EmptyRow>
+                                        <td colSpan={11}>
+                                            {loading
+                                                ? "데이터 조회 중..."
+                                                : "검색 조건을 선택 후 검색 버튼을 클릭하세요"}
+                                        </td>
+                                    </EmptyRow>
+                                )}
+                                {multiKeys.map((multi) => {
+                                    const rows = detailByMulti[multi];
+                                    const subVisitor = rows.reduce(
+                                        (s, r) => s + r.visitor,
+                                        0
+                                    );
+                                    const subRevenue = rows.reduce(
+                                        (s, r) => s + r.revenue,
+                                        0
+                                    );
+                                    const subShow = rows.reduce(
+                                        (s, r) => s + r.show_count,
+                                        0
+                                    );
+                                    const subSeat = rows.reduce(
+                                        (s, r) => s + r.seat_count,
+                                        0
+                                    );
+                                    const subRate =
+                                        subSeat > 0
+                                            ? Math.round(
+                                                  (subVisitor / subSeat) * 1000
+                                              ) / 10
+                                            : 0;
+                                    return (
+                                        <React.Fragment key={multi}>
+                                            {rows.map((row, idx) => (
+                                                <tr key={idx}>
+                                                    <td>{row.multi}</td>
+                                                    <td>{row.rank}</td>
+                                                    <td>{row.region}</td>
+                                                    <td>{row.classification}</td>
+                                                    <td
+                                                        style={{
+                                                            textAlign: "left",
+                                                        }}
+                                                    >
+                                                        {row.theater}
+                                                    </td>
+                                                    <td>{row.date}</td>
+                                                    <td>
+                                                        {fmtN(row.visitor)}
+                                                    </td>
+                                                    <td>
+                                                        {fmtN(row.revenue)}
+                                                    </td>
+                                                    <td>{fmtN(row.show_count)}</td>
+                                                    <td>{fmtN(row.seat_count)}</td>
+                                                    <td>
+                                                        {fmtRate(row.seat_rate)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {/* 멀티별 합계 행 */}
+                                            <SubTotalRow>
                                                 <td
-                                                    style={{
-                                                        textAlign: "left",
-                                                    }}
+                                                    colSpan={6}
+                                                    style={{ textAlign: "right" }}
                                                 >
-                                                    {row.theater}
+                                                    {multi} 합계
                                                 </td>
-                                                <td>{row.date}</td>
-                                                <td>
-                                                    {fmtN(row.visitor)}
-                                                </td>
-                                                <td>
-                                                    {fmtN(row.revenue)}
-                                                </td>
-                                                <td>{fmtN(row.show_count)}</td>
-                                                <td>{fmtN(row.seat_count)}</td>
-                                                <td>
-                                                    {fmtRate(row.seat_rate)}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {/* 멀티별 합계 행 */}
-                                        <SubTotalRow>
-                                            <td
-                                                colSpan={6}
-                                                style={{ textAlign: "right" }}
-                                            >
-                                                {multi} 합계
-                                            </td>
-                                            <td>{fmtN(subVisitor)}</td>
-                                            <td>{fmtN(subRevenue)}</td>
-                                            <td>{fmtN(subShow)}</td>
-                                            <td>{fmtN(subSeat)}</td>
-                                            <td>{fmtRate(subRate)}</td>
-                                        </SubTotalRow>
-                                    </React.Fragment>
-                                );
-                            })}
-                        </tbody>
-                    </StyledTable>
-                </TableContainer>
-            </DetailSection>
+                                                <td>{fmtN(subVisitor)}</td>
+                                                <td>{fmtN(subRevenue)}</td>
+                                                <td>{fmtN(subShow)}</td>
+                                                <td>{fmtN(subSeat)}</td>
+                                                <td>{fmtRate(subRate)}</td>
+                                            </SubTotalRow>
+                                        </React.Fragment>
+                                    );
+                                })}
+                            </tbody>
+                        </StyledTable>
+                    </TableContainer>
+                </DetailSection>
+            </MainSection>
         </PageWrapper>
     );
 }

@@ -284,8 +284,9 @@ export function CustomSelect({
      */
     neutralValues?: string[];
     /**
-     * 칩 값 영역 최소폭(px). 지정하면 값이 비어도 옅은 "선택" placeholder와
+     * 칩 값 영역 최소폭(px). 값이 비어 있는 동안만 옅은 "선택" placeholder와
      * 함께 이 폭을 유지한다 — 영화명처럼 넓은 선택 버튼이 필요한 곳용.
+     * 선택 후에는 내용 폭에 맞게 줄어들어 caret 옆에 빈 공간이 남지 않는다.
      */
     chipValueMinWidth?: number;
 }) {
@@ -425,7 +426,7 @@ export function CustomSelect({
                                 $isPlaceholder={isPlaceholder}
                                 $chip={isChip}
                                 $applied={isApplied}
-                                $minW={isChip ? chipValueMinWidth : undefined}>
+                                $minW={isChip && isPlaceholder ? chipValueMinWidth : undefined}>
                                 {displayLabel}
                             </LabelValue>
                         )}
