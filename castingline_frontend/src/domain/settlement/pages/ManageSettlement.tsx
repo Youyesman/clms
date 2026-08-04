@@ -10,6 +10,7 @@ import {
     Checks,
     CalendarCheck,
     Warning,
+    X,
 } from "@phosphor-icons/react";
 import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
@@ -83,7 +84,7 @@ const Spinner = styled(CircleNotch)`
 // ... (omitting ListHeader unchanged)
 
 /* 필터바 액션 버튼 — 통일된 소프트 톤 (연한 배경 + 컬러 텍스트) */
-const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" }>`
+const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" | "red" }>`
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -103,6 +104,8 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" }
             ? "background:#eff6ff; border:1px solid #bfdbfe; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
             : $tone === "amber"
             ? "background:#fffbeb; border:1px solid #fde68a; color:#b45309; &:hover:not(:disabled){background:#fde68a; border-color:#f59e0b;}"
+            : $tone === "red"
+            ? "background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; &:hover:not(:disabled){background:#fecaca; border-color:#ef4444;}"
             : "background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; &:hover:not(:disabled){background:#bfdbfe; border-color:#60a5fa;}"}
     &:disabled {
         background: #f8fafc;
@@ -1233,22 +1236,34 @@ export function ManageSettlement() {
         }
     };
 
-    /** 조회된 목록의 미확인 극장 전체 확인 */
-    const confirmAll = () => {
+    /** 화면에 표시된(멀티/직위/확인여부 필터 적용) 극장 전체 확인/해제 (E003·E004).
+     *  필터를 걸어 두면 그 극장들에만 적용된다 — 예) 직위=직영이면 직영만. */
+    const bulkConfirm = (confirmed: boolean) => {
         const codes = Array.from(
             new Set(
-                settlements
-                    .filter((r) => !r.is_subtotal && r["거래처코드"] && !r["확인"])
+                displayedSettlements
+                    .filter(
+                        (r) =>
+                            !r.is_subtotal &&
+                            r["거래처코드"] &&
+                            !!r["확인"] !== confirmed
+                    )
                     .map((r) => r["거래처코드"])
             )
         );
         if (!codes.length) {
-            toast.info("확인 처리할 미확인 극장이 없습니다.");
+            toast.info(
+                confirmed
+                    ? "확인 처리할 미확인 극장이 없습니다."
+                    : "해제할 확인 극장이 없습니다."
+            );
             return;
         }
         showAlert(
-            "전체 확인 처리",
-            `조회된 미확인 극장 ${codes.length}곳을 모두 확인 처리하시겠습니까?`,
+            confirmed ? "전체 확인 처리" : "전체 확인 해제",
+            confirmed
+                ? `조회된 미확인 극장 ${codes.length}곳을 모두 확인 처리하시겠습니까?`
+                : `조회된 극장 ${codes.length}건 확인을 해제할까요?`,
             "warning",
             async () => {
                 try {
@@ -1256,14 +1271,26 @@ export function ManageSettlement() {
                         yyyyMm: searchParams.yyyyMm,
                         movie_id: Number(searchParams.movieId),
                         client_codes: codes,
-                        confirmed: true,
+                        confirmed,
                     });
+                    const codeSet = new Set(codes);
                     setSettlements((prev) =>
-                        prev.map((r) => (r.is_subtotal ? r : { ...r, 확인: true }))
+                        prev.map((r) =>
+                            !r.is_subtotal && codeSet.has(r["거래처코드"])
+                                ? { ...r, 확인: confirmed }
+                                : r
+                        )
                     );
-                    toast.success(`${codes.length}곳을 확인 처리했습니다.`);
+                    toast.success(
+                        confirmed
+                            ? `${codes.length}곳을 확인 처리했습니다.`
+                            : `${codes.length}곳의 확인을 해제했습니다.`
+                    );
                 } catch (e: any) {
-                    toast.error(e?.response?.data?.error || "일괄 확인에 실패했습니다.");
+                    toast.error(
+                        e?.response?.data?.error ||
+                            (confirmed ? "일괄 확인에 실패했습니다." : "일괄 해제에 실패했습니다.")
+                    );
                 }
             },
             true
@@ -1643,12 +1670,21 @@ export function ManageSettlement() {
                         </EseroButton>
                         <EseroButton
                             $tone="green"
-                            onClick={confirmAll}
+                            onClick={() => bulkConfirm(true)}
                             disabled={!settlements.length}
-                            title="조회된 목록의 미확인 극장을 전부 확인 처리"
+                            title="현재 표시된(필터 적용) 목록의 미확인 극장을 전부 확인 처리"
                         >
                             <Checks weight="bold" size={16} />
                             전체 확인
+                        </EseroButton>
+                        <EseroButton
+                            $tone="red"
+                            onClick={() => bulkConfirm(false)}
+                            disabled={!settlements.length}
+                            title="현재 표시된(필터 적용) 목록의 확인 극장을 전부 확인 해제"
+                        >
+                            <X weight="bold" size={16} />
+                            전체 해제
                         </EseroButton>
                         <EseroButton
                             $tone="amber"
@@ -1833,6 +1869,8 @@ export function ManageSettlement() {
                     <GenericTable
                         headers={headers}
                         data={displayedSettlements}
+                        // 한 페이지에 전체가 나오는 구조라 하단 페이지네이션은 숨긴다
+                        hidePagination
                         // 헤더 클릭 정렬은 부모(sortState)가 담당 — 정렬 중엔 소계를
                         // 숨기고, 해제하면 서버 기본 정렬+소계로 복귀 (B002)
                         onSortChange={handleSortChange}
