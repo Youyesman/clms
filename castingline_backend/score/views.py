@@ -1153,14 +1153,20 @@ def score_daily_status(request):
         )
     }
 
-    # 배급사 극장명 조회 (로그인 유저가 배급사인 경우) — 정산조회처럼 별도
-    # 필드(distributor_theater)로 내려 프론트 토글로 표기 전환한다
+    # 배급사 극장명 조회 — 별도 필드(distributor_theater)로 내려 프론트 토글로
+    # 표기 전환한다. 배급사 계정은 본인 매핑, 관리자는 조회 영화의 배급사 매핑
+    # (예: 그녀가돌아온날=바이포엠 → 바이포엠 지정 극장명)
     theater_name_map = {}
     user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+    dist_id = None
+    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
+        dist_id = user.client_id
+    elif primary is not None and primary.distributor_id:
+        dist_id = primary.distributor_id
+    if dist_id:
         dist_maps = (
             DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
+            .filter(distributor_id=dist_id, theater_id__in=client_ids_set)
             .order_by("theater_id", "-apply_date")
         )
         for m in dist_maps:
@@ -2316,12 +2322,17 @@ def score_settlement_detail(request):
         )
     }
 
-    # 배급사 극장명 맵
+    # 배급사 극장명 맵 — 배급사 계정은 본인 매핑, 관리자는 조회 영화의 배급사 매핑
     dist_theater_name_map = {}
     user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
+    dist_id = None
+    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
+        dist_id = user.client_id
+    elif primary is not None and primary.distributor_id:
+        dist_id = primary.distributor_id
+    if dist_id:
         for m in DistributorTheaterMap.objects.filter(
-            distributor_id=user.client_id, theater_id__in=client_ids_set
+            distributor_id=dist_id, theater_id__in=client_ids_set
         ).order_by("theater_id", "-apply_date"):
             if m.theater_id not in dist_theater_name_map:
                 dist_theater_name_map[m.theater_id] = m.distributor_theater_name

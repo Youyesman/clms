@@ -343,8 +343,10 @@ export function DailyStatusPage() {
     // 극장 검색 (조회 결과 내에서 극장명으로 좁히기 — 전체합계도 함께 재계산됨)
     const [theaterSearch, setTheaterSearch] = useState("");
 
-    // 배급사별 극장명(극장명 매핑) 표기 토글 — 정산조회와 동일 동작
-    const [useDistName, setUseDistName] = useState(false);
+    // 배급사별 극장명(극장명 매핑) 표기 토글.
+    // 기본 ON — 배급사 계정은 예전처럼 매핑명이 기본으로 보이게 (매핑 없거나
+    // 관리자면 distributor_theater가 비어 캐스팅라인 극장명으로 폴백되므로 동일)
+    const [useDistName, setUseDistName] = useState(true);
     const getTheaterName = (row: DailyRow) =>
         useDistName ? row.distributor_theater || row.theater : row.theater;
 
