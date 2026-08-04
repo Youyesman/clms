@@ -9,6 +9,7 @@ import { CustomMultiSelect } from "../../../../components/common/CustomMultiSele
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
@@ -241,11 +242,20 @@ export function CriteriaPage() {
     // 극장 검색 (조회된 결과 내에서 극장명으로 좁히기 — 소계/합계도 함께 재계산됨)
     const [theaterSearch, setTheaterSearch] = useState("");
 
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON (매핑 없으면 캐스팅라인명 폴백)
+    const [useDistName, setUseDistName] = useState(true);
+    const getTheaterName = (row: any) =>
+        useDistName ? row.distributor_theater || row.theater : row.theater;
+
     const filteredRows = useMemo(() => {
         const rows = data.rows || [];
         const q = theaterSearch.trim().toLowerCase();
         if (!q) return rows;
-        return rows.filter((r: any) => (r.theater || "").toLowerCase().includes(q));
+        return rows.filter(
+            (r: any) =>
+                (r.theater || "").toLowerCase().includes(q) ||
+                (r.distributor_theater || "").toLowerCase().includes(q)
+        );
     }, [data.rows, theaterSearch]);
 
     // 소계 행 삽입 로직
@@ -337,7 +347,7 @@ export function CriteriaPage() {
             }
             return [
                 row.region, row.multi, row.classification, row.format,
-                row.theater, row.auditorium, row.fare,
+                getTheaterName(row), row.auditorium, row.fare,
                 ...row.sessions.map((s: number) => s || ""), ...tail,
             ];
         });
@@ -423,6 +433,7 @@ export function CriteriaPage() {
                                     setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
                                 }} variant="chip" />
                         </div>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                         <div>
                             <CustomInput
                                 label="극장 검색"
@@ -511,7 +522,7 @@ export function CriteriaPage() {
                                         <td>{row.multi}</td>
                                         <td>{row.classification}</td>
                                         <td>{row.format}</td>
-                                        <td>{row.theater}</td>
+                                        <td><TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} /></td>
                                         <td>{row.auditorium}</td>
                                         <td>{fmt(row.fare)}</td>
                                         {row.sessions.map((s: number, i: number) => (

@@ -171,6 +171,17 @@ class SettlementListView(APIView):
             theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
         default_rate_map = {(dr.region_code, dr.theater_kind): dr.share_rate for dr in DefaultRate.objects.all()}
 
+        # 배급사별 극장명(극장명 매핑) — 영화의 배급사(주배급사) 기준.
+        # 화면 '배급사별 극장명' 토글 표시용 (엑셀·계산에는 사용하지 않음)
+        from client.models import DistributorTheaterMap
+        dist_theater_names = {}
+        if primary_movie.distributor_id:
+            for dm in DistributorTheaterMap.objects.filter(
+                distributor_id=primary_movie.distributor_id, theater_id__in=client_ids
+            ).order_by("theater_id", "-apply_date"):
+                if dm.theater_id not in dist_theater_names:
+                    dist_theater_names[dm.theater_id] = dm.distributor_theater_name
+
         # 데이터 집계
         aggregated_data = {}
         for c_id, m_id, entry_date, auditorium, fare_raw, visitor_raw in score_rows:
@@ -194,6 +205,7 @@ class SettlementListView(APIView):
             if group_key not in aggregated_data:
                 aggregated_data[group_key] = self.init_data_struct(
                     client, movie_map[m_id], share_rate, is_fund_exempt, entry_date)
+                aggregated_data[group_key]["배급사별 극장명"] = dist_theater_names.get(c_id, "")
 
             target = aggregated_data[group_key]
             visitor_count = int(visitor_raw or 0)
@@ -570,7 +582,7 @@ class SettlementListView(APIView):
     def make_subtotal_row(self, section_key, sums):
         brand, clss = section_key
         return {
-            "is_subtotal": True, "극장명": f"[{brand} {clss}] 합계",
+            "is_subtotal": True, "극장명": f"[{brand} {clss}] 합계", "배급사별 극장명": "",
             "인원": sums["인원"], "금액(입장료)": sums["금액(입장료)"],
             "기금제외금액": sums["기금제외금액"], "부가세제외금액": sums["부가세제외금액"],
             "공급가액": sums["공급가액"], "부가세": sums["부가세"], "영화사 지급금": sums["영화사 지급금"],
@@ -1676,6 +1688,8 @@ class SettlementExcelExportView(SettlementListView):
         target_filter = request.query_params.get("target", "전체극장")
         client_id = request.query_params.get("client_id") or None
         confirm_filter = request.query_params.get("confirm", "")  # ""|확인|미확인
+        # 화면 토글과 동일: dist면 극장명 컬럼에 배급사별 극장명(영화 배급사 매핑) 사용
+        use_dist_name = request.query_params.get("theater_name") == "dist"
 
         if not yyyy_mm or not movie_id:
             return HttpResponse("년월과 영화를 선택해주세요.", status=400)
@@ -1752,7 +1766,9 @@ class SettlementExcelExportView(SettlementListView):
         for item in items:
             row = [
                 item.get("지역", ""), item.get("멀티구분", ""), item.get("classification", ""),
-                item.get("거래처코드(바이포엠만 해당)", ""), item.get("극장명", ""),
+                item.get("거래처코드(바이포엠만 해당)", ""),
+                ((item.get("배급사별 극장명") or item.get("극장명", ""))
+                 if use_dist_name else item.get("극장명", "")),
                 item.get("사업자 등록번호", ""), item.get("종사업장번호", ""),
                 item.get("공급받는자 상호", ""), item.get("공급받는자 성명", ""),
                 item.get("사업장 소재", ""), item.get("업태", ""), item.get("업종", ""),
@@ -2072,6 +2088,12 @@ class SettlementEseroExportView(SettlementListView):
         yyyy_mm = request.query_params.get("yyyyMm")
         movie_id = request.query_params.get("movie_id")
         target_filter = request.query_params.get("target", "전체극장")
+        # 화면 토글과 동일: dist면 비고(극장명)에 배급사별 극장명(영화 배급사 매핑) 사용
+        use_dist_name = request.query_params.get("theater_name") == "dist"
+
+        def _theater_display(it):
+            return ((it.get("배급사별 극장명") or it.get("극장명", ""))
+                    if use_dist_name else it.get("극장명", ""))
 
         if not yyyy_mm or not movie_id:
             return HttpResponse("년월과 영화를 선택해주세요.", status=400)
@@ -2190,7 +2212,7 @@ class SettlementEseroExportView(SettlementListView):
                 # T~V: 합계 및 비고
                 ws.cell(row=row_idx, column=20, value=supply_val)
                 ws.cell(row=row_idx, column=21, value=vat_val)
-                ws.cell(row=row_idx, column=22, value=item.get("극장명", ""))
+                ws.cell(row=row_idx, column=22, value=_theater_display(item))
 
                 # W, X: 일자 및 품목명
                 ws.cell(row=row_idx, column=23, value=write_date[-2:])
@@ -2215,7 +2237,7 @@ class SettlementEseroExportView(SettlementListView):
                 # L, M, N: 합계(공급가액, 세액) 및 비고
                 ws.cell(row=row_idx, column=12, value=supply_val)
                 ws.cell(row=row_idx, column=13, value=vat_val)
-                ws.cell(row=row_idx, column=14, value=item.get("극장명", ""))
+                ws.cell(row=row_idx, column=14, value=_theater_display(item))
 
                 # O, P: 일자 및 품목명
                 ws.cell(row=row_idx, column=15, value=write_date[-2:])

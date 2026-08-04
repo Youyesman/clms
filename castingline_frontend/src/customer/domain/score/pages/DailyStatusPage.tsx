@@ -10,6 +10,7 @@ import type { FormatGroup } from "../../../../components/common/CustomMultiSelec
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 import { Pagination } from "../../../../components/common/Pagination";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
@@ -81,23 +82,6 @@ const SearchBtn = styled.button`
     transition: background-color 0.12s ease;
     &:hover {
         background: #1d4ed8;
-    }
-`;
-
-// 배급사별 극장명 ↔ 캐스팅라인 극장명 전환 (정산조회와 동일)
-const ToggleBtn = styled.button<{ $active: boolean }>`
-    padding: 6px 14px;
-    border-radius: 6px;
-    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
-    color: ${({ $active }) => ($active ? "#2563eb" : "#475569")};
-    font-size: 12px;
-    font-weight: ${({ $active }) => ($active ? "700" : "500")};
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
-    &:hover {
-        border-color: #2563eb;
     }
 `;
 
@@ -519,12 +503,7 @@ export function DailyStatusPage() {
                                     setScoreFilter((f) => ({ ...f, dateTo: v }));
                                 }} variant="chip" />
                         </div>
-                        <ToggleBtn
-                            $active={useDistName}
-                            onClick={() => setUseDistName((v) => !v)}
-                        >
-                            {useDistName ? "캐스팅라인 극장명" : "배급사별 극장명"}
-                        </ToggleBtn>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                         <div>
                             <CustomInput
                                 label="극장 검색"
@@ -564,7 +543,7 @@ export function DailyStatusPage() {
                                 <tr key={idx}>
                                     <td>{row.date}</td>
                                     <td style={{ textAlign: "left" }}>
-                                        {getTheaterName(row)}
+                                        <TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} />
                                     </td>
                                     <td>{row.auditorium}</td>
                                     <td>1</td>

@@ -1153,32 +1153,18 @@ def score_daily_status(request):
         )
     }
 
-    # 배급사 극장명 조회 — 별도 필드(distributor_theater)로 내려 프론트 토글로
-    # 표기 전환한다. 배급사 계정은 본인 매핑, 관리자는 조회 영화의 배급사 매핑
-    # (예: 그녀가돌아온날=바이포엠 → 바이포엠 지정 극장명)
-    theater_name_map = {}
-    user = request.user
-    dist_id = None
-    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
-        dist_id = user.client_id
-    elif primary is not None and primary.distributor_id:
-        dist_id = primary.distributor_id
-    if dist_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=dist_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로
+    # 전환 (배급사 계정=본인 매핑, 관리자=조회 영화의 배급사 매핑)
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(client_id):
         info = clients.get(client_id, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1234,6 +1220,26 @@ def score_daily_status(request):
             "revenue": total_revenue,
         },
     })
+
+
+def _distributor_theater_map(request, movie, client_ids):
+    """배급사별 극장명(극장명 매핑) 조회 — 배급사 계정은 본인 매핑,
+    관리자는 조회 영화의 배급사(주배급사) 매핑. {client_id: 지정명}"""
+    from client.models import DistributorTheaterMap
+    user = request.user
+    dist_id = None
+    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
+        dist_id = user.client_id
+    elif movie is not None and movie.distributor_id:
+        dist_id = movie.distributor_id
+    out = {}
+    if dist_id:
+        for m in DistributorTheaterMap.objects.filter(
+            distributor_id=dist_id, theater_id__in=list(client_ids)
+        ).order_by("theater_id", "-apply_date"):
+            if m.theater_id not in out:
+                out[m.theater_id] = m.distributor_theater_name
+    return out
 
 
 @api_view(["GET"])
@@ -1356,11 +1362,15 @@ def score_criteria(request):
     client_info = {}
     for c in clients:
         client_info[c["id"]] = {
-            "theater": c["theater_name"] or c["client_name"] or "",
+            # 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001)
+            "theater": c["client_name"] or c["theater_name"] or "",
             "region": c["region_code"] or "",
             "multi": c["theater_kind"] or "",
             "classification": c["classification"] or "",
         }
+
+    # 배급사별 극장명 — 별도 필드로 내려 프론트 토글로 전환
+    dist_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     # ── 4. 결과 조립 ──
     sorted_keys = sorted(base_data.keys(), key=lambda k: (
@@ -1382,6 +1392,7 @@ def score_criteria(request):
             "type": "data",
             "client_id": cid,
             "theater": info.get("theater", ""),
+            "distributor_theater": dist_name_map.get(cid, ""),
             "auditorium": aud,
             "format": fmt,
             "region": info.get("region", ""),
@@ -1484,27 +1495,17 @@ def score_seat_rate(request):
         )
     }
 
-    # 배급사 극장명 매핑 (배급사 로그인 시)
-    theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로 전환
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(cid):
-        if cid in theater_name_map:
-            return theater_name_map[cid]
         info = clients.get(cid, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1566,6 +1567,7 @@ def score_seat_rate(request):
             "region": info.get("region_code") or "",
             "classification": info.get("classification") or "",
             "theater": get_theater_name(cid),
+            "distributor_theater": theater_name_map.get(cid, ""),
             "date": date_str,
             "visitor": visitor,
             "revenue": revenue,
@@ -1736,27 +1738,17 @@ def score_ranking(request):
         )
     }
 
-    # 배급사 극장명 매핑
-    theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로 전환
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(cid):
-        if cid in theater_name_map:
-            return theater_name_map[cid]
         info = clients.get(cid, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1794,6 +1786,7 @@ def score_ranking(request):
         max_d = str(data["max_date"]) if data["max_date"] else ""
         rows.append({
             "theater": get_theater_name(cid),
+            "distributor_theater": theater_name_map.get(cid, ""),
             "visitor": data["visitor"],
             "revenue": data["revenue"],
             "min_date": min_d,
@@ -2322,20 +2315,8 @@ def score_settlement_detail(request):
         )
     }
 
-    # 배급사 극장명 맵 — 배급사 계정은 본인 매핑, 관리자는 조회 영화의 배급사 매핑
-    dist_theater_name_map = {}
-    user = request.user
-    dist_id = None
-    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
-        dist_id = user.client_id
-    elif primary is not None and primary.distributor_id:
-        dist_id = primary.distributor_id
-    if dist_id:
-        for m in DistributorTheaterMap.objects.filter(
-            distributor_id=dist_id, theater_id__in=client_ids_set
-        ).order_by("theater_id", "-apply_date"):
-            if m.theater_id not in dist_theater_name_map:
-                dist_theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 맵 — 배급사 계정=본인 매핑, 관리자=조회 영화의 배급사 매핑
+    dist_theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_system_name(cid):
         # 거래처 관리의 거래처명(client_name)을 그대로 표기 — 부금정산과 동일 기준 (F001).
@@ -2728,13 +2709,29 @@ def score_settlement_search(request):
             | Q(client_name__icontains=q_stripped)
         )
 
+    import re as _re
+    _closed_prefix = _re.compile(r"^\((폐관|휴관|임시중단)\)")
+
     client_qs = Client.objects.filter(theater_filter).values(
-        "theater_name", "excel_theater_name", "client_name", "theater_kind"
+        "theater_name", "excel_theater_name", "client_name", "theater_kind",
+        "operational_status"
     )
+    closed_names = set()
     for c in client_qs[:200]:
-        add_theater(display_name(c))
-        if len(theaters) >= 20:
+        name = display_name(c)
+        add_theater(name)
+        if name and (c.get("operational_status") is False or _closed_prefix.match(name)):
+            closed_names.add(name)
+        # 폐관 제외 상위 20개를 확보할 수 있게 여유 있게 수집
+        if len(theaters) >= 40:
             break
+
+    # (폐관)/(휴관)/(임시중단) 극장은 목록 아래로 (S001)
+    def _is_closed(n):
+        return n in closed_names or bool(_closed_prefix.match(n))
+
+    theaters = ([n for n in theaters if not _is_closed(n)]
+                + [n for n in theaters if _is_closed(n)])
 
     return Response({"movies": movies, "theaters": theaters[:20]})
 

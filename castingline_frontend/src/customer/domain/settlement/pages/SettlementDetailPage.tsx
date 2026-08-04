@@ -8,6 +8,7 @@ import React, {
 import styled from "styled-components";
 import { useToast } from "../../../../components/common/CustomToast";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../../components/common/CustomInput";
@@ -106,23 +107,6 @@ const FilterRow = styled.div`
     flex-wrap: wrap;
     gap: 8px;
     align-items: flex-end;
-`;
-
-const ToggleBtn = styled.button<{ $active: boolean }>`
-    padding: 6px 14px;
-    border-radius: 6px;
-    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
-    background: ${({ $active }) => ($active ? "#eff6ff" : "#ffffff")};
-    color: ${({ $active }) => ($active ? "#2563eb" : "#475569")};
-    font-size: 12px;
-    font-weight: ${({ $active }) => ($active ? "700" : "500")};
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
-    &:hover {
-        border-color: #2563eb;
-        color: #2563eb;
-    }
 `;
 
 const SearchWrapper = styled.div`
@@ -802,12 +786,7 @@ export function SettlementDetailPage() {
 
                     {/* Row 2: 토글 + 검색 — 위에서 필터를 고른 뒤 아래에서 검색하는 흐름 */}
                     <FilterRow>
-                        <ToggleBtn
-                            $active={useDistName}
-                            onClick={() => setUseDistName((v) => !v)}
-                        >
-                            {useDistName ? "캐스팅라인 극장명" : "배급사별 극장명"}
-                        </ToggleBtn>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
 
                         <SearchWrapper ref={searchWrapperRef}>
                             <SearchLabel>검색</SearchLabel>
@@ -933,7 +912,7 @@ export function SettlementDetailPage() {
                                     <td>{row.classification}</td>
                                     <td>{row.format}</td>
                                     <td style={{ textAlign: "left" }}>
-                                        {getTheaterName(row)}
+                                        <TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} />
                                     </td>
                                     <td style={{ textAlign: "left" }}>
                                         {row.distributor_theater}

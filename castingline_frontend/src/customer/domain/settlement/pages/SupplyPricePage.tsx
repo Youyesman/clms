@@ -8,6 +8,7 @@ import React, {
 import styled from "styled-components";
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
+import { closedTheatersLast } from "../../../../utils/theaterSort";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
@@ -470,7 +471,12 @@ export function SupplyPricePage() {
                 },
             })
                 .then((res) => {
-                    const list = res.data.results || [];
+                    // (폐관)/(휴관) 극장은 목록 아래로 (S001)
+                    const list = closedTheatersLast(
+                        res.data.results || [],
+                        (t: any) => t.client_name || "",
+                        (t: any) => t.operational_status === false
+                    );
                     setTheaterSuggestions(list);
                     setShowTheaterSuggestions(list.length > 0);
                 })

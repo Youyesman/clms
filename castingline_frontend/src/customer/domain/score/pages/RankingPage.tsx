@@ -9,6 +9,7 @@ import { CustomMultiSelect } from "../../../../components/common/CustomMultiSele
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
@@ -27,6 +28,8 @@ type SortKey = "visitor" | "revenue";
 
 interface RankingRow {
     theater: string;
+    /** 배급사별 극장명 (극장명 매핑, 없으면 빈 문자열) */
+    distributor_theater?: string;
     visitor: number;
     revenue: number;
     min_date: string;
@@ -329,6 +332,11 @@ export function RankingPage() {
 
     const { meta } = data;
 
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON (매핑 없으면 캐스팅라인명 폴백)
+    const [useDistName, setUseDistName] = useState(true);
+    const getTheaterName = (row: RankingRow) =>
+        useDistName ? row.distributor_theater || row.theater : row.theater;
+
     // 극장 검색 (조회 결과 내에서 극장명으로 좁히기 — 순위/합계도 함께 재계산됨)
     const [theaterSearch, setTheaterSearch] = useState("");
 
@@ -336,7 +344,11 @@ export function RankingPage() {
         const all = data.rows || [];
         const q = theaterSearch.trim().toLowerCase();
         if (!q) return all;
-        return all.filter((r) => (r.theater || "").toLowerCase().includes(q));
+        return all.filter(
+            (r) =>
+                (r.theater || "").toLowerCase().includes(q) ||
+                (r.distributor_theater || "").toLowerCase().includes(q)
+        );
     }, [data.rows, theaterSearch]);
 
     // 합계
@@ -347,7 +359,7 @@ export function RankingPage() {
     const handleExcelDownload = () => {
         const body: (string | number)[][] = rows.map((row, idx) => [
             idx + 1,
-            row.theater,
+            getTheaterName(row),
             row.visitor,
             row.min_date === row.max_date ? row.min_date : `${row.min_date} ~ ${row.max_date}`,
             row.revenue,
@@ -454,6 +466,7 @@ export function RankingPage() {
                                 setScoreFilter((f) => ({ ...f, dateTo: v }));
                             }} variant="chip" />
                     </div>
+                    <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                     <div>
                         <CustomInput
                             label="극장 검색"
@@ -519,7 +532,7 @@ export function RankingPage() {
                                 <tr key={idx}>
                                     <td>{idx + 1}</td>
                                     <td style={{ textAlign: "left" }}>
-                                        {row.theater}
+                                        <TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} />
                                     </td>
                                     <td>{fmtN(row.visitor)}</td>
                                     <td>

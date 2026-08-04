@@ -9,6 +9,7 @@ import { CustomMultiSelect } from "../../../../components/common/CustomMultiSele
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
@@ -51,6 +52,8 @@ interface DetailRow {
     region: string;
     classification: string;
     theater: string;
+    /** 배급사별 극장명 (극장명 매핑, 없으면 빈 문자열) */
+    distributor_theater?: string;
     date: string;
     visitor: number;
     revenue: number;
@@ -344,11 +347,20 @@ export function SeatRatePage() {
     // (상단 요약표는 멀티 단위 집계라 극장명으로 좁힐 대상이 아니다)
     const [theaterSearch, setTheaterSearch] = useState("");
 
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON (매핑 없으면 캐스팅라인명 폴백)
+    const [useDistName, setUseDistName] = useState(true);
+    const getTheaterName = (row: DetailRow) =>
+        useDistName ? row.distributor_theater || row.theater : row.theater;
+
     const detail = useMemo(() => {
         const all = data.detail || [];
         const q = theaterSearch.trim().toLowerCase();
         if (!q) return all;
-        return all.filter((r) => (r.theater || "").toLowerCase().includes(q));
+        return all.filter(
+            (r) =>
+                (r.theater || "").toLowerCase().includes(q) ||
+                (r.distributor_theater || "").toLowerCase().includes(q)
+        );
     }, [data.detail, theaterSearch]);
 
     // 멀티별로 detail 그룹화 (합계 행 삽입용)
@@ -389,7 +401,7 @@ export function SeatRatePage() {
             );
             rows.forEach((row) => {
                 detailRows.push([
-                    row.multi, row.rank, row.region, row.classification, row.theater,
+                    row.multi, row.rank, row.region, row.classification, getTheaterName(row),
                     row.date, row.visitor, row.revenue, row.show_count, row.seat_count,
                     row.seat_rate ?? "",
                 ]);
@@ -474,6 +486,7 @@ export function SeatRatePage() {
                                 setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
                             }} variant="chip" />
                     </div>
+                    <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                     <div>
                         <CustomInput
                             label="극장 검색"
@@ -630,7 +643,7 @@ export function SeatRatePage() {
                                                             textAlign: "left",
                                                         }}
                                                     >
-                                                        {row.theater}
+                                                        <TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} />
                                                     </td>
                                                     <td>{row.date}</td>
                                                     <td>

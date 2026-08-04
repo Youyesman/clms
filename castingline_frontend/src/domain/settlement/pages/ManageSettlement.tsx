@@ -13,6 +13,7 @@ import {
     X,
 } from "@phosphor-icons/react";
 import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
+import { closedTheatersLast } from "../../../utils/theaterSort";
 import { useToast } from "../../../components/common/CustomToast";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
@@ -20,6 +21,7 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { GenericTable } from "../../../components/GenericTable";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
+import { TheaterNameToggle } from "../../../components/common/TheaterNameToggle";
 import dayjs from "dayjs";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
@@ -112,9 +114,6 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" |
         border-color: #e2e8f0;
         color: #94a3b8;
         cursor: not-allowed;
-    }
-    .loading-icon {
-        animation: ${rotate} 1s linear infinite;
     }
 `;
 
@@ -820,6 +819,10 @@ export function ManageSettlement() {
         movieId: "",
         target: "전체극장",
     });
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON, 영화 배급사 기준 매핑
+    // (매핑 없는 극장은 캐스팅라인 극장명 그대로)
+    const [useDistName, setUseDistName] = useState(true);
+
     // 확인여부 필터 (클라이언트측) — 미확인 극장만 추려 월초 확인 작업용
     const [confirmFilter, setConfirmFilter] = useState("전체");
     // 멀티(체인) 필터 (클라이언트측)
@@ -838,7 +841,12 @@ export function ManageSettlement() {
                 params: { ordering: "-operational_status,client_name", search: theaterInput, client_type: "극장" },
             })
                 .then((res) => {
-                    const list = res.data.results || [];
+                    // (폐관)/(휴관) 극장은 목록 아래로 (S001)
+                    const list = closedTheatersLast(
+                        res.data.results || [],
+                        (t: any) => t.client_name || "",
+                        (t: any) => t.operational_status === false
+                    );
                     setTheaterSuggestions(list);
                     setShowTheaterSuggestions(list.length > 0);
                 })
@@ -1190,6 +1198,8 @@ export function ManageSettlement() {
                     yyyyMm: searchParams.yyyyMm,
                     movie_id: searchParams.movieId,
                     target: searchParams.target,
+                    // 화면 토글 상태 그대로 — 비고(극장명)에 배급사별 극장명 사용
+                    ...(useDistName ? { theater_name: "dist" } : {}),
                 },
                 responseType: "blob",
             });
@@ -1612,6 +1622,8 @@ export function ManageSettlement() {
             if (multiFilter !== "전체") params.multi = multiFilter;
             if (classFilter !== "전체") params.classification = classFilter;
             if (selectedTheater) params.client_id = String(selectedTheater.id);
+            // 화면 토글 상태 그대로 — 극장명 컬럼에 배급사별 극장명 사용
+            if (useDistName) params.theater_name = "dist";
             const res = await AxiosGet("settlement-excel-export/", {
                 params,
                 responseType: "blob",
@@ -1647,6 +1659,7 @@ export function ManageSettlement() {
                 onSearch={() => fetchSettlements()}
                 actions={
                     <>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                         <EseroButton
                             $tone="blue"
                             onClick={() =>
@@ -1889,6 +1902,32 @@ export function ManageSettlement() {
                                 : `row-${item["거래처코드"]}-${item["날짜(From)"]}-${idx}`
                         }
                         formatCell={(k: string, v: any, row: any) => {
+                            // 극장명: 배급사별 극장명 토글 ON이면 영화 배급사의 매핑명 표시.
+                            // 매핑 미등록 극장은 빨간 '미등록관' 배지로 알린다
+                            if (
+                                k === "극장명" &&
+                                useDistName &&
+                                !row?.is_subtotal &&
+                                row?.["거래처코드"]
+                            ) {
+                                if (row["배급사별 극장명"]) return row["배급사별 극장명"];
+                                return (
+                                    <span>
+                                        {v}
+                                        <span
+                                            style={{
+                                                marginLeft: 4,
+                                                color: "#dc2626",
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                whiteSpace: "nowrap",
+                                            }}
+                                        >
+                                            미등록관
+                                        </span>
+                                    </span>
+                                );
+                            }
                             // 날짜(To) 셀: 확정된 행은 보라 표시+해제, 모든 행에서 ✏로 개별 수정
                             if (
                                 k === "날짜(To)" &&
