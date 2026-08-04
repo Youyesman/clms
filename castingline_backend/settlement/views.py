@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from openpyxl.styles import Font, PatternFill, Alignment  # ✅ 스타일 관련 임포트
+from openpyxl.utils import get_column_letter
 
 # 모델 및 유틸 임포트
 from score.models import Score
@@ -868,7 +869,7 @@ class SettlementCompareView(SettlementListView):
         import re as _re
 
         from settlement.compare import (FILE_THEATER_MERGE, FORMAT_SPLIT_CHAINS,
-                                        format_bucket, norm_date)
+                                        format_bucket, norm_date, norm_date_end)
 
         def _fmt_split(chain, cls):
             return chain in FORMAT_SPLIT_CHAINS and cls == "직영"
@@ -965,9 +966,11 @@ class SettlementCompareView(SettlementListView):
                 "source": row.get("source") or "excel",
                 "인원": 0, "공급가액": 0, "부가세": 0, "영화사 지급금": 0, "date_to": "",
             })
-            # 날짜(To): 정산서의 상영 종료일 (롯데는 행별 상영일자의 최댓값)
+            # 날짜(To): 정산서의 상영 종료일. 종료일 컬럼이 없는 체인(롯데)은
+            # 상영일자 셀이 'From~To' 범위이므로 셀 안의 최대 날짜를 종료일로 본다.
             agg["date_to"] = max(agg["date_to"],
-                                 norm_date(row.get("date_end") or row.get("date")))
+                                 norm_date(row.get("date_end"))
+                                 or norm_date_end(row.get("date")))
             agg["인원"] += row["visitors"]
             agg["공급가액"] += row["supply"]
             agg["부가세"] += row["vat"]
@@ -1761,23 +1764,127 @@ class SettlementExcelExportView(SettlementListView):
                 item.get("공급가액", 0), item.get("부가세", 0), item.get("영화사 지급금", 0),
             ]
             if item.get("is_subtotal"):
+                # NEW 전달 양식: 소계 행은 지역열에 '합계', 멀티/구분은 값 유지,
+                # 극장명 비움, 날짜(To)열에 '합계' 표기
+                m = re.match(r"^\[(\S+)\s+([^\]]+)\]", str(item.get("극장명") or ""))
+                row[0] = "합계"
+                row[1] = m.group(1) if m else ""
+                row[2] = m.group(2).strip() if m else ""
+                row[4] = ""
+                row[15] = "합계"
                 subtotal_row_indices.append(len(data_rows))
             data_rows.append(row)
 
         excel.add_rows(data_rows)
 
-        # 지역~종사업장번호(A~G열)는 가운데 정렬
-        for row_cells in excel.ws.iter_rows(min_row=2, min_col=1, max_col=7):
-            for cell in row_cells:
-                cell.alignment = excel.center_align
+        # ── 합계 자동수식 + 전체 합계 행 ──
+        # 숫자 컬럼(0-based). 부율(21)은 합산 대상이 아니므로 제외
+        num_cols = [17, 18, 19, 20, 22, 23, 24]
 
-        # 합계 행 스타일 추가 적용 (굵게 + 배경색), 헤더 행이 1행이므로 데이터는 2행~
+        def _ref(col0, idx0):
+            """data_rows 인덱스 → 셀 참조 (헤더 1행 보정)"""
+            return f"{get_column_letter(col0 + 1)}{idx0 + 2}"
+
+        def _is_num(v):
+            return isinstance(v, (int, float, Decimal))
+
+        # 소계 행을 그룹 구간 SUM 수식으로 교체. 저장된 소계값과 구간 합이 일치할
+        # 때만 바꾼다 — 다르면(조정 등) 저장된 숫자를 그대로 둬 값이 변하지 않게.
+        prev_end = -1
         for idx in subtotal_row_indices:
-            excel_row_num = idx + 2  # 헤더(1행) + 1-based index
-            for cell in excel.ws[excel_row_num]:
-                cell.font = Font(bold=True, size=10)
-                cell.fill = PatternFill(
-                    start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+            start, end = prev_end + 1, idx - 1
+            prev_end = idx
+            if end < start:
+                continue
+            for c in num_cols:
+                stored = data_rows[idx][c]
+                group_sum = sum(v for r in range(start, end + 1)
+                                if _is_num(v := data_rows[r][c]))
+                if _is_num(stored) and group_sum == stored:
+                    cell = excel.ws.cell(row=idx + 2, column=c + 1)
+                    cell.value = f"=SUM({_ref(c, start)}:{_ref(c, end)})"
+                    cell.number_format = '#,##0'
+                    cell.alignment = excel.right_align
+
+        # 맨 아래 전체 합계 행 (모든 체인·구분 그룹의 총계) — NEW 양식대로
+        # 날짜(To)열에 '전체 합계' 표기
+        total_row = ["" for _ in header_labels]
+        total_row[15] = "전체 합계"
+        for c in num_cols:
+            total_row[c] = sum(v for it, r in zip(items, data_rows)
+                               if not it.get("is_subtotal") and _is_num(v := r[c]))
+        grand_idx = len(data_rows)  # 총계 행의 data_rows 기준 인덱스
+        excel.add_rows([total_row])
+
+        # 총계도 자동수식으로: 소계 행이 전 구간을 빠짐없이 덮으면 소계 셀의 합,
+        # 소계가 없으면(확인/미확인 필터 등) 데이터 전 구간 SUM
+        if subtotal_row_indices and prev_end == len(data_rows) - 1:
+            for c in num_cols:
+                refs = ",".join(_ref(c, i) for i in subtotal_row_indices)
+                cell = excel.ws.cell(row=grand_idx + 2, column=c + 1)
+                cell.value = f"=SUM({refs})"
+                cell.number_format = '#,##0'
+                cell.alignment = excel.right_align
+        elif not subtotal_row_indices:
+            for c in num_cols:
+                cell = excel.ws.cell(row=grand_idx + 2, column=c + 1)
+                cell.value = f"=SUM({_ref(c, 0)}:{_ref(c, grand_idx - 1)})"
+                cell.number_format = '#,##0'
+                cell.alignment = excel.right_align
+        subtotal_row_indices.append(grand_idx)  # 아래 소계 스타일(굵게+배경) 함께 적용
+
+        # 총계는 수식이라 auto_fit이 계산값 길이를 모른다 → 파이썬으로 구해 둔
+        # 총계 값 기준 최소 열 너비를 지정 (####로 가려지는 것 방지)
+        for c in num_cols:
+            letter = get_column_letter(c + 1)
+            need = len(f"{total_row[c]:,}") + 3
+            prev = excel.ws.column_dimensions[letter].width or 0
+            excel.ws.column_dimensions[letter].width = max(prev, need)
+
+        # ── 디자인: NEW 배급사 전달 양식('6월부금_NEW_엑셀 포맷 수정.xlsx') 기준 ──
+        # 맑은 고딕 10pt / 헤더 검정 배경·흰 글씨 / 소계 연노랑·전체합계 노랑 /
+        # 텍스트·날짜·부율 가운데 정렬 / 인원 회계형 콤마(0은 '-')
+        _fname = "맑은 고딕"
+        data_font = Font(name=_fname, size=10)
+        bold_font = Font(name=_fname, size=10, bold=True)
+        header_font = Font(name=_fname, size=10, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+        subtotal_fill = PatternFill(start_color="EEFDC9", end_color="EEFDC9", fill_type="solid")
+        total_fill = PatternFill(start_color="F6EF5E", end_color="F6EF5E", fill_type="solid")
+        visitors_fmt = '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-'
+        TEXT_MAX_COL = 17   # 지역~상영타입
+        RATE_COL = 22       # 부율 — 견본에서 가운데 정렬
+        VISITOR_COL = 18    # 인원
+
+        # 합계별 접기/펼치기 — 상세(극장) 행을 아웃라인 그룹(레벨 1)으로 묶어
+        # 엑셀 좌측 +/- 버튼으로 소계만 남기고 접을 수 있게 한다 (NEW 양식과 동일)
+        excel.ws.sheet_properties.outlinePr.summaryBelow = True  # 요약(합계) 행이 그룹 아래
+        subtotal_excel_rows = {i + 2 for i in subtotal_row_indices}
+
+        for row_cells in excel.ws.iter_rows(min_row=1, max_row=grand_idx + 2):
+            rnum = row_cells[0].row
+            dim = excel.ws.row_dimensions[rnum]
+            dim.height = 17.25
+            if rnum > 1 and rnum not in subtotal_excel_rows:
+                dim.outline_level = 1
+            for cell in row_cells:
+                if cell.row == 1:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = excel.center_align
+                    continue
+                cell.font = data_font
+                if cell.column <= TEXT_MAX_COL or cell.column == RATE_COL:
+                    cell.alignment = excel.center_align
+                if cell.column == VISITOR_COL:
+                    cell.number_format = visitors_fmt
+
+        # 소계(연노랑)·전체 합계(노랑) 행 강조
+        for idx in subtotal_row_indices:
+            fill = total_fill if idx == grand_idx else subtotal_fill
+            for cell in excel.ws[idx + 2]:  # 헤더(1행) + 1-based index
+                cell.font = bold_font
+                cell.fill = fill
 
         filename = f"Settlement_{movie_title}_{yyyy_mm}_{datetime.now().strftime('%Y%m%d')}"
         return excel.to_response(filename)
