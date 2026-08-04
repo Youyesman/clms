@@ -100,6 +100,15 @@ def fetch_movie_list(session, csrf, start_dt, end_dt):
             "theaters": cells[0] if len(cells) > 0 else 0,
             "visitors": cells[4] if len(cells) > 4 else 0,
         })
+    # K001: 목록이 비었을 때 '정상 0건'과 '오류 응답'을 구분한다.
+    # 세션이 끊기거나(같은 계정 동시 로그인 시 KOBIS가 이전 세션을 끊음, 예: 크론
+    # 수집과 겹칠 때) KOBIS가 일시 오류 페이지를 주면 정규식이 아무것도 못 찾아
+    # 조용히 빈 목록 → 화면엔 '해당 영화 없음'으로 오인 표시되던 문제.
+    # 정상 통계 페이지에는 조회 폼(sStartDt)이 있고 로그인 폼(j_username)은 없다.
+    if not movies and ("sStartDt" not in r.text or "j_username" in r.text):
+        raise RuntimeError(
+            "영화 목록 조회 실패 — 세션 만료 또는 KOBIS 오류 응답 "
+            "(같은 계정 동시 접속·사이트 일시 오류 시 발생)")
     return movies
 
 
@@ -234,17 +243,32 @@ def get_accounts():
     return KOBIS_ACCOUNTS
 
 
+def _open_session_and_list(user, password, aprv_no, start_dt, end_dt,
+                           includes, excludes):
+    """로그인 → CSRF → 기간 영화 목록. (계정 단위 재시도용으로 분리)"""
+    s = requests.Session()
+    s.headers["User-Agent"] = _UA
+    _login(s, user, password, aprv_no)
+    csrf = _fetch_csrf(s)
+    movies = _filter_movies(
+        fetch_movie_list(s, csrf, start_dt, end_dt), includes, excludes)
+    return s, csrf, movies
+
+
 def crawl_one_account(name, user, password, aprv_no, start_dt, end_dt,
                       includes, excludes):
     """한 배급사 계정 수집 → {name, ok, error, movies[{..filename, xlsx}]}."""
     res = {"name": name, "ok": False, "error": "", "movies": []}
     try:
-        s = requests.Session()
-        s.headers["User-Agent"] = _UA
-        _login(s, user, password, aprv_no)
-        csrf = _fetch_csrf(s)
-        movies = _filter_movies(
-            fetch_movie_list(s, csrf, start_dt, end_dt), includes, excludes)
+        # K001: 세션 충돌(동시 로그인)·KOBIS 일시 오류는 재로그인하면 대부분
+        # 해소되므로 목록 조회까지를 한 번 더 시도한다
+        try:
+            s, csrf, movies = _open_session_and_list(
+                user, password, aprv_no, start_dt, end_dt, includes, excludes)
+        except Exception:
+            time.sleep(2)
+            s, csrf, movies = _open_session_and_list(
+                user, password, aprv_no, start_dt, end_dt, includes, excludes)
         for mv in movies:
             item = dict(mv)
             try:
