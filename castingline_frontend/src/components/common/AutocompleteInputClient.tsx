@@ -163,11 +163,11 @@ const IconBox = styled.div`
     flex-shrink: 0;
 `;
 
+/* body로 portal 되어 뜨는 목록 — 위치(top|bottom/left/width)는 열 때 계산한
+   인라인 스타일이 전담한다. 여기에 top 같은 offset을 두면 위로 펼치는 경우
+   (인라인이 bottom만 설정) top이 살아남아 화면 밖으로 밀려난다 (O001). */
 const Dropdown = styled.ul`
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
+    position: fixed;
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
@@ -370,6 +370,15 @@ export function AutocompleteInputClient({
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    // 방향키로 선택을 옮기면 목록이 따라 스크롤되도록 (보이는 영역 밖 선택 방지)
+    useEffect(() => {
+        if (selectedIndex < 0) return;
+        const item = portalDropdownRef.current?.children[selectedIndex] as
+            | HTMLElement
+            | undefined;
+        item?.scrollIntoView({ block: "nearest" });
+    }, [selectedIndex]);
 
     const isSelected = !!formData[type]?.id;
     /* 거래처/영화가 실제로 선택되면 걸러내고 있는 필터 */

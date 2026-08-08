@@ -43,13 +43,27 @@ def norm_title(s):
     return re.sub(r"[^0-9a-zA-Z가-힣]", "", str(s or "")).lower()
 
 
+_DATE_RE = re.compile(r"(20\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})")
+
+
 def norm_date(v):
     """'2026-06-30' / '2026.6.30' / '20260630' / datetime → 'YYYY-MM-DD' (실패 시 '')."""
     s = _txt(v)
-    m = re.search(r"(20\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})", s)
+    m = _DATE_RE.search(s)
     if not m:
         return ""
     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+
+def norm_date_end(v):
+    """기간 셀에서 종료일 → 'YYYY-MM-DD' (실패 시 '').
+
+    롯데 상영일자는 '2026-07-01\\n~2026-07-28'처럼 From~To가 한 셀에 오므로
+    첫 날짜만 읽으면 시작일이 종료일로 잘못 잡힌다 — 셀 안의 모든 날짜 중
+    최댓값을 종료일로 본다. 날짜가 하나뿐인 셀은 그 날짜 그대로."""
+    s = _txt(v)
+    dates = [f"{y}-{int(m):02d}-{int(d):02d}" for y, m, d in _DATE_RE.findall(s)]
+    return max(dates) if dates else ""
 
 
 FUND_EXEMPT_SUFFIX = "(발전기금면제관)"

@@ -118,9 +118,12 @@ function App() {
                 ) : (
                     <CustomerTopbar />
                 )}
+                {/* 관리자는 고객 경로(/score 등)에서도 TabBar가 항상 떠 있으므로
+                    경로와 무관하게 그 높이만큼 내려줘야 페이지 상단(내부 탭바)이
+                    가려지지 않는다 */}
                 <AppContainer
                     $sidebarWidth={sidebarWidth}
-                    $hasTabBar={showStaffUI && isManagePath}
+                    $hasTabBar={showStaffUI}
                 >
                     {/* 고객용 사이드바: 관리자가 아니고, 고객 경로일 때만 */}
                     {!showStaffUI && isCustomerPath && <CustomerSidebar />}

@@ -1,0 +1,28 @@
+name: Server Diagnostics (read-only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect Apache & certbot state
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "===== apache2ctl -S ====="
+            sudo apache2ctl -S 2>&1 || true
+            echo "===== sites-enabled ====="
+            ls -la /etc/apache2/sites-enabled/
+            echo "===== sites-available ====="
+            ls -la /etc/apache2/sites-available/
+            echo "===== ServerName/Alias in enabled confs ====="
+            sudo grep -rn "ServerName\|ServerAlias\|SSLCertificateFile\|DocumentRoot" /etc/apache2/sites-enabled/ || true
+            echo "===== certbot certificates ====="
+            sudo certbot certificates 2>&1 || true
+            echo "===== certbot timer ====="
+            systemctl list-timers | grep -i certbot || true

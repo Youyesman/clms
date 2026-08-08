@@ -147,6 +147,7 @@ const LabelValue = styled.div<{
     $isPlaceholder?: boolean;
     $chip?: boolean;
     $applied?: boolean;
+    $minW?: number;
 }>`
     flex: 1;
     color: ${({ $isPlaceholder }) => ($isPlaceholder ? ui.color.textSubtle : ui.color.text)};
@@ -158,8 +159,22 @@ const LabelValue = styled.div<{
     text-overflow: ellipsis;
     padding-left: ${({ $hasLeft }) => ($hasLeft ? "10px" : "0")};
 
-    /* 칩 모드: 선택된 값은 진하게, 비어 있으면 라벨만 보이도록 */
+    /* 칩 모드: 선택된 값은 진하게 */
     ${({ $chip }) => $chip && filterChipValue}
+    /* 칩 모드 placeholder("선택")는 옅게 — 라벨과 구분되면서 빈 상태임이 보이게 */
+    ${({ $chip, $isPlaceholder }) =>
+        $chip &&
+        $isPlaceholder &&
+        css`
+            color: ${ui.color.textSubtle};
+            font-weight: ${ui.font.weight.regular};
+        `}
+    /* 인스턴스별 값 영역 최소폭 (영화명처럼 넓은 선택 버튼이 필요한 곳) */
+    ${({ $minW }) =>
+        $minW &&
+        css`
+            min-width: ${$minW}px;
+        `}
 `;
 
 const Option = styled.div<{ selected?: boolean }>`
@@ -240,6 +255,7 @@ export function CustomSelect({
     allowClear = true,
     variant = "default",
     neutralValues = NEUTRAL_FILTER_VALUES,
+    chipValueMinWidth,
 }: {
     options: any[];
     value?: string;
@@ -267,6 +283,12 @@ export function CustomSelect({
      * 화면에 따라 다르면 이 prop으로 재정의하세요. 예) neutralValues={["", "미지정"]}
      */
     neutralValues?: string[];
+    /**
+     * 칩 값 영역 최소폭(px). 값이 비어 있는 동안만 옅은 "선택" placeholder와
+     * 함께 이 폭을 유지한다 — 영화명처럼 넓은 선택 버튼이 필요한 곳용.
+     * 선택 후에는 내용 폭에 맞게 줄어들어 caret 옆에 빈 공간이 남지 않는다.
+     */
+    chipValueMinWidth?: number;
 }) {
     const rawOptions = options.map((opt) => (typeof opt === "string" ? { label: opt, value: opt } : opt));
     const normalizedOptions = allowClear ? [{ label: "선택", value: "" }, ...rawOptions] : rawOptions;
@@ -288,10 +310,13 @@ export function CustomSelect({
     const showInternalLabel = label && labelPlacement === "left";
     const selected = normalizedOptions.find((opt) => opt.value === value);
     const isPlaceholder = !value || value === "";
-    /* 칩 모드에서 값이 비면 "선택" 대신 아무것도 안 띄우고 라벨만 남깁니다 */
+    /* 칩 모드에서 값이 비면 라벨만 남긴다. 단 chipValueMinWidth가 지정된 칩은
+       (영화명처럼 넓은 버튼이 필요한 곳) 옅은 "선택" placeholder로 폭을 유지한다 */
     const displayLabel = isChip
         ? isPlaceholder
-            ? ""
+            ? chipValueMinWidth
+                ? placeholder || "선택"
+                : ""
             : selected?.label || ""
         : selected?.label || (isPlaceholder ? "선택" : placeholder || "");
 
@@ -394,13 +419,14 @@ export function CustomSelect({
                             </InternalLabelBox>
                         )}
 
-                        {(!isChip || displayLabel) && (
+                        {(!isChip || displayLabel !== "") && (
                             <LabelValue
                                 $fs={s.fs}
                                 $hasLeft={Boolean(showInternalLabel)}
                                 $isPlaceholder={isPlaceholder}
                                 $chip={isChip}
-                                $applied={isApplied}>
+                                $applied={isApplied}
+                                $minW={isChip && isPlaceholder ? chipValueMinWidth : undefined}>
                                 {displayLabel}
                             </LabelValue>
                         )}

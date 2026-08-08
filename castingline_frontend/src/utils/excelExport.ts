@@ -15,6 +15,8 @@ export interface ExcelSheetSection {
     headers: ExcelCell[][];
     /** 본문 행 */
     rows: ExcelCell[][];
+    /** 가운데 정렬할 본문 컬럼 인덱스(0-based). 지정 없으면 엑셀 기본 정렬 */
+    centerCols?: number[];
 }
 
 const escapeCell = (v: ExcelCell): string => {
@@ -25,11 +27,29 @@ const escapeCell = (v: ExcelCell): string => {
         .replace(/>/g, "&gt;");
 };
 
-const td = (v: ExcelCell, tag: "td" | "th" = "td") =>
-    `<${tag}>${escapeCell(v)}</${tag}>`;
+/**
+ * 숫자 셀에 붙일 엑셀 서식(천 단위 콤마).
+ * HTML→엑셀 방식에서는 mso-number-format 으로 셀 서식을 지정한다.
+ * 정수는 #,##0 / 소수는 소수점 둘째 자리까지 표시(#,##0.##)해
+ * 좌석판매율(85.3%) 같은 값이 반올림돼 보이지 않게 한다.
+ */
+const numberFormatCss = (v: number) =>
+    `mso-number-format:'${
+        Number.isInteger(v) ? "\\#\\,\\#\\#0" : "\\#\\,\\#\\#0\\.\\#\\#"
+    }'`;
 
-const tr = (cells: ExcelCell[], tag: "td" | "th" = "td") =>
-    `<tr>${cells.map((c) => td(c, tag)).join("")}</tr>`;
+const td = (v: ExcelCell, tag: "td" | "th" = "td", center = false) => {
+    const css: string[] = [];
+    if (tag === "td" && typeof v === "number" && Number.isFinite(v)) {
+        css.push(numberFormatCss(v));
+    }
+    if (center) css.push("text-align:center");
+    const style = css.length ? ` style="${css.join(";")}"` : "";
+    return `<${tag}${style}>${escapeCell(v)}</${tag}>`;
+};
+
+const tr = (cells: ExcelCell[], tag: "td" | "th" = "td", centerCols?: Set<number>) =>
+    `<tr>${cells.map((c, i) => td(c, tag, centerCols?.has(i))).join("")}</tr>`;
 
 /** 파일명에 쓸 수 없는 문자 제거 */
 const safeFileName = (name: string) =>
@@ -56,7 +76,8 @@ export function downloadExcel(
                   )}">${escapeCell(s.caption)}</td></tr>`
                 : "";
             const headers = s.headers.map((h) => tr(h, "th")).join("");
-            const rows = s.rows.map((r) => tr(r)).join("");
+            const centerSet = s.centerCols ? new Set(s.centerCols) : undefined;
+            const rows = s.rows.map((r) => tr(r, "td", centerSet)).join("");
             return `<table border="1">${caption}${headers}${rows}</table>`;
         })
         .join("<br/>");

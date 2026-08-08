@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import styled from "styled-components";
 import { AxiosDelete, AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
 import { GenericTable } from "../../../components/GenericTable";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
@@ -17,18 +16,6 @@ import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
 
 /** 스타일 정의 **/
-
-const FilterGroup = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    .label {
-        font-size: 12px;
-        font-weight: 700;
-        color: #475569;
-        white-space: nowrap;
-    }
-`;
 
 
 
@@ -306,26 +293,24 @@ export function OrderDetail({
     };
     return (
         <>
+            {/* 칩 디자인은 CommonFilterBar가 직계 자식에 주입한다 — styled 래퍼로
+                감싸면 주입이 막히므로 인풋을 직접 배치한다 */}
             <CommonFilterBar onSearch={onClickSearch}>
-                <FilterGroup>
-                    <CustomInput
-                        label="기준일자"
-                        inputType="date"
-                        value={filterStartDate}
-                        setValue={setFilterStartDate}
-                    />
-                </FilterGroup>
-                <FilterGroup style={{ flex: 1, maxWidth: "350px" }}>
-                    <AutocompleteInputClient
-                        type="theater"
-                        label="극장명"
-                        placeholder="극장명 검색..."
-                        formData={searchClient}
-                        setFormData={setSearchClient}
-                        inputValue={clientInputValue}
-                        setInputValue={setClientInputValue}
-                    />
-                </FilterGroup>
+                <CustomInput
+                    label="기준일자"
+                    inputType="date"
+                    value={filterStartDate}
+                    setValue={setFilterStartDate}
+                />
+                <AutocompleteInputClient
+                    type="theater"
+                    label="극장명"
+                    placeholder="극장명 검색..."
+                    formData={searchClient}
+                    setFormData={setSearchClient}
+                    inputValue={clientInputValue}
+                    setInputValue={setClientInputValue}
+                />
             </CommonFilterBar>
 
             <CommonSectionCard>

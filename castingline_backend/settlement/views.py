@@ -121,19 +121,29 @@ class SettlementListView(APIView):
             return []
 
         # 스코어 데이터 조회 (합산된 영화 ID들 사용)
-        scores = Score.objects.filter(
+        # 월 스코어가 수십만 행이라 모델 객체로 만들면 ORM 인스턴스 생성이
+        # 전체 조회 시간의 대부분을 차지함 → 필요한 컬럼만 튜플로 가져오고
+        # Client/Movie는 id별로 한 번만 로드해서 재사용한다 (P001)
+        scores_qs = Score.objects.filter(
             entry_date__year=yyyy, entry_date__month=mm, movie_id__in=all_related_movie_ids
-        ).select_related("client", "movie").order_by("entry_date")
-
+        )
         if client_id:
-            scores = scores.filter(client_id=client_id)
+            scores_qs = scores_qs.filter(client_id=client_id)
 
-        if not scores.exists():
+        # entry_date 정렬 유지 — 같은 극장의 포맷별 행 순서(그룹 생성 순서)가
+        # 정렬에 따라 달라지므로 기존 표시 순서를 보존한다
+        score_rows = list(scores_qs.order_by("entry_date").values_list(
+            "client_id", "movie_id", "entry_date", "auditorium", "fare", "visitor"))
+        if not score_rows:
             return []
 
         # 캐싱 데이터 준비
-        client_ids = list(scores.values_list(
-            "client_id", flat=True).distinct())
+        client_ids = list({r[0] for r in score_rows})
+        client_map = Client.objects.in_bulk(client_ids)
+        movie_map = Movie.objects.in_bulk({r[1] for r in score_rows})
+        # 상영타입 문자열은 영화별로 한 번만 조합
+        screening_type_map = {
+            m_id: self._get_screening_type(m) for m_id, m in movie_map.items()}
         daily_fund_map = {(f.client_id, f.dd): f.fund_yn for f in DailyFund.objects.filter(
             client_id__in=client_ids, yyyy=yyyy, mm=mm)}
         monthly_fund_map = {(f.client_id, f.mm): f.fund_yn for f in MonthlyFund.objects.filter(
@@ -162,35 +172,45 @@ class SettlementListView(APIView):
             theater_rate_map[(tr.rate_id, tr.theater.auditorium)] = tr.share_rate
         default_rate_map = {(dr.region_code, dr.theater_kind): dr.share_rate for dr in DefaultRate.objects.all()}
 
+        # 배급사별 극장명(극장명 매핑) — 영화의 배급사(주배급사) 기준.
+        # 화면 '배급사별 극장명' 토글 표시용 (엑셀·계산에는 사용하지 않음)
+        from client.models import DistributorTheaterMap
+        dist_theater_names = {}
+        if primary_movie.distributor_id:
+            for dm in DistributorTheaterMap.objects.filter(
+                distributor_id=primary_movie.distributor_id, theater_id__in=client_ids
+            ).order_by("theater_id", "-apply_date"):
+                if dm.theater_id not in dist_theater_names:
+                    dist_theater_names[dm.theater_id] = dm.distributor_theater_name
+
         # 데이터 집계
         aggregated_data = {}
-        for score in scores:
+        for c_id, m_id, entry_date, auditorium, fare_raw, visitor_raw in score_rows:
             # 음수 인원(환불) 행도 정산 합계에 반영 (S001). 파싱 불가 행만 제외.
             try:
-                int(score.visitor or 0)
+                int(visitor_raw or 0)
             except (ValueError, TypeError):
                 continue
 
-            client = score.client
-            c_id = client.id
-            entry_date = score.entry_date
+            client = client_map[c_id]
 
             # 부율 조회는 해당 스코어의 실제 하위영화(상영 포맷) 기준
             share_rate = self._get_cached_rate(
-                c_id, score.movie_id, entry_date, score.auditorium, rate_map, theater_rate_map, default_rate_map, client)
+                c_id, m_id, entry_date, auditorium, rate_map, theater_rate_map, default_rate_map, client)
             is_fund_exempt = self._get_cached_fund(
                 c_id, entry_date, daily_fund_map, monthly_fund_map, yearly_fund_map)
 
             # 하위영화별 상영타입을 구분하여 그룹핑 (필름/디지털, 자막/더빙, 2D/3D 등 모든 타입 조합)
-            screening_type = self._get_screening_type(score.movie)
+            screening_type = screening_type_map[m_id]
             group_key = (c_id, share_rate, is_fund_exempt, screening_type)
             if group_key not in aggregated_data:
                 aggregated_data[group_key] = self.init_data_struct(
-                    client, score.movie, share_rate, is_fund_exempt, entry_date)
+                    client, movie_map[m_id], share_rate, is_fund_exempt, entry_date)
+                aggregated_data[group_key]["배급사별 극장명"] = dist_theater_names.get(c_id, "")
 
             target = aggregated_data[group_key]
-            visitor_count = int(score.visitor or 0)
-            fare = Decimal(str(score.fare or 0))
+            visitor_count = int(visitor_raw or 0)
+            fare = Decimal(str(fare_raw or 0))
 
             unit_excl_fund = fare if is_fund_exempt else (
                 fare / Decimal("1.03")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
@@ -226,8 +246,11 @@ class SettlementListView(APIView):
         if include_adjustments:
             from settlement.compare import format_bucket
             from settlement.models import SettlementAdjustment
+            # 극장 단위("") 조정을 포맷 지정 조정보다 먼저 적용 — "" 조정의 원본
+            # 합계 검증(orig_is_aggregate)이 포맷 조정 반영 전 값 기준이 되도록.
             adjustments = SettlementAdjustment.objects.filter(
-                yyyymm=yyyy_mm, movie_id=movie_id).select_related("client")
+                yyyymm=yyyy_mm, movie_id=movie_id).select_related(
+                    "client").order_by("screen_format", "id")
             if client_id:
                 adjustments = adjustments.filter(client_id=client_id)
             for adj in adjustments:
@@ -253,9 +276,20 @@ class SettlementListView(APIView):
                         and it.get("부가세") == adj.vat_original
                         and it.get("영화사 지급금") == adj.payout_original
                     ]
+                    # 부금 대사에서 저장한 조정은 원본이 포맷 묶음 '합계' 기준이라
+                    # (같은 포맷이 부율 차이로 여러 행이면) 단일 행과는 안 맞는다.
+                    # 합계가 일치하면 기준이 유효한 것이므로 적용을 중지하지 않는다.
+                    orig_is_aggregate = (
+                        adj.supply_original is not None and len(candidates) > 1
+                        and sum(it.get("공급가액") or 0 for it in candidates) == adj.supply_original
+                        and sum(it.get("부가세") or 0 for it in candidates) == adj.vat_original
+                        and sum(it.get("영화사 지급금") or 0
+                                for it in candidates) == adj.payout_original
+                    )
                     amount_delta_exists = bool(adj.supply_delta or adj.vat_delta
                                                or adj.payout_delta)
-                    if (not orig_matched and adj.supply_original is not None
+                    if (not orig_matched and not orig_is_aggregate
+                            and adj.supply_original is not None
                             and amount_delta_exists):
                         # 원본 금액이 어떤 행과도 안 맞음 = 조정 이후 부율/스코어가
                         # 바뀌어 기준이 깨진 조정. 금액을 조용히 얹지 않고 적용을
@@ -495,7 +529,10 @@ class SettlementListView(APIView):
                     brand_idx = i
                     break
             class_idx = 0 if x["classification"] == "직영" else 1
-            return (brand_idx, class_idx, region_sort_index(x["지역"]), x["극장명"])
+            # 같은 극장의 포맷별 행 순서가 스코어 조회 순서(비결정적)에 따라
+            # 뒤바뀌지 않도록 상영타입까지 정렬 키에 포함해 고정한다
+            return (brand_idx, class_idx, region_sort_index(x["지역"]), x["극장명"],
+                    str(x.get("상영타입") or ""))
 
         items.sort(key=get_sort_key)
         if not items:
@@ -545,7 +582,7 @@ class SettlementListView(APIView):
         return {
             # 엑셀 양식에서는 합계 라벨을 지역/멀티/구분 칸에 나눠 넣으므로 원본 값도 함께 보관
             "is_subtotal": True, "subtotal_brand": brand, "subtotal_class": clss,
-            "극장명": f"[{brand} {clss}] 합계",
+            "극장명": f"[{brand} {clss}] 합계", "배급사별 극장명": "",
             "인원": sums["인원"], "금액(입장료)": sums["금액(입장료)"],
             "기금제외금액": sums["기금제외금액"], "부가세제외금액": sums["부가세제외금액"],
             "공급가액": sums["공급가액"], "부가세": sums["부가세"], "영화사 지급금": sums["영화사 지급금"],
@@ -836,13 +873,16 @@ class SettlementCompareView(SettlementListView):
           엑셀 행은 시스템에 데이터가 있는 구분(직영→위탁→기타 순)으로 귀속,
           PDF(AI) 행은 매칭된 거래처의 구분 그대로.
         - 포맷 버킷은 포맷 식별이 가능한 직영 체인(FORMAT_SPLIT_CHAINS: CGV=영화명
-          괄호 표기, 메가박스=상영종류 컬럼)만 분리. 위탁/기타 정산서는 포맷 정보가
-          없어 극장 단위(버킷 "") 비교.
+          괄호 표기, 메가박스=상영종류 컬럼)만 분리. 위탁/기타 PDF는 기본 극장
+          단위(버킷 "") 비교하되, 파일 제명에 포맷 표기가 있는 극장(예: CGV 위탁관
+          '눈동자(DOLBY ATMOS 2D)')은 포맷 버킷으로 분리해 포맷별 계산서와 1원
+          단위까지 맞춘다.
         """
         import re as _re
 
         from settlement.compare import (FILE_THEATER_MERGE, FORMAT_SPLIT_CHAINS,
-                                        FUND_EXEMPT_SUFFIX, format_bucket, norm_date)
+                                        FUND_EXEMPT_SUFFIX, format_bucket,
+                                        norm_date, norm_date_end)
 
         # 발전기금면제관을 본관과 따로 대사해야 하는 극장(메가박스 코엑스)은
         # 정규화 키에 접미사를 남긴다. 그 외 극장은 기존처럼 본관에 합산. (F001)
@@ -851,6 +891,25 @@ class SettlementCompareView(SettlementListView):
 
         def _fmt_split(chain, cls):
             return chain in FORMAT_SPLIT_CHAINS and cls == "직영"
+
+        primary_title = primary_movie.title_ko or ""
+
+        # 위탁/기타 PDF(AI) 행도 파일 제명에 포맷 표기가 있으면(예: '눈동자(DOLBY
+        # ATMOS 2D)') 해당 극장은 포맷 버킷으로 분리해 대사한다 — 극장 단위 합산은
+        # 포맷별 ±1원 반올림 잔차가 상쇄돼 일괄 조정이 한 행에 몰리는 문제가 있음.
+        # 포맷 표기가 전혀 없는 극장은 기존대로 극장 단위(버킷 "") 비교 — 위탁
+        # 정산서 다수는 포맷 정보가 없고, 이때 분리하면 시스템측 포맷 행과 가짜
+        # 불일치가 생기기 때문.
+        ai_row_fmt = {}          # id(row) → 포맷 버킷
+        ai_fmt_theaters = set()  # 분리 대상 (체인, 구분, 정규화극장명)
+        for row in file_rows:
+            if row.get("source") != "ai" or row.get("client") is None:
+                continue
+            fmt = format_bucket(str(row["movie"]).replace(primary_title, ""), row["chain"])
+            ai_row_fmt[id(row)] = fmt
+            if fmt != "2D":
+                ai_fmt_theaters.add((row["chain"], row["cls"],
+                                     nt(row["client_name"])))
 
         # 시스템측: 화면과 동일 계산(get_processed_data, 조정 미포함 — 아래에서 자체 적용)
         # → 극장×포맷별 합산. 전 구분을 집계하되 표시 범위는 아래 allowed_pairs 로 거른다.
@@ -862,8 +921,12 @@ class SettlementCompareView(SettlementListView):
                 continue  # 수동조정 행은 아래에서 별도 적용 (메가박스 재계산이 덮지 않도록)
             row_chain = row.get("멀티구분") or ""
             cls = row.get("classification") or ""
-            fmt = format_bucket(row.get("상영타입"), row_chain) if _fmt_split(row_chain, cls) else ""
-            key = (row_chain, cls, nt(row["극장명"]), fmt)
+            norm_name = nt(row["극장명"])
+            if _fmt_split(row_chain, cls) or (row_chain, cls, norm_name) in ai_fmt_theaters:
+                fmt = format_bucket(row.get("상영타입"), row_chain)
+            else:
+                fmt = ""
+            key = (row_chain, cls, norm_name, fmt)
             agg = sys_by_theater.setdefault(key, {
                 # 본관에 합산되는 면제관은 표시명에서 접미사를 떼고,
                 # 따로 대사하는 극장(코엑스)은 어느 쪽인지 보이도록 그대로 둔다
@@ -891,7 +954,6 @@ class SettlementCompareView(SettlementListView):
         # 포맷 버킷: 메가박스는 상영종류 컬럼(screen_kind), CGV는 파일 영화명에서
         # 영화 제목을 뗀 나머지(포맷/이벤트 표기)로 판정 — 제목 자체에 3D/IMAX 등이
         # 들어간 영화가 오분류되지 않게 한다.
-        primary_title = primary_movie.title_ko or ""
         file_by_theater = {}
         file_movie_names = set()
         for row in file_rows:
@@ -901,9 +963,12 @@ class SettlementCompareView(SettlementListView):
                 # 미매칭(cls None)은 파일에만 있는 행으로 남는다.
                 if row.get("client") is not None:
                     ch, cls, norm = row["chain"], row["cls"], nt(row["client_name"])
+                    # 포맷 분리 대상 극장이면 제명 표기 기준 버킷 (표기 없는 행은 기본관)
+                    fmt = (ai_row_fmt.get(id(row), "2D")
+                           if (ch, cls, norm) in ai_fmt_theaters else "")
                 else:
                     ch, cls, norm = row["chain"], None, nt(row["theater"])
-                fmt = ""
+                    fmt = ""
             else:
                 ch = row["chain"]
                 norm = nt(row["theater"])
@@ -921,9 +986,11 @@ class SettlementCompareView(SettlementListView):
                 "source": row.get("source") or "excel",
                 "인원": 0, "공급가액": 0, "부가세": 0, "영화사 지급금": 0, "date_to": "",
             })
-            # 날짜(To): 정산서의 상영 종료일 (롯데는 행별 상영일자의 최댓값)
+            # 날짜(To): 정산서의 상영 종료일. 종료일 컬럼이 없는 체인(롯데)은
+            # 상영일자 셀이 'From~To' 범위이므로 셀 안의 최대 날짜를 종료일로 본다.
             agg["date_to"] = max(agg["date_to"],
-                                 norm_date(row.get("date_end") or row.get("date")))
+                                 norm_date(row.get("date_end"))
+                                 or norm_date_end(row.get("date")))
             agg["인원"] += row["visitors"]
             agg["공급가액"] += row["supply"]
             agg["부가세"] += row["vat"]
@@ -961,8 +1028,11 @@ class SettlementCompareView(SettlementListView):
         # 포맷 지정 조정은 해당 (극장, 포맷) 행에, 포맷 미지정(구버전/극장 전체) 조정은
         # 그 극장에서 지급금이 가장 큰 포맷 행에 적용 (정산 화면과 동일 규칙).
         from settlement.models import SettlementAdjustment
+        # screen_format "" (극장 단위 구버전) → 포맷 지정 순으로 적용 — 포맷 분리
+        # 전환기에 두 종류 조정이 공존해도 적용 결과가 순서에 따라 달라지지 않게.
         for adj in SettlementAdjustment.objects.filter(
-                yyyymm=yyyy_mm, movie=primary_movie).select_related("client"):
+                yyyymm=yyyy_mm, movie=primary_movie).select_related(
+                    "client").order_by("screen_format", "id"):
             chain_k = adj.client.theater_kind or ""
             cls_k = adj.client.classification or ""
             name_k = nt(adj.client.client_name)
@@ -976,16 +1046,27 @@ class SettlementCompareView(SettlementListView):
                 key = max(theater_keys, key=lambda k: sys_by_theater[k]["영화사 지급금"])
             agg = sys_by_theater[key]
             if show_adjustment_info:  # 조정 내역(차액/원래값)은 관리자에게만 노출
-                agg["adjustment"] = {
-                    "id": adj.id,
-                    "supply_delta": adj.supply_delta,
-                    "vat_delta": adj.vat_delta,
-                    "payout_delta": adj.payout_delta,
-                    "note": adj.note,
-                    "original": {"공급가액": agg["공급가액"], "부가세": agg["부가세"],
-                                 "영화사 지급금": agg["영화사 지급금"],
-                                 "날짜(To)": agg.get("date_to") or ""},
-                }
+                # 행 단위 조정이 여러 건이면 델타를 합산해 표시 (원래값은 첫 조정
+                # 적용 전 값 유지 — 대사 재조정 시 base 계산이 어긋나지 않도록)
+                prev = agg.get("adjustment")
+                if prev:
+                    prev["id"] = adj.id
+                    prev["supply_delta"] += adj.supply_delta
+                    prev["vat_delta"] += adj.vat_delta
+                    prev["payout_delta"] += adj.payout_delta
+                    if adj.note:
+                        prev["note"] = adj.note
+                else:
+                    agg["adjustment"] = {
+                        "id": adj.id,
+                        "supply_delta": adj.supply_delta,
+                        "vat_delta": adj.vat_delta,
+                        "payout_delta": adj.payout_delta,
+                        "note": adj.note,
+                        "original": {"공급가액": agg["공급가액"], "부가세": agg["부가세"],
+                                     "영화사 지급금": agg["영화사 지급금"],
+                                     "날짜(To)": agg.get("date_to") or ""},
+                    }
             agg["공급가액"] += adj.supply_delta
             agg["부가세"] += adj.vat_delta
             agg["영화사 지급금"] += adj.payout_delta
@@ -1345,11 +1426,85 @@ class SettlementAdjustmentView(APIView):
         if "note" in data:
             defaults["note"] = (data.get("note") or "")[:200]
 
-        obj, _created = SettlementAdjustment.objects.update_or_create(
-            yyyymm=yyyy_mm, movie_id=movie_id, client=client,
-            screen_format=(str(data.get("screen_format") or "")).strip(),
-            defaults=defaults,
-        )
+        # 저장 시점 재기준(rebase) — 화면이 보내온 원본(계산값)이 현재 계산과 다르면
+        # (조회 후 부율·스코어가 바뀐 낡은 화면에서 수정한 경우) 그대로 저장 시
+        # '기준 변경'으로 적용이 중지돼 방금 한 수정이 사라진다. 사용자가 입력한
+        # 최종 금액은 보존하고 원본/델타만 현재 계산값 기준으로 다시 계산한다.
+        # (정산 관리 직접 수정 전용 — 대사 일괄 조정은 합계 기준이라 제외)
+        rebased = False
+        if (data.get("rebase_on_mismatch")
+                and "supply_delta" in defaults
+                and defaults.get("supply_original") is not None):
+            rows = SettlementListView().get_processed_data(
+                yyyy_mm, movie_id, "전체극장", client_id=client.id,
+                include_adjustments=False)
+            cands = [it for it in rows
+                     if not it.get("is_subtotal")
+                     and it.get("거래처코드") == client.client_code
+                     and it.get("영화사 지급금") is not None]
+            fmt = (str(data.get("screen_format") or "")).strip()
+            if fmt and cands:
+                from settlement.compare import format_bucket
+                fmt_matched = [it for it in cands
+                               if format_bucket(it.get("상영타입"),
+                                                client.theater_kind) == fmt]
+                if fmt_matched:
+                    cands = fmt_matched
+            matched = any(
+                it.get("공급가액") == defaults["supply_original"]
+                and it.get("부가세") == defaults["vat_original"]
+                and it.get("영화사 지급금") == defaults["payout_original"]
+                for it in cands)
+            if cands and not matched:
+                final_supply = (defaults["supply_original"] or 0) + defaults["supply_delta"]
+                final_vat = (defaults["vat_original"] or 0) + defaults["vat_delta"]
+                final_payout = (defaults["payout_original"] or 0) + defaults["payout_delta"]
+                tgt = max(cands, key=lambda it: it["영화사 지급금"])
+                defaults.update({
+                    "supply_original": tgt["공급가액"],
+                    "vat_original": tgt["부가세"],
+                    "payout_original": tgt["영화사 지급금"],
+                    "supply_delta": final_supply - tgt["공급가액"],
+                    "vat_delta": final_vat - tgt["부가세"],
+                    "payout_delta": final_payout - tgt["영화사 지급금"],
+                })
+                rebased = True
+
+        # 대상 레코드 선택 — 같은 극장·포맷이 부율 차이로 여러 행이면 행마다
+        # 별도 조정이 필요하다. 행 단위 수정(row_scoped)은 ① 프론트가 넘긴
+        # 조정ID ② 원본 금액 일치 순으로 기존 레코드를 찾고, 없으면 새로 만든다.
+        # 대사 일괄/날짜 일괄 등 극장×포맷 단위 흐름은 기존 단건 업서트 유지.
+        fmt = (str(data.get("screen_format") or "")).strip()
+        qs = SettlementAdjustment.objects.filter(
+            yyyymm=yyyy_mm, movie_id=movie_id, client=client, screen_format=fmt,
+        ).order_by("id")
+        obj = None
+        adj_id = _i(data.get("adjustment_id"))
+        if adj_id:
+            obj = qs.filter(id=adj_id).first()
+        if obj is None:
+            if data.get("row_scoped") and "supply_delta" in defaults:
+                if _i(data.get("supply_original")) is not None:
+                    obj = qs.filter(
+                        supply_original=_i(data.get("supply_original")),
+                        vat_original=_i(data.get("vat_original")),
+                        payout_original=_i(data.get("payout_original")),
+                    ).first()
+                if obj is None:
+                    obj = SettlementAdjustment(
+                        yyyymm=yyyy_mm, movie_id=movie_id,
+                        client=client, screen_format=fmt)
+            else:
+                obj = qs.first() or SettlementAdjustment(
+                    yyyymm=yyyy_mm, movie_id=movie_id,
+                    client=client, screen_format=fmt)
+        for k, v in defaults.items():
+            setattr(obj, k, v)
+        obj.save()
+        # 극장×포맷 단위 금액 조정(대사 일괄 등)은 단건 의미 유지 — 행 단위
+        # 조정이 남아 있으면 이중 반영되므로 정리한다 (날짜만 저장 시에는 유지)
+        if "supply_delta" in defaults and not data.get("row_scoped"):
+            qs.exclude(pk=obj.pk).delete()
         # 조정을 저장했다는 것 = 그 극장 내역을 확인했다는 것 (사용자 확정).
         # 단, 일괄 조정처럼 오류 행이 남는 극장을 미확인으로 남겨야 하는 흐름은
         # auto_confirm=false 로 자동 확인을 끄고 확인 API를 따로 호출한다 (K001).
@@ -1357,6 +1512,7 @@ class SettlementAdjustmentView(APIView):
             SettlementConfirm.objects.get_or_create(
                 yyyymm=yyyy_mm, movie_id=movie_id, client=client,
                 defaults={"source": "조정", "confirmed_by": username})
+        obj._rebased = rebased  # 응답에 재기준 여부 전달용 (DB 저장 안 됨)
         return obj, None
 
     def post(self, request):
@@ -1383,7 +1539,10 @@ class SettlementAdjustmentView(APIView):
         obj, err = self._save_one(yyyy_mm, data, username)
         if err:
             return Response({"error": err}, status=400)
-        return Response(_serialize_adjustment(obj), status=status.HTTP_201_CREATED)
+        payload = _serialize_adjustment(obj)
+        if getattr(obj, "_rebased", False):
+            payload["rebased"] = True
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class SettlementAdjustmentDetailView(APIView):
@@ -1419,6 +1578,65 @@ class SettlementAdjustmentDetailView(APIView):
         else:
             obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SettlementStaleAdjustmentView(APIView):
+    """'기준 변경'으로 적용이 중지된 수동 조정 전체 점검 (관리자 전용).
+
+    GET /Api/settlement-adjustments-stale/?yyyyMm=
+    조정이 저장된 월·영화 조합을 전부 재계산해 조정경고(기준 변경)가 붙은
+    건만 모아 반환한다. 영화를 하나씩 열어봐야만 발견되는 경고를 한 번에
+    확인하는 용도. yyyyMm을 주면 해당 월만 점검한다.
+    """
+
+    def get(self, request):
+        denied = _require_admin(request)
+        if denied:
+            return denied
+        from settlement.models import SettlementAdjustment
+        qs = SettlementAdjustment.objects.select_related("client")
+        yyyy_mm = request.query_params.get("yyyyMm")
+        if yyyy_mm:
+            qs = qs.filter(yyyymm=yyyy_mm)
+        adj_map = {a.id: a for a in qs}
+        combos = sorted({(a.yyyymm, a.movie_id) for a in adj_map.values()})
+        titles = {m.id: m.title_ko for m in Movie.objects.filter(
+            id__in={mid for _, mid in combos})}
+
+        sv = SettlementListView()
+        stale, errors = [], []
+        for ym, mid in combos:
+            try:
+                rows = sv.get_processed_data(
+                    ym, mid, "전체극장",
+                    include_adjustments=True, show_adjustment_info=True)
+            except Exception:
+                errors.append({"yyyyMm": ym, "movie_id": mid,
+                               "movie_title": titles.get(mid, "")})
+                continue
+            for it in rows:
+                warn = it.get("조정경고")
+                if not warn:
+                    continue
+                a = adj_map.get(warn.get("조정ID"))
+                stale.append({
+                    "yyyyMm": ym,
+                    "movie_id": mid,
+                    "movie_title": titles.get(mid, ""),
+                    "client_code": it.get("거래처코드"),
+                    "client_name": it.get("극장명"),
+                    "region": it.get("지역"),
+                    "adjustment_id": warn.get("조정ID"),
+                    "reason": warn.get("사유"),
+                    "supply_original": a.supply_original if a else None,
+                    "supply_delta": a.supply_delta if a else None,
+                    "vat_delta": a.vat_delta if a else None,
+                    "payout_delta": a.payout_delta if a else None,
+                    "note": a.note if a else "",
+                    "updated_at": a.updated_at if a else None,
+                })
+        return Response({"checked": len(combos), "stale": stale,
+                         "errors": errors})
 
 
 # 2-3. 부금 정산 극장별 확인 처리
@@ -1486,6 +1704,8 @@ class SettlementExcelExportView(SettlementListView):
         target_filter = request.query_params.get("target", "전체극장")
         client_id = request.query_params.get("client_id") or None
         confirm_filter = request.query_params.get("confirm", "")  # ""|확인|미확인
+        # 화면 토글과 동일: dist면 극장명 컬럼에 배급사별 극장명(영화 배급사 매핑) 사용
+        use_dist_name = request.query_params.get("theater_name") == "dist"
 
         if not yyyy_mm or not movie_id:
             return HttpResponse("년월과 영화를 선택해주세요.", status=400)
@@ -1526,6 +1746,18 @@ class SettlementExcelExportView(SettlementListView):
                 return it.get("멀티구분") == multi_filter
             items = [it for it in items if _keep(it)]
 
+        # 직위(직영/위탁/기타) 필터 — 화면과 동일. 소계는 라벨 "[롯데 직영] 합계"의
+        # 구분이 선택값과 같을 때만 유지 (화면만 걸러지고 엑셀엔 위탁이 섞여 나오던 문제)
+        class_filter = request.query_params.get("classification", "")
+        if class_filter and class_filter != "전체":
+            def _keep_class(it):
+                if it.get("is_subtotal"):
+                    name = str(it.get("극장명") or "")
+                    m = re.match(r"^\[[^\s\]]+\s+([^\]]+)\]", name)
+                    return bool(m) and m.group(1).strip() == class_filter
+                return it.get("classification") == class_filter
+            items = [it for it in items if _keep_class(it)]
+
         if not items:
             return HttpResponse("조회된 데이터가 없습니다.", status=404)
 
@@ -1562,7 +1794,9 @@ class SettlementExcelExportView(SettlementListView):
         for item in items:
             row = [
                 item.get("지역", ""), item.get("멀티구분", ""), item.get("classification", ""),
-                item.get("거래처코드(바이포엠만 해당)", ""), item.get("극장명", ""),
+                item.get("거래처코드(바이포엠만 해당)", ""),
+                ((item.get("배급사별 극장명") or item.get("극장명", ""))
+                 if use_dist_name else item.get("극장명", "")),
                 item.get("사업자 등록번호", ""), item.get("종사업장번호", ""),
                 item.get("공급받는자 상호", ""), item.get("공급받는자 성명", ""),
                 item.get("사업장 소재", ""), item.get("업태", ""), item.get("업종", ""),
@@ -1574,7 +1808,9 @@ class SettlementExcelExportView(SettlementListView):
                 item.get("공급가액", 0), item.get("부가세", 0), item.get("영화사 지급금", 0),
             ]
             if item.get("is_subtotal"):
-                # 합계 라벨은 지역/멀티/구분 칸으로 (양식 기준). 극장명 칸은 비운다.
+                # 합계 라벨은 지역/멀티/구분 칸으로 (E002 양식 기준). 극장명 칸은 비운다.
+                # 날짜열은 비워 둔다 — 날짜(To)에 '합계' 글자를 넣으면 날짜 열에
+                # 텍스트가 섞여 함수가 먹지 않는다.
                 brand = item.get("subtotal_brand", "")
                 row[0], row[1], row[2], row[4] = (
                     "합계", EXCEL_BRAND_LABEL.get(brand, brand),
@@ -1661,6 +1897,16 @@ class SettlementExcelExportView(SettlementListView):
             ws.column_dimensions[letter].number_format = "yyyy-mm-dd"
             for r in range(2, ws.max_row + 1):
                 ws.cell(row=r, column=c).number_format = "yyyy-mm-dd"
+
+        # 합계별 접기/펼치기 — 상세(극장) 행을 아웃라인 그룹(레벨 1)으로 묶어
+        # 엑셀 좌측 +/- 버튼으로 합계만 남기고 접을 수 있게 한다
+        ws.sheet_properties.outlinePr.summaryBelow = True  # 요약(합계) 행이 그룹 아래
+        summary_rows = set(subtotal_row_nums) | {total_row}
+        for r in range(1, ws.max_row + 1):
+            dim = ws.row_dimensions[r]
+            dim.height = 17.25
+            if r > 1 and r not in summary_rows:
+                dim.outline_level = 1
 
         filename = f"Settlement_{movie_title}_{yyyy_mm}_{datetime.now().strftime('%Y%m%d')}"
         return excel.to_response(filename, auto_fit=False)
@@ -1848,6 +2094,12 @@ class SettlementEseroExportView(SettlementListView):
         yyyy_mm = request.query_params.get("yyyyMm")
         movie_id = request.query_params.get("movie_id")
         target_filter = request.query_params.get("target", "전체극장")
+        # 화면 토글과 동일: dist면 비고(극장명)에 배급사별 극장명(영화 배급사 매핑) 사용
+        use_dist_name = request.query_params.get("theater_name") == "dist"
+
+        def _theater_display(it):
+            return ((it.get("배급사별 극장명") or it.get("극장명", ""))
+                    if use_dist_name else it.get("극장명", ""))
 
         if not yyyy_mm or not movie_id:
             return HttpResponse("년월과 영화를 선택해주세요.", status=400)
@@ -1986,7 +2238,7 @@ class SettlementEseroExportView(SettlementListView):
                 # T~V: 합계 및 비고
                 ws.cell(row=row_idx, column=20, value=supply_val)
                 ws.cell(row=row_idx, column=21, value=vat_val)
-                ws.cell(row=row_idx, column=22, value=item.get("극장명", ""))
+                ws.cell(row=row_idx, column=22, value=_theater_display(item))
 
                 # W, X: 일자 및 품목명
                 ws.cell(row=row_idx, column=23, value=write_date[-2:])
@@ -2011,7 +2263,7 @@ class SettlementEseroExportView(SettlementListView):
                 # L, M, N: 합계(공급가액, 세액) 및 비고
                 ws.cell(row=row_idx, column=12, value=supply_val)
                 ws.cell(row=row_idx, column=13, value=vat_val)
-                ws.cell(row=row_idx, column=14, value=item.get("극장명", ""))
+                ws.cell(row=row_idx, column=14, value=_theater_display(item))
 
                 # O, P: 일자 및 품목명
                 ws.cell(row=row_idx, column=15, value=write_date[-2:])

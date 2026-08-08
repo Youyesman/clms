@@ -17,6 +17,7 @@
 
 import io
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from xml.etree import ElementTree as ET
@@ -99,6 +100,15 @@ def fetch_movie_list(session, csrf, start_dt, end_dt):
             "theaters": cells[0] if len(cells) > 0 else 0,
             "visitors": cells[4] if len(cells) > 4 else 0,
         })
+    # K001: 목록이 비었을 때 '정상 0건'과 '오류 응답'을 구분한다.
+    # 세션이 끊기거나(같은 계정 동시 로그인 시 KOBIS가 이전 세션을 끊음, 예: 크론
+    # 수집과 겹칠 때) KOBIS가 일시 오류 페이지를 주면 정규식이 아무것도 못 찾아
+    # 조용히 빈 목록 → 화면엔 '해당 영화 없음'으로 오인 표시되던 문제.
+    # 정상 통계 페이지에는 조회 폼(sStartDt)이 있고 로그인 폼(j_username)은 없다.
+    if not movies and ("sStartDt" not in r.text or "j_username" in r.text):
+        raise RuntimeError(
+            "영화 목록 조회 실패 — 세션 만료 또는 KOBIS 오류 응답 "
+            "(같은 계정 동시 접속·사이트 일시 오류 시 발생)")
     return movies
 
 
@@ -140,16 +150,50 @@ def _xml_to_xlsx(xml_bytes):
 
 
 def download_movie_detail_xlsx(session, csrf, movie_cd, start_dt, end_dt):
-    """영화 하나의 상세 통계 엑셀 다운로드 → xlsx bytes."""
-    r = session.post(
-        f"{BASE}/kobis/business/mast/thea/findCompanyStatDetailXls.do",
-        data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
-              "sStartDt": start_dt, "sEndDt": end_dt},
-        timeout=300,
-    )
-    if b"<Workbook" not in r.content[:2000]:
-        raise RuntimeError("상세 엑셀 응답 형식이 예상과 다릅니다(세션 만료 가능)")
-    return _xml_to_xlsx(r.content)
+    """영화 하나의 상세 통계 엑셀 다운로드 → xlsx bytes.
+
+    실제 브라우저 흐름을 그대로 따른다: 상세 '화면'을 먼저 연 뒤(빠름, 서버가
+    통계를 준비함) 그 화면의 폼과 동일하게 loadEnd=1 로 엑셀을 요청한다.
+    화면을 건너뛰고 loadEnd=0 으로 바로 엑셀을 요청하면 장기 상영작(예:
+    비긴어게인)에서 서버가 수 분 걸리다 응답 없이 연결을 끊는다.
+    생성 결과는 서버에 캐시되는 것으로 보여, 연결 오류/타임아웃 시 재시도한다.
+    """
+    # 1) 상세 화면 — 실패해도 엑셀 요청은 시도한다 (새 CSRF 없으면 기존 것 사용)
+    load_end = "0"
+    try:
+        rv = session.post(
+            f"{BASE}/kobis/business/mast/thea/findCompanyStatDetail.do",
+            data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": "0",
+                  "sStartDt": start_dt, "sEndDt": end_dt},
+            timeout=60,
+        )
+        m = re.search(r'name="CSRFToken" value="([^"]+)"', rv.text)
+        if m:
+            csrf = m.group(1)
+            load_end = "1"  # 화면과 동일한 폼 값
+    except requests.RequestException:
+        pass
+
+    # 2) 엑셀 다운로드 (+재시도)
+    last_err = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(3)
+        try:
+            r = session.post(
+                f"{BASE}/kobis/business/mast/thea/findCompanyStatDetailXls.do",
+                data={"CSRFToken": csrf, "movieCd": movie_cd, "loadEnd": load_end,
+                      "sStartDt": start_dt, "sEndDt": end_dt},
+                timeout=300,
+            )
+        except requests.RequestException as e:
+            last_err = e
+            continue
+        if b"<Workbook" not in r.content[:2000]:
+            raise RuntimeError("상세 엑셀 응답 형식이 예상과 다릅니다(세션 만료 가능)")
+        return _xml_to_xlsx(r.content)
+    raise RuntimeError(
+        f"상세 엑셀 다운로드 실패(3회 시도 — KOBIS 통계 생성 지연 가능): {last_err}")
 
 
 def _norm_title(s):
@@ -199,17 +243,32 @@ def get_accounts():
     return KOBIS_ACCOUNTS
 
 
+def _open_session_and_list(user, password, aprv_no, start_dt, end_dt,
+                           includes, excludes):
+    """로그인 → CSRF → 기간 영화 목록. (계정 단위 재시도용으로 분리)"""
+    s = requests.Session()
+    s.headers["User-Agent"] = _UA
+    _login(s, user, password, aprv_no)
+    csrf = _fetch_csrf(s)
+    movies = _filter_movies(
+        fetch_movie_list(s, csrf, start_dt, end_dt), includes, excludes)
+    return s, csrf, movies
+
+
 def crawl_one_account(name, user, password, aprv_no, start_dt, end_dt,
                       includes, excludes):
     """한 배급사 계정 수집 → {name, ok, error, movies[{..filename, xlsx}]}."""
     res = {"name": name, "ok": False, "error": "", "movies": []}
     try:
-        s = requests.Session()
-        s.headers["User-Agent"] = _UA
-        _login(s, user, password, aprv_no)
-        csrf = _fetch_csrf(s)
-        movies = _filter_movies(
-            fetch_movie_list(s, csrf, start_dt, end_dt), includes, excludes)
+        # K001: 세션 충돌(동시 로그인)·KOBIS 일시 오류는 재로그인하면 대부분
+        # 해소되므로 목록 조회까지를 한 번 더 시도한다
+        try:
+            s, csrf, movies = _open_session_and_list(
+                user, password, aprv_no, start_dt, end_dt, includes, excludes)
+        except Exception:
+            time.sleep(2)
+            s, csrf, movies = _open_session_and_list(
+                user, password, aprv_no, start_dt, end_dt, includes, excludes)
         for mv in movies:
             item = dict(mv)
             try:

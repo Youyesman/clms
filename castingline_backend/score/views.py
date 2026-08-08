@@ -1241,27 +1241,18 @@ def score_daily_status(request):
         )
     }
 
-    # 배급사 극장명 조회 (로그인 유저가 배급사인 경우)
-    theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로
+    # 전환 (배급사 계정=본인 매핑, 관리자=조회 영화의 배급사 매핑)
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(client_id):
-        if client_id in theater_name_map:
-            return theater_name_map[client_id]
         info = clients.get(client_id, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1283,6 +1274,7 @@ def score_daily_status(request):
         rows.append({
             "date": str(row["entry_date"]),
             "theater": theater,
+            "distributor_theater": theater_name_map.get(row["client_id"], ""),
             "auditorium": aud,
             "fare": row["fare"] or "",
             "visitor": visitor,
@@ -1316,6 +1308,26 @@ def score_daily_status(request):
             "revenue": total_revenue,
         },
     })
+
+
+def _distributor_theater_map(request, movie, client_ids):
+    """배급사별 극장명(극장명 매핑) 조회 — 배급사 계정은 본인 매핑,
+    관리자는 조회 영화의 배급사(주배급사) 매핑. {client_id: 지정명}"""
+    from client.models import DistributorTheaterMap
+    user = request.user
+    dist_id = None
+    if user.is_authenticated and not user.is_superuser and getattr(user, "client_id", None):
+        dist_id = user.client_id
+    elif movie is not None and movie.distributor_id:
+        dist_id = movie.distributor_id
+    out = {}
+    if dist_id:
+        for m in DistributorTheaterMap.objects.filter(
+            distributor_id=dist_id, theater_id__in=list(client_ids)
+        ).order_by("theater_id", "-apply_date"):
+            if m.theater_id not in out:
+                out[m.theater_id] = m.distributor_theater_name
+    return out
 
 
 @api_view(["GET"])
@@ -1438,11 +1450,15 @@ def score_criteria(request):
     client_info = {}
     for c in clients:
         client_info[c["id"]] = {
-            "theater": c["theater_name"] or c["client_name"] or "",
+            # 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001)
+            "theater": c["client_name"] or c["theater_name"] or "",
             "region": c["region_code"] or "",
             "multi": c["theater_kind"] or "",
             "classification": c["classification"] or "",
         }
+
+    # 배급사별 극장명 — 별도 필드로 내려 프론트 토글로 전환
+    dist_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     # ── 4. 결과 조립 ──
     sorted_keys = sorted(base_data.keys(), key=lambda k: (
@@ -1464,6 +1480,7 @@ def score_criteria(request):
             "type": "data",
             "client_id": cid,
             "theater": info.get("theater", ""),
+            "distributor_theater": dist_name_map.get(cid, ""),
             "auditorium": aud,
             "format": fmt,
             "region": info.get("region", ""),
@@ -1567,27 +1584,17 @@ def score_seat_rate(request):
         )
     }
 
-    # 배급사 극장명 매핑 (배급사 로그인 시)
-    theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로 전환
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(cid):
-        if cid in theater_name_map:
-            return theater_name_map[cid]
         info = clients.get(cid, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1649,6 +1656,7 @@ def score_seat_rate(request):
             "region": info.get("region_code") or "",
             "classification": info.get("classification") or "",
             "theater": get_theater_name(cid),
+            "distributor_theater": theater_name_map.get(cid, ""),
             "date": date_str,
             "visitor": visitor,
             "revenue": revenue,
@@ -1819,27 +1827,17 @@ def score_ranking(request):
         )
     }
 
-    # 배급사 극장명 매핑
-    theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        dist_maps = (
-            DistributorTheaterMap.objects
-            .filter(distributor_id=user.client_id, theater_id__in=client_ids_set)
-            .order_by("theater_id", "-apply_date")
-        )
-        for m in dist_maps:
-            if m.theater_id not in theater_name_map:
-                theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 — 별도 필드(distributor_theater)로 내려 프론트 토글로 전환
+    theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_theater_name(cid):
-        if cid in theater_name_map:
-            return theater_name_map[cid]
         info = clients.get(cid, {})
+        # 거래처 관리의 거래처명(client_name) 우선 — 정산조회와 동일 기준 (F001).
+        # 엑셀 극장명은 업로드 매칭용 별칭이므로 화면 표기에 쓰지 않는다.
         return (
-            info.get("excel_theater_name") or
-            info.get("theater_name") or
             info.get("client_name") or
+            info.get("theater_name") or
+            info.get("excel_theater_name") or
             ""
         )
 
@@ -1877,6 +1875,7 @@ def score_ranking(request):
         max_d = str(data["max_date"]) if data["max_date"] else ""
         rows.append({
             "theater": get_theater_name(cid),
+            "distributor_theater": theater_name_map.get(cid, ""),
             "visitor": data["visitor"],
             "revenue": data["revenue"],
             "min_date": min_d,
@@ -2399,20 +2398,13 @@ def score_settlement_detail(request):
     # 클라이언트 정보
     clients = {
         c["id"]: c for c in Client.objects.filter(id__in=client_ids_set).values(
-            "id", "theater_name", "client_name", "excel_theater_name",
+            "id", "client_code", "theater_name", "client_name", "excel_theater_name",
             "region_code", "theater_kind", "classification"
         )
     }
 
-    # 배급사 극장명 맵
-    dist_theater_name_map = {}
-    user = request.user
-    if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        for m in DistributorTheaterMap.objects.filter(
-            distributor_id=user.client_id, theater_id__in=client_ids_set
-        ).order_by("theater_id", "-apply_date"):
-            if m.theater_id not in dist_theater_name_map:
-                dist_theater_name_map[m.theater_id] = m.distributor_theater_name
+    # 배급사별 극장명 맵 — 배급사 계정=본인 매핑, 관리자=조회 영화의 배급사 매핑
+    dist_theater_name_map = _distributor_theater_map(request, primary, client_ids_set)
 
     def get_system_name(cid):
         # 거래처 관리의 거래처명(client_name)을 그대로 표기 — 부금정산과 동일 기준 (F001).
@@ -2425,7 +2417,19 @@ def score_settlement_detail(request):
             or ""
         )
 
-    # Python 집계: 포맷 선택 시 (client_id, movie_id, share_rate_str, is_fund_exempt) 단위
+    # Python 집계 — 정산 관리(get_processed_data)와 동일한 계산 단위·로직 사용.
+    # 배급사뷰는 배급사에 보여주는 화면일 뿐, 금액은 정산 관리와 똑같아야 한다.
+    # 내부 소그룹을 관리 화면 행과 같은 (극장, 부율, 기금면제, 상영타입) 단위로
+    # 잡고, 금액 계산은 관리의 calculate_amounts 를 그대로 호출한다 (메가박스/
+    # 롯데 가격대별 역산, 인디플러스 고정단가, 반올림 단위까지 동일).
+    # 화면 행은 기존대로 (극장, 부율, 기금면제)[× 포맷] 로 합산해 보여주되,
+    # 소그룹별 반올림 값의 합이므로 관리 화면 합계와 원 단위까지 일치한다.
+    from settlement.views import SettlementListView
+    _sv = SettlementListView()
+    _movies_all = Movie.objects.in_bulk({r["movie_id"] for r in qs})
+    screening_type_map = {
+        m_id: _sv._get_screening_type(m) for m_id, m in _movies_all.items()}
+
     aggregated = {}
     for row in qs:
         cid = row["client_id"]
@@ -2436,18 +2440,22 @@ def score_settlement_detail(request):
 
         share_rate = get_rate_value(cid, mid, entry_date, aud, client_info)
         is_fund_exempt = get_fund_exempt(cid, entry_date)
+        screening_type = screening_type_map.get(mid, "")
 
-        # 포맷 선택 시 movie_id를 그룹키에 포함 → 포맷별 분리
+        # 포맷 선택 시 movie_id를 표시키에 포함 → 포맷별 분리
         if format_movie_ids_list:
-            group_key = (cid, mid, str(share_rate), is_fund_exempt)
+            display_key = (cid, mid, str(share_rate), is_fund_exempt)
             row_format = format_label_map.get(mid, "기타")
         else:
-            group_key = (cid, str(share_rate), is_fund_exempt)
+            display_key = (cid, str(share_rate), is_fund_exempt)
             row_format = format_display
+        group_key = display_key + (screening_type,)
 
         if group_key not in aggregated:
             aggregated[group_key] = {
+                "display_key": display_key,
                 "theater": get_system_name(cid),
+                "client_code": client_info.get("client_code") or "",
                 "distributor_theater": dist_theater_name_map.get(cid, ""),
                 "format": row_format,
                 "region": client_info.get("region_code") or "",
@@ -2458,6 +2466,7 @@ def score_settlement_detail(request):
                 "visitor": 0,
                 "_raw_amt": 0,
                 "_excl_fund": Decimal("0"),
+                "_fare_excl_fund": {},  # 가격대별 기금제외금액 합 — 메가/롯데 역산용
                 "_min_date": entry_date,
                 "_max_date": entry_date,
             }
@@ -2476,51 +2485,198 @@ def score_settlement_detail(request):
         target["visitor"] += visitor
         target["_raw_amt"] += int(fare) * visitor
         target["_excl_fund"] += unit_excl_fund * visitor
+        fare_key = int(fare)
+        target["_fare_excl_fund"][fare_key] = (
+            target["_fare_excl_fund"].get(fare_key, Decimal("0"))
+            + unit_excl_fund * visitor)
         if entry_date < target["_min_date"]:
             target["_min_date"] = entry_date
         if entry_date > target["_max_date"]:
             target["_max_date"] = entry_date
 
-    # 최종 계산
-    rows = []
+    # 소그룹별로 관리와 동일하게 금액 계산 → 표시 행 단위로 합산
+    merged = {}
     for data in aggregated.values():
-        visitor = data["visitor"]
         share_rate = data["share_rate"]
-        excl_fund = data["_excl_fund"]
-        excl_vat = (excl_fund / Decimal("1.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        calc = _sv.calculate_amounts({
+            "극장명": data["theater"],
+            "멀티구분": data["multi"],
+            "인원": data["visitor"],
+            "부율": float(share_rate) if share_rate is not None else None,
+            "_total_raw_amt": data["_raw_amt"],
+            "_total_excl_fund_sum": data["_excl_fund"],
+            "_fare_excl_fund": data["_fare_excl_fund"],
+        })
 
-        if share_rate is None:
-            # 해당 포맷의 부율이 없음 → 부율 의존 계산값은 비움(None)
-            rate_out = supply_out = vat_out = total_out = unit_out = None
+        m = merged.get(data["display_key"])
+        if m is None:
+            m = merged[data["display_key"]] = {
+                "theater": data["theater"],
+                "client_code": data["client_code"],
+                "distributor_theater": data["distributor_theater"],
+                "format": data["format"],
+                "region": data["region"],
+                "multi": data["multi"],
+                "classification": data["classification"],
+                "share_rate": share_rate,
+                "visitor": 0, "ticket_revenue": 0, "fund_excluded": 0,
+                "vat_excluded": 0, "supply_value": 0, "vat": 0, "total_payment": 0,
+                "_min_date": data["_min_date"], "_max_date": data["_max_date"],
+            }
+
+        m["visitor"] += data["visitor"]
+        m["ticket_revenue"] += int(calc["금액(입장료)"])
+        m["fund_excluded"] += int(calc["기금제외금액"])
+        if calc.get("공급가액") is None:
+            # 부율 미설정 → 부율 의존 금액은 비움. 부가세제외금액은 부율과
+            # 무관하므로 기존처럼 채운다 (프론트 합계 계산 호환)
+            m["vat_excluded"] += int((data["_excl_fund"] / Decimal("1.1"))
+                                     .quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            m["supply_value"] = m["vat"] = m["total_payment"] = None
         else:
-            rate_d = Decimal(str(share_rate))
-            supply_val = (excl_vat * (rate_d / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-            vat_val = (supply_val * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-            rate_out = float(share_rate)
-            supply_out = int(supply_val)
-            vat_out = int(vat_val)
-            total_out = int(supply_val + vat_val)
-            unit_out = round(int(supply_val) / visitor) if visitor > 0 else 0
+            m["vat_excluded"] += int(calc["부가세제외금액"])
+            if m["supply_value"] is not None:
+                m["supply_value"] += int(calc["공급가액"])
+                m["vat"] += int(calc["부가세"])
+                m["total_payment"] += int(calc["영화사 지급금"])
+        if data["_min_date"] < m["_min_date"]:
+            m["_min_date"] = data["_min_date"]
+        if data["_max_date"] > m["_max_date"]:
+            m["_max_date"] = data["_max_date"]
 
+    rows = []
+    for m in merged.values():
+        supply = m["supply_value"]
+        if supply is None:
+            unit_out = None
+        elif m["visitor"] > 0:
+            unit_out = round(supply / m["visitor"])
+        else:
+            unit_out = 0
         rows.append({
-            "theater": data["theater"],
-            "distributor_theater": data["distributor_theater"],
-            "format": data["format"],
-            "region": data["region"],
-            "multi": data["multi"],
-            "classification": data["classification"],
-            "min_date": str(data["_min_date"]),
-            "max_date": str(data["_max_date"]),
-            "visitor": visitor,
-            "ticket_revenue": data["_raw_amt"],
-            "fund_excluded": int(excl_fund),
-            "vat_excluded": int(excl_vat),
-            "rate": rate_out,
-            "supply_value": supply_out,
-            "vat": vat_out,
-            "total_payment": total_out,
+            "theater": m["theater"],
+            "client_code": m["client_code"],
+            "distributor_theater": m["distributor_theater"],
+            "format": m["format"],
+            "region": m["region"],
+            "multi": m["multi"],
+            "classification": m["classification"],
+            "min_date": str(m["_min_date"]),
+            "max_date": str(m["_max_date"]),
+            "visitor": m["visitor"],
+            "ticket_revenue": m["ticket_revenue"],
+            "fund_excluded": m["fund_excluded"],
+            "vat_excluded": m["vat_excluded"],
+            "rate": float(m["share_rate"]) if m["share_rate"] is not None else None,
+            "supply_value": supply,
+            "vat": m["vat"],
+            "total_payment": m["total_payment"],
             "unit_price": unit_out,
         })
+
+    # 부금 정산 수동조정 반영 (F001) — 부금 정산 관리(월 단위)에서 대사/수기
+    # 수정으로 조정한 금액을 배급사뷰에도 동일하게 반영한다.
+    # 조회 기간에 '완전히 포함되는' 월마다 정산 계산(조정 적용/미적용)의 극장별
+    # 차액을 구해 해당 극장의 지급금 최대 행에 합산한다 — 정산 관리의 적용
+    # 규칙(기준 변경으로 적용 중지된 조정 제외 등)이 그대로 따라온다.
+    # 포맷을 골라 조회할 때는 월 단위 조정을 포맷별로 나눌 수 없어 반영하지 않는다.
+    if not format_movie_ids_list and rows:
+        import calendar as _cal
+        from settlement.models import SettlementAdjustment
+
+        months = []
+        d = date_from_obj.replace(day=1)
+        while d <= date_to_obj:
+            last = d.replace(day=_cal.monthrange(d.year, d.month)[1])
+            if d >= date_from_obj and last <= date_to_obj:
+                months.append(d.strftime("%Y-%m"))
+            d = last + timedelta(days=1)
+
+        adjustments = list(SettlementAdjustment.objects.filter(
+            yyyymm__in=months, movie_id=movie_id).select_related("client")) if months else []
+        if adjustments:
+            from settlement.views import SettlementListView
+            sv = SettlementListView()
+
+            def _sums(items):
+                out = defaultdict(lambda: [0, 0, 0])
+                for it in items:
+                    code = it.get("거래처코드")
+                    if it.get("is_subtotal") or not code:
+                        continue
+                    out[code][0] += it.get("공급가액") or 0
+                    out[code][1] += it.get("부가세") or 0
+                    out[code][2] += it.get("영화사 지급금") or 0
+                return out
+
+            rows_by_code = defaultdict(list)
+            for r in rows:
+                if r.get("client_code"):
+                    rows_by_code[r["client_code"]].append(r)
+
+            # 조회 기간이 월 단위로 딱 떨어지는지 (예: 07-01~07-31, 07-01~08-31)
+            whole_covered = (
+                date_from_obj.day == 1
+                and date_to_obj.day == _cal.monthrange(
+                    date_to_obj.year, date_to_obj.month)[1]
+            )
+
+            deltas = defaultdict(lambda: [0, 0, 0])
+            if whole_covered:
+                # 기간 전체가 월계산과 1:1 대응 → 조정 저장된 극장은 정산 관리
+                # 월계산(조정 포함) 값과 '정확히' 같아지게 차액을 잡는다.
+                # 두 화면은 반올림 단위가 달라 기준값부터 ±1원 어긋날 수 있어,
+                # 조정분만 더하면 그 차이가 그대로 남기 때문 (조정분 + 반올림차 흡수).
+                adj_codes = {a.client.client_code for a in adjustments}
+                target_sums = defaultdict(lambda: [0, 0, 0])
+                for ym in months:
+                    for code, v in _sums(
+                            sv.get_processed_data(ym, movie_id, "전체극장")).items():
+                        for i in range(3):
+                            target_sums[code][i] += v[i]
+                for code in adj_codes:
+                    cands = rows_by_code.get(code)
+                    if not cands or code not in target_sums:
+                        continue
+                    base = [
+                        sum(r.get("supply_value") or 0 for r in cands),
+                        sum(r.get("vat") or 0 for r in cands),
+                        sum(r.get("total_payment") or 0 for r in cands),
+                    ]
+                    for i in range(3):
+                        deltas[code][i] = target_sums[code][i] - base[i]
+            else:
+                # 기간이 월 중간에 걸치면 걸친 부분은 배급사뷰 자체 계산을 유지해야
+                # 하므로, 완전히 포함된 월들의 조정분 차액만 더한다 (기존 방식)
+                for ym in months:
+                    adj_sums = _sums(sv.get_processed_data(ym, movie_id, "전체극장"))
+                    base_sums = _sums(sv.get_processed_data(
+                        ym, movie_id, "전체극장", include_adjustments=False))
+                    for code in set(adj_sums) | set(base_sums):
+                        for i in range(3):
+                            deltas[code][i] += adj_sums[code][i] - base_sums[code][i]
+
+            for code, (ds, dv, dp) in deltas.items():
+                if not (ds or dv or dp):
+                    continue
+                cands = rows_by_code.get(code)
+                if not cands:
+                    continue  # 조회 조건(지역/멀티/직위)에 걸러진 극장은 건드리지 않음
+                tgt = max(cands, key=lambda r: r.get("total_payment") or 0)
+                tgt["supply_value"] = (tgt.get("supply_value") or 0) + ds
+                tgt["vat"] = (tgt.get("vat") or 0) + dv
+                tgt["total_payment"] = (tgt.get("total_payment") or 0) + dp
+                if tgt.get("visitor"):
+                    tgt["unit_price"] = round((tgt["supply_value"] or 0) / tgt["visitor"])
+
+            # 날짜(To) 확정도 동일하게 반영 — 그 극장 행의 마지막 상영일 표기
+            for adj in adjustments:
+                if not adj.date_to_override:
+                    continue
+                cands = rows_by_code.get(adj.client.client_code)
+                if cands:
+                    tgt = max(cands, key=lambda r: r.get("total_payment") or 0)
+                    tgt["max_date"] = adj.date_to_override.strftime("%Y-%m-%d")
 
     # 정렬: 멀티순 → 직영/위탁 → 지역(부금정산 탭과 동일한 고정 순서) → 극장명
     _MULTI_ORD = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3}
@@ -2639,13 +2795,29 @@ def score_settlement_search(request):
             | Q(client_name__icontains=q_stripped)
         )
 
+    import re as _re
+    _closed_prefix = _re.compile(r"^\((폐관|휴관|임시중단)\)")
+
     client_qs = Client.objects.filter(theater_filter).values(
-        "theater_name", "excel_theater_name", "client_name", "theater_kind"
+        "theater_name", "excel_theater_name", "client_name", "theater_kind",
+        "operational_status"
     )
+    closed_names = set()
     for c in client_qs[:200]:
-        add_theater(display_name(c))
-        if len(theaters) >= 20:
+        name = display_name(c)
+        add_theater(name)
+        if name and (c.get("operational_status") is False or _closed_prefix.match(name)):
+            closed_names.add(name)
+        # 폐관 제외 상위 20개를 확보할 수 있게 여유 있게 수집
+        if len(theaters) >= 40:
             break
+
+    # (폐관)/(휴관)/(임시중단) 극장은 목록 아래로 (S001)
+    def _is_closed(n):
+        return n in closed_names or bool(_closed_prefix.match(n))
+
+    theaters = ([n for n in theaters if not _is_closed(n)]
+                + [n for n in theaters if _is_closed(n)])
 
     return Response({"movies": movies, "theaters": theaters[:20]})
 

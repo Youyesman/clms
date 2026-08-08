@@ -9,8 +9,11 @@ import {
     PencilSimple,
     Checks,
     CalendarCheck,
+    Warning,
+    X,
 } from "@phosphor-icons/react";
 import { AxiosGet, AxiosPost, AxiosDelete } from "../../../axios/Axios";
+import { closedTheatersLast } from "../../../utils/theaterSort";
 import { useToast } from "../../../components/common/CustomToast";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
@@ -18,6 +21,7 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { GenericTable } from "../../../components/GenericTable";
 import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
+import { TheaterNameToggle } from "../../../components/common/TheaterNameToggle";
 import dayjs from "dayjs";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
@@ -82,7 +86,7 @@ const Spinner = styled(CircleNotch)`
 // ... (omitting ListHeader unchanged)
 
 /* 필터바 액션 버튼 — 통일된 소프트 톤 (연한 배경 + 컬러 텍스트) */
-const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
+const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" | "amber" | "red" }>`
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -100,15 +104,16 @@ const EseroButton = styled.button<{ $tone?: "green" | "blue" | "sky" }>`
             ? "background:#f0fdf4; border:1px solid #dcfce7; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#16a34a;}"
             : $tone === "sky"
             ? "background:#eff6ff; border:1px solid #bfdbfe; color:#0369a1; &:hover:not(:disabled){background:#e0f2fe; border-color:#38bdf8;}"
+            : $tone === "amber"
+            ? "background:#fffbeb; border:1px solid #fde68a; color:#b45309; &:hover:not(:disabled){background:#fde68a; border-color:#f59e0b;}"
+            : $tone === "red"
+            ? "background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; &:hover:not(:disabled){background:#fecaca; border-color:#ef4444;}"
             : "background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; &:hover:not(:disabled){background:#bfdbfe; border-color:#60a5fa;}"}
     &:disabled {
         background: #f8fafc;
         border-color: #e2e8f0;
         color: #94a3b8;
         cursor: not-allowed;
-    }
-    .loading-icon {
-        animation: ${rotate} 1s linear infinite;
     }
 `;
 
@@ -389,11 +394,26 @@ function AmountEditModal({
                 supply_original: baseSupply,
                 vat_original: baseVat,
                 payout_original: basePayout,
+                // 행 단위 수정 표시 — 같은 극장·포맷이 부율 차이로 여러 행일 때
+                // 다른 행의 조정을 덮어쓰지 않고 행마다 별도 레코드로 저장된다.
+                // 재수정이면 이 행의 조정ID로 해당 레코드를 지정한다.
+                row_scoped: true,
+                adjustment_id:
+                    row["조정ID"] ?? row["조정경고"]?.["조정ID"] ?? null,
                 note: "정산 관리 직접 수정",
                 // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
                 auto_confirm: false,
+                // 조회 후 부율·스코어가 바뀐 화면에서 수정해도 저장이 유효하도록
+                // 서버가 현재 계산값 기준으로 원본/델타를 재계산해 저장한다
+                rebase_on_mismatch: true,
             });
-            toast.success("저장했습니다 — 수동조정으로 반영됩니다. (확인여부는 그대로)");
+            if (res.data?.rebased) {
+                toast.success(
+                    "저장했습니다 — 조회 후 부율·스코어가 바뀌어 현재 계산값 기준으로 반영했습니다."
+                );
+            } else {
+                toast.success("저장했습니다 — 수동조정으로 반영됩니다. (확인여부는 그대로)");
+            }
             onClose();
             onSaved(res.data);
         } catch (e: any) {
@@ -410,14 +430,29 @@ function AmountEditModal({
                 {row["상영타입"] ? ` · ${row["상영타입"]}` : ""} — 수정 금액은 계산값과의
                 차액이 <b>수동조정</b>으로 저장됩니다. (확인여부는 바뀌지 않습니다)
             </div>
+            {/* name/inputMode/autoComplete: 크롬 비밀번호 관리자가 이름 없는 텍스트
+                인풋 입력 후 모달 닫힘을 '비밀번호 변경'으로 오인해 저장할 때마다
+                비밀번호 업데이트 팝업을 띄우는 것 방지 */}
             <div className="row">
                 <label>공급가액</label>
-                <input value={supply} onChange={(e) => setSupply(e.target.value)} />
+                <input
+                    name="supply-amount"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={supply}
+                    onChange={(e) => setSupply(e.target.value)}
+                />
                 <span className="orig">계산값 {baseSupply.toLocaleString()}</span>
             </div>
             <div className="row">
                 <label>부가세</label>
-                <input value={vat} onChange={(e) => setVat(e.target.value)} />
+                <input
+                    name="vat-amount"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={vat}
+                    onChange={(e) => setVat(e.target.value)}
+                />
                 <span className="orig">계산값 {baseVat.toLocaleString()}</span>
             </div>
             <div className="row">
@@ -608,6 +643,160 @@ function BulkDateModal({
     );
 }
 
+const StaleModalBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-family: "SUIT", sans-serif;
+    font-size: 13px;
+    color: #475569;
+    .hint {
+        font-size: 12px;
+        color: #64748b;
+    }
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 40px 0;
+        color: #64748b;
+    }
+    .empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 40px 0;
+        color: #15803d;
+        font-weight: 600;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        th, td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            white-space: nowrap;
+        }
+        th {
+            background: #f8fafc;
+            font-weight: 700;
+            color: #334155;
+        }
+        td.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .go {
+            padding: 2px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid #bfdbfe;
+            border-radius: 4px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            cursor: pointer;
+            &:hover { background: #bfdbfe; }
+        }
+    }
+`;
+
+/** '기준 변경'(적용 중지) 상태인 수동 조정 점검 — 선택한 부금년월에 조정이 있는
+ *  영화를 서버가 재계산해 깨진 조정만 모아 보여준다. '이동'으로 해당 영화 화면 점프. */
+function StaleCheckModal({
+    yyyyMm,
+    onJump,
+}: {
+    yyyyMm: string;
+    onJump: (yyyyMm: string, movieId: number) => void;
+}) {
+    const [loading, setLoading] = useState(true);
+    const [checked, setChecked] = useState(0);
+    const [stale, setStale] = useState<any[]>([]);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        AxiosGet("settlement-adjustments-stale/", { params: { yyyyMm } })
+            .then((res) => {
+                setChecked(res.data?.checked ?? 0);
+                setStale(res.data?.stale ?? []);
+            })
+            .catch((e) => setError(handleBackendErrors(e)))
+            .finally(() => setLoading(false));
+    }, [yyyyMm]);
+
+    if (loading)
+        return (
+            <StaleModalBody>
+                <div className="loading">
+                    <Spinner size={18} weight="bold" />
+                    {yyyyMm}월에 조정이 저장된 영화를 재계산해 점검하는 중…
+                </div>
+            </StaleModalBody>
+        );
+    if (error)
+        return (
+            <StaleModalBody>
+                <div className="loading" style={{ color: "#dc2626" }}>{error}</div>
+            </StaleModalBody>
+        );
+    return (
+        <StaleModalBody>
+            {stale.length === 0 ? (
+                <div className="empty">
+                    <CheckCircle size={18} weight="fill" />
+                    {yyyyMm}월에 기준 변경 상태인 조정이 없습니다. (영화 {checked}개 점검)
+                </div>
+            ) : (
+                <>
+                    <div className="hint">
+                        조정 후 부율·스코어가 바뀌어 <b>적용이 중지된 조정 {stale.length}건</b>
+                        입니다 ({yyyyMm}월, 영화 {checked}개 점검). '이동'을 눌러 해당
+                        화면에서 해제하거나 재수정해주세요.
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>영화</th>
+                                <th>극장</th>
+                                <th>지역</th>
+                                <th style={{ textAlign: "right" }}>중지된 조정액(지급금)</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {stale.map((s) => (
+                                <tr key={`${s.yyyyMm}-${s.movie_id}-${s.adjustment_id}`}>
+                                    <td>{s.movie_title}</td>
+                                    <td title={s.client_code}>{s.client_name}</td>
+                                    <td>{s.region}</td>
+                                    <td className="num" title={s.reason}>
+                                        {typeof s.payout_delta === "number"
+                                            ? `${s.payout_delta >= 0 ? "+" : ""}${s.payout_delta.toLocaleString()}`
+                                            : "-"}
+                                    </td>
+                                    <td>
+                                        <button
+                                            className="go"
+                                            onClick={() => onJump(s.yyyyMm, s.movie_id)}
+                                            title="해당 월·영화 정산 화면으로 이동"
+                                        >
+                                            이동
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </>
+            )}
+        </StaleModalBody>
+    );
+}
+
 export function ManageSettlement() {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
@@ -630,6 +819,10 @@ export function ManageSettlement() {
         movieId: "",
         target: "전체극장",
     });
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON, 영화 배급사 기준 매핑
+    // (매핑 없는 극장은 캐스팅라인 극장명 그대로)
+    const [useDistName, setUseDistName] = useState(true);
+
     // 확인여부 필터 (클라이언트측) — 미확인 극장만 추려 월초 확인 작업용
     const [confirmFilter, setConfirmFilter] = useState("전체");
     // 멀티(체인) 필터 (클라이언트측)
@@ -648,7 +841,12 @@ export function ManageSettlement() {
                 params: { ordering: "-operational_status,client_name", search: theaterInput, client_type: "극장" },
             })
                 .then((res) => {
-                    const list = res.data.results || [];
+                    // (폐관)/(휴관) 극장은 목록 아래로 (S001)
+                    const list = closedTheatersLast(
+                        res.data.results || [],
+                        (t: any) => t.client_name || "",
+                        (t: any) => t.operational_status === false
+                    );
                     setTheaterSuggestions(list);
                     setShowTheaterSuggestions(list.length > 0);
                 })
@@ -666,6 +864,9 @@ export function ManageSettlement() {
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    // 기준변경 점검 모달 '이동' 대기 상태 — 영화 전환 후 자동 조회용
+    const pendingJumpRef = useRef<{ yyyyMm: string; movieId: string } | null>(null);
 
     // 1. 년월 변경 시 영화 목록 자동 호출
     const fetchMoviesByMonth = useCallback(async () => {
@@ -718,6 +919,36 @@ export function ManageSettlement() {
 
     /** 목록만 다시 불러오기 (스크롤 유지) — 로컬 반영이 불가능한 경우의 폴백 */
     const refreshSettlements = useCallback(() => fetchSettlements(true), [fetchSettlements]);
+
+    // 기준변경 점검 '이동' — 영화 선택 상태가 목표에 도달하면 자동 조회
+    useEffect(() => {
+        const jump = pendingJumpRef.current;
+        if (
+            jump &&
+            searchParams.yyyyMm === jump.yyyyMm &&
+            searchParams.movieId === jump.movieId
+        ) {
+            pendingJumpRef.current = null;
+            fetchSettlements();
+        }
+    }, [searchParams.yyyyMm, searchParams.movieId, fetchSettlements]);
+
+    /** 기준변경 점검 모달 '이동' — 해당 영화로 전환해 자동 조회 (같은 부금년월).
+     *  대상 행이 필터에 가려 안 보이지 않게 극장 검색·필터도 초기화한다. */
+    const jumpToStale = useCallback(
+        (yyyyMm: string, movieId: number) => {
+            closeModal();
+            pendingJumpRef.current = { yyyyMm, movieId: String(movieId) };
+            setSelectedTheater(null);
+            setTheaterInput("");
+            setConfirmFilter("전체");
+            setMultiFilter("전체");
+            setClassFilter("전체");
+            setSettlements([]);
+            setSearchParams((p) => ({ ...p, movieId: String(movieId), target: "전체극장" }));
+        },
+        [closeModal]
+    );
 
     const AMOUNT_KEYS = ["공급가액", "부가세", "영화사 지급금"] as const;
 
@@ -772,6 +1003,12 @@ export function ManageSettlement() {
 
     /** 금액 수정 저장 결과를 재조회 없이 목록에 즉시 반영 (F001) */
     const applyAmountSavedLocally = (saved: any) => {
+        if (saved?.rebased) {
+            // 화면 계산값이 낡아 서버가 현재 계산값 기준으로 재기준(rebase)해 저장한
+            // 경우 — 화면의 금액 자체가 낡았으므로 서버 기준으로 갱신 (스크롤 유지)
+            refreshSettlements();
+            return;
+        }
         const ti = findAdjustTargetIdx(
             settlements, saved.client_code, saved.screen_format || "", saved
         );
@@ -797,6 +1034,9 @@ export function ManageSettlement() {
             row.is_adjusted = adjusted;
             row["조정액"] = adjusted ? savedDelta : undefined;
             if (adjusted) row["조정ID"] = saved.id;
+            // '기준 변경' 상태였던 조정을 재수정한 경우 — 새 저장이 기존 조정을
+            // 대체(업서트)했으므로 경고 태그를 지운다
+            row["조정경고"] = undefined;
             const si = findSubtotalIdx(list, ti);
             if (si >= 0) {
                 AMOUNT_KEYS.forEach((k) => {
@@ -958,6 +1198,8 @@ export function ManageSettlement() {
                     yyyyMm: searchParams.yyyyMm,
                     movie_id: searchParams.movieId,
                     target: searchParams.target,
+                    // 화면 토글 상태 그대로 — 비고(극장명)에 배급사별 극장명 사용
+                    ...(useDistName ? { theater_name: "dist" } : {}),
                 },
                 responseType: "blob",
             });
@@ -1004,22 +1246,34 @@ export function ManageSettlement() {
         }
     };
 
-    /** 조회된 목록의 미확인 극장 전체 확인 */
-    const confirmAll = () => {
+    /** 화면에 표시된(멀티/직위/확인여부 필터 적용) 극장 전체 확인/해제 (E003·E004).
+     *  필터를 걸어 두면 그 극장들에만 적용된다 — 예) 직위=직영이면 직영만. */
+    const bulkConfirm = (confirmed: boolean) => {
         const codes = Array.from(
             new Set(
-                settlements
-                    .filter((r) => !r.is_subtotal && r["거래처코드"] && !r["확인"])
+                displayedSettlements
+                    .filter(
+                        (r) =>
+                            !r.is_subtotal &&
+                            r["거래처코드"] &&
+                            !!r["확인"] !== confirmed
+                    )
                     .map((r) => r["거래처코드"])
             )
         );
         if (!codes.length) {
-            toast.info("확인 처리할 미확인 극장이 없습니다.");
+            toast.info(
+                confirmed
+                    ? "확인 처리할 미확인 극장이 없습니다."
+                    : "해제할 확인 극장이 없습니다."
+            );
             return;
         }
         showAlert(
-            "전체 확인 처리",
-            `조회된 미확인 극장 ${codes.length}곳을 모두 확인 처리하시겠습니까?`,
+            confirmed ? "전체 확인 처리" : "전체 확인 해제",
+            confirmed
+                ? `조회된 미확인 극장 ${codes.length}곳을 모두 확인 처리하시겠습니까?`
+                : `조회된 극장 ${codes.length}건 확인을 해제할까요?`,
             "warning",
             async () => {
                 try {
@@ -1027,14 +1281,26 @@ export function ManageSettlement() {
                         yyyyMm: searchParams.yyyyMm,
                         movie_id: Number(searchParams.movieId),
                         client_codes: codes,
-                        confirmed: true,
+                        confirmed,
                     });
+                    const codeSet = new Set(codes);
                     setSettlements((prev) =>
-                        prev.map((r) => (r.is_subtotal ? r : { ...r, 확인: true }))
+                        prev.map((r) =>
+                            !r.is_subtotal && codeSet.has(r["거래처코드"])
+                                ? { ...r, 확인: confirmed }
+                                : r
+                        )
                     );
-                    toast.success(`${codes.length}곳을 확인 처리했습니다.`);
+                    toast.success(
+                        confirmed
+                            ? `${codes.length}곳을 확인 처리했습니다.`
+                            : `${codes.length}곳의 확인을 해제했습니다.`
+                    );
                 } catch (e: any) {
-                    toast.error(e?.response?.data?.error || "일괄 확인에 실패했습니다.");
+                    toast.error(
+                        e?.response?.data?.error ||
+                            (confirmed ? "일괄 확인에 실패했습니다." : "일괄 해제에 실패했습니다.")
+                    );
                 }
             },
             true
@@ -1248,6 +1514,20 @@ export function ManageSettlement() {
         return ["전체", ...Array.from(set)];
     }, [settlements]);
 
+    // 헤더 클릭 정렬 (B002) — 정렬 중엔 소계 행이 위치가 맞지 않으므로 숨기고,
+    // 같은 헤더를 다시 누르면 오름→내림→해제(서버 기본 정렬+소계 복귀) 순환
+    const [sortState, setSortState] = useState<{ key: string | null; dir: "asc" | "desc" }>({
+        key: null,
+        dir: "asc",
+    });
+    const handleSortChange = (key: string) => {
+        setSortState((prev) => {
+            if (prev.key !== key) return { key, dir: "asc" };
+            if (prev.dir === "asc") return { key, dir: "desc" };
+            return { key: null, dir: "asc" };
+        });
+    };
+
     // 멀티/확인여부 필터 적용된 표시 목록
     // (확인여부 필터 중엔 소계 행이 맞지 않으므로 숨김, 멀티 필터는 해당 멀티 소계만 유지)
     const displayedSettlements = useMemo(() => {
@@ -1277,8 +1557,25 @@ export function ManageSettlement() {
                 (r) => !r.is_subtotal && (confirmFilter === "확인" ? r["확인"] : !r["확인"])
             );
         }
+        if (sortState.key) {
+            const k = sortState.key;
+            const dirMul = sortState.dir === "asc" ? 1 : -1;
+            rows = rows
+                .filter((r) => !r.is_subtotal)
+                .slice()
+                .sort((a, b) => {
+                    const av = a[k], bv = b[k];
+                    if (av == null && bv == null) return 0;
+                    if (av == null) return 1; // 빈 값은 항상 뒤로
+                    if (bv == null) return -1;
+                    if (typeof av === "number" && typeof bv === "number") {
+                        return (av - bv) * dirMul;
+                    }
+                    return String(av).localeCompare(String(bv), "ko") * dirMul;
+                });
+        }
         return rows;
-    }, [settlements, confirmFilter, multiFilter, classFilter]);
+    }, [settlements, confirmFilter, multiFilter, classFilter, sortState]);
 
     const summaryData = useMemo(() => {
         // 합계 계산 시 소계 행(is_subtotal)은 제외
@@ -1323,7 +1620,10 @@ export function ManageSettlement() {
             };
             if (confirmFilter !== "전체") params.confirm = confirmFilter;
             if (multiFilter !== "전체") params.multi = multiFilter;
+            if (classFilter !== "전체") params.classification = classFilter;
             if (selectedTheater) params.client_id = String(selectedTheater.id);
+            // 화면 토글 상태 그대로 — 극장명 컬럼에 배급사별 극장명 사용
+            if (useDistName) params.theater_name = "dist";
             const res = await AxiosGet("settlement-excel-export/", {
                 params,
                 responseType: "blob",
@@ -1336,6 +1636,7 @@ export function ManageSettlement() {
             const movieTitle = movieOptions.find((m) => m.id === searchParams.movieId)?.title || "정산내역";
             const suffix =
                 (multiFilter !== "전체" ? `_${multiFilter}` : "") +
+                (classFilter !== "전체" ? `_${classFilter}` : "") +
                 (confirmFilter !== "전체" ? `_${confirmFilter}` : "");
             link.setAttribute("download", `부금정산_${movieTitle}_${searchParams.yyyyMm}${suffix}.xlsx`);
 
@@ -1358,6 +1659,7 @@ export function ManageSettlement() {
                 onSearch={() => fetchSettlements()}
                 actions={
                     <>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
                         <EseroButton
                             $tone="blue"
                             onClick={() =>
@@ -1381,19 +1683,52 @@ export function ManageSettlement() {
                         </EseroButton>
                         <EseroButton
                             $tone="green"
-                            onClick={confirmAll}
+                            onClick={() => bulkConfirm(true)}
                             disabled={!settlements.length}
-                            title="조회된 목록의 미확인 극장을 전부 확인 처리"
+                            title="현재 표시된(필터 적용) 목록의 미확인 극장을 전부 확인 처리"
                         >
                             <Checks weight="bold" size={16} />
                             전체 확인
+                        </EseroButton>
+                        <EseroButton
+                            $tone="red"
+                            onClick={() => bulkConfirm(false)}
+                            disabled={!settlements.length}
+                            title="현재 표시된(필터 적용) 목록의 확인 극장을 전부 확인 해제"
+                        >
+                            <X weight="bold" size={16} />
+                            전체 해제
+                        </EseroButton>
+                        <EseroButton
+                            $tone="amber"
+                            onClick={() =>
+                                openModal(
+                                    <StaleCheckModal
+                                        yyyyMm={searchParams.yyyyMm}
+                                        onJump={jumpToStale}
+                                    />,
+                                    {
+                                        title: `기준 변경 조정 점검 (${searchParams.yyyyMm})`,
+                                        width: "700px",
+                                    }
+                                )
+                            }
+                            title="선택한 부금년월에서 부율·스코어 변경으로 적용이 중지된(기준 변경) 조정을 한 번에 점검"
+                        >
+                            <Warning weight="bold" size={16} />
+                            기준변경 점검
                         </EseroButton>
                         <EseroButton
                             $tone="blue"
                             onClick={() =>
                                 openModal(
                                     <SettlementCompareModal yyyyMm={searchParams.yyyyMm} />,
-                                    { title: "부금정산서 대사 (직영 엑셀 · 위탁/일반 PDF)", width: "1500px" }
+                                    {
+                                        title: "부금정산서 대사 (직영 엑셀 · 위탁/일반 PDF)",
+                                        width: "1500px",
+                                        // 대사 작업 중 바깥을 클릭해도 작업 내용이 사라지지 않게 (B001)
+                                        disableBackdropClose: true,
+                                    }
                                 )
                             }
                             title="부금정산서 파일과 화면 데이터 비교 (직영 엑셀 + 위탁/일반극장 PDF, 파일 내 전체 영화 자동 대사)"
@@ -1440,6 +1775,7 @@ export function ManageSettlement() {
                         }}
                         labelWidth="50px"
                         disabled={movieLoading}
+                        chipValueMinWidth={200}
                     />
                     {movieLoading && (
                         <div style={{ position: "absolute", right: "32px", top: "8px", zIndex: 5 }}>
@@ -1507,6 +1843,8 @@ export function ManageSettlement() {
                     ) : (
                         <TheaterSearchInput
                             placeholder="극장 검색"
+                            name="theater-search"
+                            autoComplete="off"
                             value={theaterInput}
                             onChange={(e) => setTheaterInput(e.target.value)}
                             onFocus={() => {
@@ -1544,9 +1882,13 @@ export function ManageSettlement() {
                     <GenericTable
                         headers={headers}
                         data={displayedSettlements}
-                        // 서버가 브랜드/직영/지역 순 정렬 + 소계 행을 만들어 주므로
-                        // 클라이언트 정렬 금지 (정렬 상태가 남아 특정 행이 상단 고정되는 문제 방지)
-                        sortable={false}
+                        // 한 페이지에 전체가 나오는 구조라 하단 페이지네이션은 숨긴다
+                        hidePagination
+                        // 헤더 클릭 정렬은 부모(sortState)가 담당 — 정렬 중엔 소계를
+                        // 숨기고, 해제하면 서버 기본 정렬+소계로 복귀 (B002)
+                        onSortChange={handleSortChange}
+                        sortKey={sortState.key}
+                        sortOrder={sortState.dir}
                         // 행 클릭 시 줄 전체 하이라이트, 같은 행 다시 클릭하면 해제 (K003)
                         selectedItem={selectedRow}
                         onSelectItem={(item: any) => {
@@ -1560,6 +1902,32 @@ export function ManageSettlement() {
                                 : `row-${item["거래처코드"]}-${item["날짜(From)"]}-${idx}`
                         }
                         formatCell={(k: string, v: any, row: any) => {
+                            // 극장명: 배급사별 극장명 토글 ON이면 영화 배급사의 매핑명 표시.
+                            // 매핑 미등록 극장은 빨간 '미등록관' 배지로 알린다
+                            if (
+                                k === "극장명" &&
+                                useDistName &&
+                                !row?.is_subtotal &&
+                                row?.["거래처코드"]
+                            ) {
+                                if (row["배급사별 극장명"]) return row["배급사별 극장명"];
+                                return (
+                                    <span>
+                                        {v}
+                                        <span
+                                            style={{
+                                                marginLeft: 4,
+                                                color: "#dc2626",
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                whiteSpace: "nowrap",
+                                            }}
+                                        >
+                                            미등록관
+                                        </span>
+                                    </span>
+                                );
+                            }
                             // 날짜(To) 셀: 확정된 행은 보라 표시+해제, 모든 행에서 ✏로 개별 수정
                             if (
                                 k === "날짜(To)" &&

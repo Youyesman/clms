@@ -9,6 +9,7 @@ import { CustomMultiSelect } from "../../../../components/common/CustomMultiSele
 import type { FormatGroup } from "../../../../components/common/CustomMultiSelect";
 import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTabs";
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
+import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
@@ -21,7 +22,15 @@ const PageWrapper = styled.div`
     background-color: #f8fafc;
     /* 높이를 고정해 테이블이 내부 스크롤되게 함 — 헤더 틀고정(sticky)이 동작하는 조건 */
     height: calc(100vh - 60px);
+`;
+
+/* 탭바 아래 본문 — 스코어 현황 메인과 동일하게 탭은 상단에 붙이고 내용에만 패딩 */
+const MainSection = styled.div`
+    flex: 1;
+    min-height: 0; /* 내부 테이블 스크롤(sticky 헤더) 유지 조건 */
     padding: 20px;
+    display: flex;
+    flex-direction: column;
 `;
 
 const FilterBar = styled.div`
@@ -47,6 +56,23 @@ const ExcelSlot = styled.div`
     margin-left: auto;
     align-self: flex-end;
     padding-bottom: 2px;
+`;
+
+// 검색 버튼 (정산조회와 동일 규격)
+const SearchBtn = styled.button`
+    height: 30px;
+    padding: 0 14px;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+    &:hover {
+        background: #1d4ed8;
+    }
 `;
 
 const MovieInfo = styled.div`
@@ -145,8 +171,6 @@ export function CriteriaPage() {
         theater_type: "전체",
         date: scoreFilter.date,
     });
-    // 날짜 디바운스용 확정 상태
-    const [debouncedDate, setDebouncedDate] = useState(scoreFilter.date);
 
     // 포맷(서브영화)
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -195,7 +219,7 @@ export function CriteriaPage() {
         AxiosGet(`score/criteria/`, {
             params: {
                 movie_id: searchParams.movie_id,
-                date: debouncedDate,
+                date: searchParams.date,
                 region: searchParams.region,
                 multi: searchParams.multi,
                 theater_type: searchParams.theater_type,
@@ -204,31 +228,34 @@ export function CriteriaPage() {
         })
             .then((res) => setData(res.data || { meta: null, rows: [] }))
             .catch((err) => toast.error(handleBackendErrors(err)));
-    }, [searchParams.movie_id, debouncedDate, searchParams.region, searchParams.multi, searchParams.theater_type, selectedFormats, formatOptions, toast]);
+    }, [searchParams.movie_id, searchParams.date, searchParams.region, searchParams.multi, searchParams.theater_type, selectedFormats, formatOptions, toast]);
 
-    // 날짜 디바운스 (500ms)
-    useEffect(() => {
-        const timer = setTimeout(() => setDebouncedDate(searchParams.date), 500);
-        return () => clearTimeout(timer);
-    }, [searchParams.date]);
-
-    // 필터 변경 시 자동 검색
-    useEffect(() => {
-        if (searchParams.movie_id) fetchData();
-    }, [
-        searchParams.movie_id, debouncedDate, searchParams.region,
-        searchParams.multi, searchParams.theater_type,
-        selectedFormats, fetchData,
-    ]);
+    // 조회는 검색 버튼으로만 실행 — 필터를 바꿔도 자동 조회하지 않는다 (정산조회와 동일)
+    const handleSearch = () => {
+        if (!searchParams.movie_id) {
+            toast.error("영화를 선택해 주세요.");
+            return;
+        }
+        fetchData();
+    };
 
     // 극장 검색 (조회된 결과 내에서 극장명으로 좁히기 — 소계/합계도 함께 재계산됨)
     const [theaterSearch, setTheaterSearch] = useState("");
+
+    // 배급사별 극장명(극장명 매핑) 표기 토글 — 기본 ON (매핑 없으면 캐스팅라인명 폴백)
+    const [useDistName, setUseDistName] = useState(true);
+    const getTheaterName = (row: any) =>
+        useDistName ? row.distributor_theater || row.theater : row.theater;
 
     const filteredRows = useMemo(() => {
         const rows = data.rows || [];
         const q = theaterSearch.trim().toLowerCase();
         if (!q) return rows;
-        return rows.filter((r: any) => (r.theater || "").toLowerCase().includes(q));
+        return rows.filter(
+            (r: any) =>
+                (r.theater || "").toLowerCase().includes(q) ||
+                (r.distributor_theater || "").toLowerCase().includes(q)
+        );
     }, [data.rows, theaterSearch]);
 
     // 소계 행 삽입 로직
@@ -320,15 +347,15 @@ export function CriteriaPage() {
             }
             return [
                 row.region, row.multi, row.classification, row.format,
-                row.theater, row.auditorium, row.fare,
+                getTheaterName(row), row.auditorium, row.fare,
                 ...row.sessions.map((s: number) => s || ""), ...tail,
             ];
         });
 
         const n = downloadExcel(
-            `스코어_기준별조회_${meta?.movie_title || ""}_${debouncedDate}`,
+            `스코어_기준별조회_${meta?.movie_title || ""}_${searchParams.date}`,
             {
-                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${debouncedDate}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${searchParams.date}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
                 headers: [HEAD],
                 rows,
             }
@@ -339,181 +366,186 @@ export function CriteriaPage() {
     return (
         <PageWrapper>
             <PageNavTabs tabs={SCORE_TABS} />
-            <FilterBar>
-                <FilterRow>
-                    <div>
-                        <CustomSelect
-                            label="연도"
-                            options={yearOptions}
-                            value={searchParams.yyyy}
-                            onChange={(v) => {
-                                setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
-                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
-                                setFormatOptions([]);
-                                setSelectedFormats([]);
-                            }} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomSelect
-                            label="영화선택"
-                            allowClear={false}
-                            options={moviesList.map((m) => ({ label: m.title_ko, value: m.id.toString() }))}
-                            value={searchParams.movie_id}
-                            onChange={(val) => {
-                                setSearchParams((p) => ({ ...p, movie_id: val }));
-                                setScoreFilter((f) => ({ ...f, movieId: val }));
-                                fetchMovieFormats(val);
-                            }} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomMultiSelect
-                            label="포맷"
-                            groups={FORMAT_GROUPS}
-                            value={selectedFormats}
-                            onChange={setSelectedFormats}
-                            disabled={formatOptions.length === 0} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomSelect
-                            label="지역"
-                            options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
-                            value={searchParams.region}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomSelect
-                            label="멀티"
-                            options={["전체", "롯데", "CGV", "메가박스", "자동차극장", "씨네큐", "작은영화관", "기타"]}
-                            value={searchParams.multi}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomSelect
-                            label="극장유형"
-                            options={["전체", "직영", "위탁", "기타"]}
-                            value={searchParams.theater_type}
-                            onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomInput
-                            inputType="date"
-                            label="날짜"
-                            value={searchParams.date}
-                            setValue={(v) => {
-                                setSearchParams((p) => ({ ...p, date: v }));
-                                setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
-                            }} variant="chip" />
-                    </div>
-                    <div>
-                        <CustomInput
-                            label="극장 검색"
-                            placeholder="극장명 입력"
-                            value={theaterSearch}
-                            setValue={setTheaterSearch} variant="chip" />
-                    </div>
-                    <ExcelSlot>
-                        <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
-                    </ExcelSlot>
-                </FilterRow>
-            </FilterBar>
+            <MainSection>
+                <FilterBar>
+                    <FilterRow>
+                        <div>
+                            <CustomSelect
+                                label="연도"
+                                options={yearOptions}
+                                value={searchParams.yyyy}
+                                onChange={(v) => {
+                                    setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
+                                    setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                    setFormatOptions([]);
+                                    setSelectedFormats([]);
+                                }} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomSelect
+                                label="영화선택"
+                                allowClear={false}
+                                chipValueMinWidth={200}
+                                options={moviesList.map((m) => ({ label: m.title_ko, value: m.id.toString() }))}
+                                value={searchParams.movie_id}
+                                onChange={(val) => {
+                                    setSearchParams((p) => ({ ...p, movie_id: val }));
+                                    setScoreFilter((f) => ({ ...f, movieId: val }));
+                                    fetchMovieFormats(val);
+                                }} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomMultiSelect
+                                label="포맷"
+                                groups={FORMAT_GROUPS}
+                                value={selectedFormats}
+                                onChange={setSelectedFormats}
+                                disabled={formatOptions.length === 0} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomSelect
+                                label="지역"
+                                options={["전체", "서울", "경강", "경남", "경북", "충청", "호남"]}
+                                value={searchParams.region}
+                                onChange={(v) => setSearchParams((p) => ({ ...p, region: v }))} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomSelect
+                                label="멀티"
+                                options={["전체", "롯데", "CGV", "메가박스", "자동차극장", "씨네큐", "작은영화관", "기타"]}
+                                value={searchParams.multi}
+                                onChange={(v) => setSearchParams((p) => ({ ...p, multi: v }))} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomSelect
+                                label="극장유형"
+                                options={["전체", "직영", "위탁", "기타"]}
+                                value={searchParams.theater_type}
+                                onChange={(v) => setSearchParams((p) => ({ ...p, theater_type: v }))} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomInput
+                                inputType="date"
+                                label="날짜"
+                                value={searchParams.date}
+                                setValue={(v) => {
+                                    setSearchParams((p) => ({ ...p, date: v }));
+                                    setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                                }} variant="chip" />
+                        </div>
+                        <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
+                        <div>
+                            <CustomInput
+                                label="극장 검색"
+                                placeholder="극장명 입력"
+                                value={theaterSearch}
+                                setValue={setTheaterSearch} variant="chip" />
+                        </div>
+                        <SearchBtn onClick={handleSearch}>검색</SearchBtn>
+                        <ExcelSlot>
+                            <ExcelIconButton onClick={handleExcelDownload} title="조회 결과 엑셀 다운로드" />
+                        </ExcelSlot>
+                    </FilterRow>
+                </FilterBar>
 
-            {meta && (
-                <MovieInfo>
-                    {meta.movie_title}
-                    <span>(개봉일: {meta.release_date || "-"})</span>
-                </MovieInfo>
-            )}
+                {meta && (
+                    <MovieInfo>
+                        {meta.movie_title}
+                        <span>(개봉일: {meta.release_date || "-"})</span>
+                    </MovieInfo>
+                )}
 
-            <TableContainer>
-                <StyledTable>
-                    <thead>
-                        <tr>
-                            <th>지역</th>
-                            <th>멀티</th>
-                            <th>구분</th>
-                            <th>포맷</th>
-                            <th>극장</th>
-                            <th>관</th>
-                            <th>요금</th>
-                            {Array.from({ length: 12 }, (_, i) => (
-                                <th key={i}>{i + 1}회</th>
-                            ))}
-                            <th>일계</th>
-                            <th>전일</th>
-                            <th>전주일</th>
-                            <th>누계</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {processedRows.map((row, idx) => {
-                            // 소계 행
-                            if (row.type === "aud_subtotal") {
-                                return (
-                                    <SubtotalRow key={`sub-${idx}`}>
-                                        <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
-                                        <td>{fmt(row.daily_total)}</td>
-                                        <td>{fmt(row.prev_day)}</td>
-                                        <td>{fmt(row.prev_week)}</td>
-                                        <td>{fmt(row.cumulative)}</td>
-                                    </SubtotalRow>
-                                );
-                            }
-                            if (row.type === "theater_subtotal") {
-                                return (
-                                    <SubtotalRow key={`tsub-${idx}`}>
-                                        <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
-                                        <td>{fmt(row.daily_total)}</td>
-                                        <td>{fmt(row.prev_day)}</td>
-                                        <td>{fmt(row.prev_week)}</td>
-                                        <td>{fmt(row.cumulative)}</td>
-                                    </SubtotalRow>
-                                );
-                            }
-                            if (row.type === "grand_total") {
-                                return (
-                                    <GrandTotalRow key={`grand-${idx}`}>
-                                        <td colSpan={7} style={{ textAlign: "center" }}>{row.label}</td>
-                                        {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
-                                        <td>{fmt(row.daily_total)}</td>
-                                        <td>{fmt(row.prev_day)}</td>
-                                        <td>{fmt(row.prev_week)}</td>
-                                        <td>{fmt(row.cumulative)}</td>
-                                    </GrandTotalRow>
-                                );
-                            }
-
-                            // 데이터 행
-                            return (
-                                <tr key={idx}>
-                                    <td>{row.region}</td>
-                                    <td>{row.multi}</td>
-                                    <td>{row.classification}</td>
-                                    <td>{row.format}</td>
-                                    <td>{row.theater}</td>
-                                    <td>{row.auditorium}</td>
-                                    <td>{fmt(row.fare)}</td>
-                                    {row.sessions.map((s: number, i: number) => (
-                                        <td key={i}>{fmt(s)}</td>
-                                    ))}
-                                    <td style={{ fontWeight: 600 }}>{fmt(row.daily_total)}</td>
-                                    <td>{fmt(row.prev_day)}</td>
-                                    <td>{fmt(row.prev_week)}</td>
-                                    <td>{fmt(row.cumulative)}</td>
-                                </tr>
-                            );
-                        })}
-                        {processedRows.length === 0 && (
+                <TableContainer>
+                    <StyledTable>
+                        <thead>
                             <tr>
-                                <td colSpan={23} style={{ padding: 40, color: "#94a3b8" }}>
-                                    영화를 선택하면 데이터가 표시됩니다
-                                </td>
+                                <th>지역</th>
+                                <th>멀티</th>
+                                <th>구분</th>
+                                <th>포맷</th>
+                                <th>극장</th>
+                                <th>관</th>
+                                <th>요금</th>
+                                {Array.from({ length: 12 }, (_, i) => (
+                                    <th key={i}>{i + 1}회</th>
+                                ))}
+                                <th>일계</th>
+                                <th>전일</th>
+                                <th>전주일</th>
+                                <th>누계</th>
                             </tr>
-                        )}
-                    </tbody>
-                </StyledTable>
-            </TableContainer>
+                        </thead>
+                        <tbody>
+                            {processedRows.map((row, idx) => {
+                                // 소계 행
+                                if (row.type === "aud_subtotal") {
+                                    return (
+                                        <SubtotalRow key={`sub-${idx}`}>
+                                            <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
+                                            {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                            <td>{fmt(row.daily_total)}</td>
+                                            <td>{fmt(row.prev_day)}</td>
+                                            <td>{fmt(row.prev_week)}</td>
+                                            <td>{fmt(row.cumulative)}</td>
+                                        </SubtotalRow>
+                                    );
+                                }
+                                if (row.type === "theater_subtotal") {
+                                    return (
+                                        <SubtotalRow key={`tsub-${idx}`}>
+                                            <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
+                                            {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                            <td>{fmt(row.daily_total)}</td>
+                                            <td>{fmt(row.prev_day)}</td>
+                                            <td>{fmt(row.prev_week)}</td>
+                                            <td>{fmt(row.cumulative)}</td>
+                                        </SubtotalRow>
+                                    );
+                                }
+                                if (row.type === "grand_total") {
+                                    return (
+                                        <GrandTotalRow key={`grand-${idx}`}>
+                                            <td colSpan={7} style={{ textAlign: "center" }}>{row.label}</td>
+                                            {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
+                                            <td>{fmt(row.daily_total)}</td>
+                                            <td>{fmt(row.prev_day)}</td>
+                                            <td>{fmt(row.prev_week)}</td>
+                                            <td>{fmt(row.cumulative)}</td>
+                                        </GrandTotalRow>
+                                    );
+                                }
+
+                                // 데이터 행
+                                return (
+                                    <tr key={idx}>
+                                        <td>{row.region}</td>
+                                        <td>{row.multi}</td>
+                                        <td>{row.classification}</td>
+                                        <td>{row.format}</td>
+                                        <td><TheaterNameCell useDistName={useDistName} theater={row.theater} distributorTheater={row.distributor_theater} /></td>
+                                        <td>{row.auditorium}</td>
+                                        <td>{fmt(row.fare)}</td>
+                                        {row.sessions.map((s: number, i: number) => (
+                                            <td key={i}>{fmt(s)}</td>
+                                        ))}
+                                        <td style={{ fontWeight: 600 }}>{fmt(row.daily_total)}</td>
+                                        <td>{fmt(row.prev_day)}</td>
+                                        <td>{fmt(row.prev_week)}</td>
+                                        <td>{fmt(row.cumulative)}</td>
+                                    </tr>
+                                );
+                            })}
+                            {processedRows.length === 0 && (
+                                <tr>
+                                    <td colSpan={23} style={{ padding: 40, color: "#94a3b8" }}>
+                                        검색 조건을 선택 후 검색 버튼을 클릭하세요
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </StyledTable>
+                </TableContainer>
+            </MainSection>
         </PageWrapper>
     );
 }

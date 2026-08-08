@@ -20,6 +20,8 @@ urlpatterns = [
          SettlementCompareView.as_view(), name='settlement-compare'),
     path('settlement-adjustments/',
          SettlementAdjustmentView.as_view(), name='settlement-adjustments'),
+    path('settlement-adjustments-stale/',
+         SettlementStaleAdjustmentView.as_view(), name='settlement-adjustments-stale'),
     path('settlement-adjustments/<int:pk>/',
          SettlementAdjustmentDetailView.as_view(), name='settlement-adjustment-detail'),
     path('settlement-adjustments/<int:pk>/<str:scope>/',

@@ -42,8 +42,23 @@ jobs:
             chmod +x deployment/*.sh
             ./deployment/setup_backend.sh
             sudo systemctl restart clms-backend
+            # Let's Encrypt 인증서: 없을 때만 발급 (실패 시 set -e 로 중단 → 기존 HTTP 설정 유지)
+            if [ ! -f /etc/letsencrypt/live/castingline.co.kr/fullchain.pem ]; then
+              sudo DEBIAN_FRONTEND=noninteractive apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-apache
+              sudo certbot certonly --apache --non-interactive --agree-tos \
+                -m leslie@lohands.co.kr \
+                -d castingline.co.kr -d www.castingline.co.kr
+            fi
+            # 자동 갱신(certbot.timer, apt 패키지에 기본 포함) 후 Apache 에 새 인증서 적용
+            sudo mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+            printf '#!/bin/bash\nsystemctl reload apache2\n' | sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-apache.sh > /dev/null
+            sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-apache.sh
             sudo cp /home/clms/deployment/clms.conf /etc/apache2/sites-available/
-            sudo a2enmod headers rewrite
+            # sites-enabled 에 옛 설정이 '실제 파일'로 남아있어 심볼릭 링크로 교체 (없으면 생성)
+            sudo ln -sfn /etc/apache2/sites-available/clms.conf /etc/apache2/sites-enabled/clms.conf
+            sudo a2enmod headers rewrite ssl proxy proxy_http
+            sudo apache2ctl configtest
             # 새로 활성화한 모듈(headers)은 reload 로는 로드되지 않으므로 restart
             sudo systemctl restart apache2
 

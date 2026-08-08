@@ -1,14 +1,22 @@
+import re
+
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from django.http import HttpResponse
 from decimal import Decimal  # Decimal 타입 체크를 위해 추가
+
+# 엑셀 시트명에 쓸 수 없는 문자 (openpyxl이 ValueError를 던진다)
+_INVALID_SHEET_CHARS = re.compile(r"[\\/*?:\[\]]")
 
 
 class ExcelGenerator:
     def __init__(self, sheet_name="Data"):
         self.wb = openpyxl.Workbook()
         self.ws = self.wb.active
-        self.ws.title = sheet_name
+        # 영화 제목 등에 콜론(:)이 들어오면 시트명 규칙 위반으로 저장이 깨지므로
+        # 금지 문자를 치환하고 최대 길이(31자)로 자른다
+        safe_name = _INVALID_SHEET_CHARS.sub(" ", str(sheet_name)).strip() or "Data"
+        self.ws.title = safe_name[:31]
 
         # 공통 스타일 정의
         self.header_fill = PatternFill(
@@ -71,26 +79,43 @@ class ExcelGenerator:
                     cell.alignment = self.left_align
 
     def auto_fit_columns(self):
-        """콘텐츠 길이에 맞춰 열 너비 자동 조절"""
+        """콘텐츠 길이에 맞춰 열 너비 자동 조절.
+
+        미리 지정해 둔 열 너비가 있으면 그보다 줄이지 않는다 — 수식 셀(SUM 총계 등)은
+        계산값 길이를 여기서 알 수 없으므로 호출측이 최소 폭을 지정하는 용도.
+        """
         for col in self.ws.columns:
             max_length = 0
             column = col[0].column_letter
             for cell in col:
                 try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
+                    # 수식 셀은 화면에 계산값(숫자)이 보이므로 수식 문자열 길이로
+                    # 폭을 잡으면 열만 쓸데없이 넓어진다 → 너비 계산에서 제외
+                    if isinstance(cell.value, str) and cell.value.startswith("="):
+                        continue
+                    # 숫자 셀은 #,##0 서식으로 콤마가 붙어 표시되므로 콤마 포함
+                    # 길이로 계산해야 ####(폭 부족)이 안 생긴다
+                    if isinstance(cell.value, (int, float, Decimal)):
+                        length = len(f"{cell.value:,.0f}")
+                    else:
+                        length = len(str(cell.value))
+                    if length > max_length:
+                        max_length = length
                 except:
                     pass
             # 한글/숫자 폰트 크기를 고려해 여유공간(+3) 추가
-            self.ws.column_dimensions[column].width = max_length + 3
+            prev = self.ws.column_dimensions[column].width or 0
+            self.ws.column_dimensions[column].width = max(max_length + 3, prev)
 
     def to_response(self, filename, auto_fit=True):
-        # auto_fit=False: 호출부에서 열 너비를 직접 지정한 경우 덮어쓰지 않는다
+        # auto_fit=False: 호출부에서 열 너비를 양식대로 지정한 경우 덮어쓰지 않는다
         if auto_fit:
             self.auto_fit_columns()
+        # 다운로드 파일명도 OS 금지 문자(: 등)를 치환 — 영화 제목이 그대로 들어온다
+        safe_filename = re.sub(r'[\\/:*?"<>|]', "_", str(filename))
         response = HttpResponse(
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response['Content-Disposition'] = f'attachment; filename="{filename}.xlsx"'
+        response['Content-Disposition'] = f'attachment; filename="{safe_filename}.xlsx"'
         self.wb.save(response)
         return response
