@@ -162,7 +162,8 @@ export function ManageTheaterMap() {
     const [isDownloading, setIsDownloading] = useState(false); // ✅ 다운로드 상태 추가
 
     // ✅ 엑셀 다운로드 핸들러
-    const handleDownloadExcel = async () => {
+    // latestOnly=true 면 (배급사, 극장)별 가장 최신 극장명 한 줄만, false 면 변경 이력 전체
+    const handleDownloadExcel = async (latestOnly = false) => {
         // 배급사 선택 여부 체크 (필수)
         if (!selectedDistId) {
             toast.warning("대상 배급사를 선택해주세요.");
@@ -178,6 +179,7 @@ export function ManageTheaterMap() {
             if (filters.status !== "전체") params.append("operational_status", filters.status);
             if (filters.classification !== "전체") params.append("classification", filters.classification);
             if (filters.theater_kind !== "전체") params.append("theater_kind", filters.theater_kind);
+            if (latestOnly) params.append("latest", "true");
 
             const res = await AxiosGet(`theater-maps-excel-export/?${params.toString()}`, {
                 responseType: "blob",
@@ -188,7 +190,8 @@ export function ManageTheaterMap() {
             link.href = url;
 
             const distName = selectedDistName ? `_${selectedDistName}` : "";
-            link.setAttribute("download", `극장명매핑현황${distName}_${dayjs().format("YYYYMMDD")}.xlsx`);
+            const kind = latestOnly ? "_최신만" : "_전체이력";
+            link.setAttribute("download", `극장명매핑현황${distName}${kind}_${dayjs().format("YYYYMMDD")}.xlsx`);
 
             document.body.appendChild(link);
             link.click();
@@ -207,11 +210,18 @@ export function ManageTheaterMap() {
             <CommonFilterBar
                 onSearch={handleSearch}
                 actions={
-                    <ExcelIconButton
-                        onClick={handleDownloadExcel}
-                        isLoading={isDownloading}
-                        title="매핑 현황 엑셀 다운로드"
-                    />
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <ExcelIconButton
+                            onClick={() => handleDownloadExcel(false)}
+                            isLoading={isDownloading}
+                            title="매핑 현황 엑셀 다운로드 (전체 이력)"
+                        />
+                        <ExcelIconButton
+                            onClick={() => handleDownloadExcel(true)}
+                            isLoading={isDownloading}
+                            title="매핑 현황 엑셀 다운로드 (최신 극장명만)"
+                        />
+                    </div>
                 }
             >
                 <CustomSelect

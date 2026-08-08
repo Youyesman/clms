@@ -283,6 +283,15 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                         options={[{ label: "사용", value: "Y" }, { label: "폐관", value: "N" }]}
                         size="sm"
                     />
+                    {isTheater && (
+                        <CustomSelect
+                            label="KOBIS 연동 여부"
+                            value={formData.kobis_linked === false ? "N" : "Y"}
+                            onChange={(v) => updateField("kobis_linked", v === "Y")}
+                            options={[{ label: "연동", value: "Y" }, { label: "미연동", value: "N" }]}
+                            size="sm"
+                        />
+                    )}
                 </FormGrid>
             </ScrollBody>
         </CommonSectionCard>

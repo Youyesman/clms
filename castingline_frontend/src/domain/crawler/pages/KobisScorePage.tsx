@@ -7,12 +7,14 @@ import {
     XCircle,
     FilmSlate,
     Gear,
+    ListMagnifyingGlass,
 } from "@phosphor-icons/react";
 import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { ScoreExcelUploader } from "../../score/pages/ScoreExcelUploader";
 import { KobisAccountSettings } from "./KobisAccountSettings";
+import { KobisScoreVerifyModal } from "./KobisScoreVerifyModal";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../components/common/CustomInput";
 
@@ -135,6 +137,22 @@ export const KobisScorePage = () => {
         );
     };
 
+    // 수집한 영진위 엑셀 ↔ CLMS 등록 스코어 대사 (극장×요금×날짜 인원수)
+    const verifyOne = (acc: IAccount, mv: IMovie) => {
+        if (!mv.file_b64 || !mv.filename) return;
+        const file = new File([b64ToBlob(mv.file_b64)], mv.filename, {
+            type: XLSX_MIME,
+        });
+        openModal(
+            <KobisScoreVerifyModal
+                file={file}
+                movieName={mv.movieNm}
+                distributorName={acc.name}
+            />,
+            { title: `스코어 검증 — ${acc.name} / ${mv.movieNm}`, width: "1280px" }
+        );
+    };
+
     const openSettings = () => {
         openModal(<KobisAccountSettings />, {
             title: "KOBIS 배급사 계정 설정",
@@ -218,7 +236,7 @@ export const KobisScorePage = () => {
                                 <th>영화</th>
                                 <th style={{ width: 80 }}>극장수</th>
                                 <th style={{ width: 90 }}>관객수</th>
-                                <th style={{ width: 220 }}>작업</th>
+                                <th style={{ width: 330 }}>작업</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -279,6 +297,13 @@ export const KobisScorePage = () => {
                                                     >
                                                         <UploadSimple size={14} />
                                                         스코어 업로드
+                                                    </ActBtn>
+                                                    <ActBtn
+                                                        $variant="verify"
+                                                        onClick={() => verifyOne(a, mv)}
+                                                    >
+                                                        <ListMagnifyingGlass size={14} />
+                                                        스코어 검증
                                                     </ActBtn>
                                                 </RowActions>
                                             )}
@@ -468,7 +493,7 @@ const RowActions = styled.div`
     display: flex;
     gap: 6px;
 `;
-const ActBtn = styled.button<{ $variant?: "upload" }>`
+const ActBtn = styled.button<{ $variant?: "upload" | "verify" }>`
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -477,16 +502,29 @@ const ActBtn = styled.button<{ $variant?: "upload" }>`
     border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
     cursor: pointer;
     border: 1px solid
-        ${({ $variant }) => ($variant === "upload" ? "#2563eb" : "#cbd5e1")};
+        ${({ $variant }) =>
+            $variant === "upload"
+                ? "#2563eb"
+                : $variant === "verify"
+                ? "#0f766e"
+                : "#cbd5e1"};
     background: ${({ $variant }) =>
         $variant === "upload" ? "#2563eb" : "#ffffff"};
-    color: ${({ $variant }) => ($variant === "upload" ? "#ffffff" : "#475569")};
+    color: ${({ $variant }) =>
+        $variant === "upload"
+            ? "#ffffff"
+            : $variant === "verify"
+            ? "#0f766e"
+            : "#475569"};
     &:hover {
         ${({ $variant }) =>
             $variant === "upload"
                 ? "background:#1d4ed8;"
+                : $variant === "verify"
+                ? "background:#f0fdfa;"
                 : "background:#f1f5f9;"}
     }
 `;

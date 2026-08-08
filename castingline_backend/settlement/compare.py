@@ -52,22 +52,37 @@ def norm_date(v):
     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
 
 
-def norm_theater(s):
+FUND_EXEMPT_SUFFIX = "(발전기금면제관)"
+
+# 발전기금면제관을 본 극장과 합치지 않고 '따로' 대사할 극장 (브랜드 접두사 제거 후 이름).
+# 부금계산서에는 지점명이 '코엑스' 하나로 오지만, CLMS 거래처·부금정산은
+# 메가박스코엑스 / 메가박스코엑스(발전기금면제관) 두 곳으로 나뉘어 있어
+# 합쳐서 대사하면 금액이 맞지 않는다.
+FUND_EXEMPT_SPLIT_THEATERS = {"코엑스"}
+
+
+def norm_theater(s, keep_fund_exempt=False):
     """극장명 매칭용 정규화: 상태 접두사·브랜드 접두사·공백 제거 + 소문자.
 
     예) 'CGV 강남'→'강남', '메가박스홍대(아니메)'→'홍대(아니메)',
         '롯데군산나운'→'군산나운', '(폐관)CGV 시흥'→'시흥'
-    발전기금면제관은 시스템에 별도 거래처로 분리돼 있으나(예: 메가박스코엑스(발전기금면제관))
-    정산서에는 본 극장 하나로 오므로 접미사를 제거해 본 극장에 합산한다.
+    발전기금면제관은 시스템에 별도 거래처로 분리돼 있으나 정산서에는 본 극장 하나로
+    오므로 기본적으로 접미사를 제거해 본 극장에 합산한다.
+    keep_fund_exempt=True 이면 FUND_EXEMPT_SPLIT_THEATERS 에 한해 접미사를 남겨
+    본관/면제관을 각각 따로 대사한다.
     """
     s = str(s or "").replace(" ", "")
     s = re.sub(r"^\((폐관|임시중단|휴관)\)", "", s)
-    s = s.replace("(발전기금면제관)", "")
+    has_exempt = FUND_EXEMPT_SUFFIX in s
+    s = s.replace(FUND_EXEMPT_SUFFIX, "")
     for prefix in ("CGV", "cgv", "메가박스", "롯데시네마", "롯데", "씨네큐", "CINEQ", "cineq"):
         if s.startswith(prefix):
             s = s[len(prefix):]
             break
-    return s.lower()
+    base = s.lower()
+    if keep_fund_exempt and has_exempt and base in FUND_EXEMPT_SPLIT_THEATERS:
+        return base + FUND_EXEMPT_SUFFIX
+    return base
 
 
 # ── 상영 포맷 버킷 ──
@@ -217,14 +232,23 @@ def _parse_megabox(df, hi):
             continue
         supply = _num(row.iloc[c_supply])
         vat = _num(row.iloc[c_vat])
+        fare = _num(row.iloc[c_fare])
+        danga = _num(row.iloc[c_danga])
+        # 발전기금면제관 판별: 부가단가(순매티켓-기금)가 티켓금액(순매출)과 같으면
+        # 기금이 빠지지 않은 것 = 면제관 상영분. 정산서는 지점명이 하나로 오므로
+        # 여기서 접미사를 붙여 본관/면제관을 갈라 놓는다. (대상 극장만)
+        if (fare > 0 and danga == fare
+                and norm_theater(theater) in FUND_EXEMPT_SPLIT_THEATERS):
+            theater = theater + FUND_EXEMPT_SUFFIX
+
         rows.append({
             "theater": theater,
             "movie": _txt(row.iloc[c_movie]),
             "screen_kind": _txt(row.iloc[c_kind]),
             "date": _txt(row.iloc[c_date]),
             "date_end": _txt(row.iloc[c_date_end]),
-            "fare": _num(row.iloc[c_fare]),
-            "danga": _num(row.iloc[c_danga]),
+            "fare": fare,
+            "danga": danga,
             "visitors": _num(row.iloc[c_vis]),
             "supply": supply,
             "vat": vat,

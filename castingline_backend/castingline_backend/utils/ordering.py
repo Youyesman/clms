@@ -5,6 +5,19 @@ from rest_framework.filters import OrderingFilter
 from django.core.exceptions import FieldDoesNotExist
 
 
+# 조회 결과의 지역 정렬 순서. 부금정산·스코어 현황·정산조회가 모두 이 순서를 쓴다.
+# (예전에는 화면마다 순서가 달라 같은 데이터가 메뉴별로 다르게 정렬됐다.)
+REGION_ORDER = ["경강", "경남", "경북", "서울", "충청", "호남"]
+
+
+def region_sort_index(region):
+    """REGION_ORDER 기준 정렬 인덱스. 목록에 없는 지역은 항상 맨 뒤."""
+    try:
+        return REGION_ORDER.index(region)
+    except ValueError:
+        return len(REGION_ORDER)
+
+
 class KoreanOrderingFilter(OrderingFilter):
     def get_valid_fields(self, queryset, view, context=None):
         valid_fields = super().get_valid_fields(queryset, view, context=context or {})

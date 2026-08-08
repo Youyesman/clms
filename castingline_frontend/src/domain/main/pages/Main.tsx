@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import {
-    CalendarCheck,
     ShoppingCart,
     FilmStrip,
     ArrowRight,
@@ -18,6 +17,7 @@ import { GenericTable } from "../../../components/GenericTable";
 import { FadeIn } from "../../../components/common/MotionWrapper";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../../atom/TabState";
 import SharedMemo from "../components/SharedMemo";
+import SharedCalendar from "../components/SharedCalendar";
 
 /* 카드 헤더에 붙는 조회 조건 — 필터 칩과 같은 규격 */
 const HeaderSelect = styled.select`
@@ -68,52 +68,6 @@ const WelcomeText = styled.div`
         margin: 10px 0 0;
         font-size: 14px;
         color: #64748b;
-    }
-`;
-
-const SummaryGrid = styled.div`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 20px;
-`;
-
-const MetricCard = styled.div`
-    background: white;
-    padding: 24px;
-    border-radius: 6px;
-    border: 1px solid #cbd5e1;
-    box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    transition: transform 0.2s;
-    
-    &:hover {
-        transform: translateY(-2px);
-    }
-
-    .icon-box {
-        width: 48px;
-        height: 48px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f1f5f9;
-        color: #2563eb;
-    }
-
-    .info {
-        .label {
-            font-size: 14px;
-            color: #64748b;
-            font-weight: 600;
-        }
-        .value {
-            font-size: 24px;
-            font-weight: 800;
-            color: #0f172a;
-        }
     }
 `;
 
@@ -174,11 +128,21 @@ const LinkButton = styled.button`
     }
 `;
 
+interface DailySummaryRow {
+    movie_id: number;
+    title: string;
+    distributor: string;
+    visitors: number;
+    revenue: number;
+    theaters: number;
+    screens: number;
+    shows: number;
+}
+
 export default function Main() {
     const navigate = useNavigate();
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
     const [, setActiveTabId] = useRecoilState(ActiveTabIdState);
-    const today = dayjs().format("YYYY-MM-DD");
 
     const handleNavClick = (path: string) => {
         const label = PATH_TO_TAB_LABEL[path] || path;
@@ -191,41 +155,17 @@ export default function Main() {
         navigate(path);
     };
     
-    const [scoreCount, setScoreCount] = useState(0);
-    const [todayOrderCount, setTodayOrderCount] = useState(0);
-    const [todayMovieCount, setTodayMovieCount] = useState(0);
-    const [recentOrders, setRecentOrders] = useState([]);
     const [recentMovies, setRecentMovies] = useState([]);
-    
-    // 알짜배기 극장 분석용 상태
-    const [selectedYear, setSelectedYear] = useState(dayjs().year());
-    const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1);
-    const [movieOptions, setMovieOptions] = useState<any[]>([]);
-    const [selectedMovieId, setSelectedMovieId] = useState<string | number>("");
-    const [topTheaters, setTopTheaters] = useState<any[]>([]);
+    const [, setLoading] = useState(true);
 
-    const [loading, setLoading] = useState(true);
+    // 전일 스코어 요약 (D003) — 기준일자는 접속일 전일이 기본
+    const [summaryDate, setSummaryDate] = useState(dayjs().subtract(1, "day").format("YYYY-MM-DD"));
+    const [dailySummary, setDailySummary] = useState<DailySummaryRow[]>([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            // 1. 오늘의 스코어 개수 (백엔드에서 계산된 score_count 사용)
-            const scoreRes = await AxiosGet(`scores/?created_date=${today}`);
-            setScoreCount(scoreRes.data.score_count || 0);
-
-            // 2. 오늘 생성된 오더 개수
-            const todayOrderRes = await AxiosGet(`orderlist/?created_date_at=${today}&page_size=1`);
-            setTodayOrderCount(todayOrderRes.data.count || 0);
-
-            // 3. 오늘 등록된 영화 개수
-            const todayMovieRes = await AxiosGet(`movies/?created_date__date=${today}&page_size=1`);
-            setTodayMovieCount(todayMovieRes.data.count || 0);
-
-            // 4. 최근 오더 10개
-            const orderRes = await AxiosGet("orderlist/?ordering=-id&page_size=10");
-            setRecentOrders(orderRes.data.results || []);
-
-            // 5. 최근 영화 10개
+            // 최근 영화 10개
             const movieRes = await AxiosGet("movies/?ordering=-id&page_size=10");
             setRecentMovies(movieRes.data.results || []);
         } catch (error) {
@@ -233,63 +173,34 @@ export default function Main() {
         } finally {
             setLoading(false);
         }
-    }, [today]);
-
-    // 해당 연도/월에 데이터가 있는 영화 목록 조회 (Settlement API 활용)
-    const fetchMovieOptions = useCallback(async () => {
-        const yyyyMm = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-        try {
-            const res = await AxiosGet(`settlement-movies/?yyyyMm=${yyyyMm}`);
-            const movies = res.data || [];
-            setMovieOptions(movies);
-            if (movies.length > 0) {
-                setSelectedMovieId(movies[0].id);
-            } else {
-                setSelectedMovieId("");
-                setTopTheaters([]);
-            }
-        } catch (error) {
-            console.error("Fetch movie options error:", error);
-        }
-    }, [selectedYear, selectedMonth]);
-
-    // 알짜배기 극장 분석 API 호출
-    const fetchTopTheaters = useCallback(async (movieId: string | number, year: number, month: number) => {
-        if (!movieId) return;
-        try {
-            const res = await AxiosGet(`scores/statistics/?movie_id=${movieId}&year=${year}&month=${month}`);
-            const data = (res.data.top_theaters || []).map((item: any, index: number) => ({
-                ...item,
-                rank: index + 1 // 순위 NaN 에러 방지용으로 데이터에 rank 삽입
-            }));
-            setTopTheaters(data);
-        } catch (error) {
-            console.error("Fetch top theaters error:", error);
-        }
     }, []);
 
-    // 연도/월 변경 시 영화 목록 갱신
-    useEffect(() => {
-        fetchMovieOptions();
-    }, [fetchMovieOptions]);
-
-    // 영화 선택 시 통계 갱신
-    useEffect(() => {
-        if (selectedMovieId) {
-            fetchTopTheaters(selectedMovieId, selectedYear, selectedMonth);
+    const fetchDailySummary = useCallback(async () => {
+        try {
+            const res = await AxiosGet(`score/daily-movie-summary/?date=${summaryDate}`);
+            setDailySummary(res.data?.rows || []);
+        } catch (error) {
+            console.error("Daily score summary fetch error:", error);
+            setDailySummary([]);
         }
-    }, [selectedMovieId, selectedYear, selectedMonth, fetchTopTheaters]);
+    }, [summaryDate]);
 
     useEffect(() => {
         fetchData();
     }, [fetchData]);
 
-    const orderHeaders = [
-        { key: "start_date", label: "기준일자" },
-        { key: "movie", label: "영화", renderCell: (v) => v?.title_ko || "" },
-        { key: "distributor", label: "배급사", renderCell: (_, item) => item.movie?.distributor?.client_name || "" },
-        { key: "created_date", label: "등록일시", renderCell: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "" },
-        { key: "create_user", label: "등록자", renderCell: (v) => typeof v === 'object' ? v?.nickname || v?.username : v },
+    useEffect(() => {
+        fetchDailySummary();
+    }, [fetchDailySummary]);
+
+    const dailySummaryHeaders = [
+        { key: "title", label: "영화명" },
+        { key: "distributor", label: "배급사" },
+        { key: "visitors", label: "관객수", renderCell: (v: number) => `${(v || 0).toLocaleString()}명` },
+        { key: "revenue", label: "매출액", renderCell: (v: number) => `${(v || 0).toLocaleString()}원` },
+        { key: "theaters", label: "극장수", renderCell: (v: number) => `${(v || 0).toLocaleString()}개` },
+        { key: "screens", label: "스크린수", renderCell: (v: number) => `${(v || 0).toLocaleString()}개` },
+        { key: "shows", label: "상영횟수", renderCell: (v: number) => `${(v || 0).toLocaleString()}회` },
     ];
 
     const movieHeaders = [
@@ -298,17 +209,6 @@ export default function Main() {
         { key: "distributor", label: "배급사", renderCell: (v: any) => v?.client_name || "" },
         { key: "created_date", label: "등록일시", renderCell: (v: any) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "" },
         { key: "create_user", label: "등록자", renderCell: (v: any) => typeof v === 'object' ? v?.nickname || v?.username : v },
-    ];
-
-    const topTheaterHeaders = [
-        { key: "rank", label: "순위" },
-        { key: "date", label: "일자" },
-        { key: "theater", label: "극장명" },
-        { key: "auditorium", label: "상영관" },
-        { key: "seat_count", label: "좌석수", renderCell: (v: number) => `${v.toLocaleString()}석` },
-        { key: "show_count", label: "상영횟수", renderCell: (v: number) => `${v.toLocaleString()}회` },
-        { key: "visitor", label: "관객수(일)", renderCell: (v: number) => `${v.toLocaleString()}명` },
-        { key: "efficiency", label: "점유율(효율)", renderCell: (v: number) => <span style={{ color: v >= 50 ? '#16a34a' : '#d97706', fontWeight: 700 }}>{v}%</span> },
     ];
 
     const quickLinks = [
@@ -328,51 +228,35 @@ export default function Main() {
                     </WelcomeText>
                 </HeaderSection>
 
-                <SummaryGrid>
-                    <MetricCard>
-                        <div className="icon-box">
-                            <CalendarCheck size={28} weight="fill" />
-                        </div>
-                        <div className="info">
-                            <div className="label">오늘의 스코어 등록</div>
-                            <div className="value">{scoreCount} 건</div>
-                        </div>
-                    </MetricCard>
-                    <MetricCard>
-                        <div className="icon-box" style={{ background: '#fef2f2', color: '#dc2626' }}>
-                            <ShoppingCart size={28} weight="fill" />
-                        </div>
-                        <div className="info">
-                            <div className="label">오늘 생성된 오더</div>
-                            <div className="value">{todayOrderCount} 건</div>
-                        </div>
-                    </MetricCard>
-                    <MetricCard>
-                        <div className="icon-box" style={{ background: '#f0fdf4', color: '#16a34a' }}>
-                            <FilmStrip size={28} weight="fill" />
-                        </div>
-                        <div className="info">
-                            <div className="label">오늘 등록된 영화</div>
-                            <div className="value">{todayMovieCount} 건</div>
-                        </div>
-                    </MetricCard>
-                </SummaryGrid>
-
                 <MainContentGrid>
+                    <SharedCalendar />
                     <SharedMemo />
 
                     <CommonSectionCard height="450px" padding="0">
                         <CommonListHeader
-                            title="최근 생성 오더"
-                            actions={<ArrowRight size={20} cursor="pointer" onClick={() => handleNavClick("/manage/manage_order")} />}
+                            title="전일 스코어 요약"
+                            actions={
+                                <HeaderSelect
+                                    as="input"
+                                    type="date"
+                                    value={summaryDate}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSummaryDate(e.target.value)}
+                                />
+                            }
                         />
                         <div style={{ flex: 1, overflow: 'auto' }}>
-                            <GenericTable 
-                                headers={orderHeaders} 
-                                data={recentOrders} 
-                                getRowKey={(item) => `order-${item.id}`}
-                                hidePagination
-                            />
+                            {dailySummary.length > 0 ? (
+                                <GenericTable
+                                    headers={dailySummaryHeaders}
+                                    data={dailySummary}
+                                    getRowKey={(item: any) => `daily-${item.movie_id}`}
+                                    hidePagination
+                                />
+                            ) : (
+                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '14px' }}>
+                                    해당 일자에 등록된 스코어가 없습니다.
+                                </div>
+                            )}
                         </div>
                     </CommonSectionCard>
 
@@ -391,53 +275,6 @@ export default function Main() {
                         </div>
                     </CommonSectionCard>
 
-                    <CommonSectionCard height="450px" padding="0">
-                        <CommonListHeader
-                            title="🎬 알짜배기 상영관 찾기 (Top 10)"
-                            actions={
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <HeaderSelect
-                                        value={selectedYear}
-                                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                                    >
-                                        {Array.from({ length: 5 }, (_, i) => dayjs().year() - i).map(y => (
-                                            <option key={y} value={y}>{y}년</option>
-                                        ))}
-                                    </HeaderSelect>
-                                    <HeaderSelect
-                                        value={selectedMonth}
-                                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                    >
-                                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}월</option>)}
-                                    </HeaderSelect>
-                                    <HeaderSelect
-                                        value={selectedMovieId}
-                                        onChange={(e) => setSelectedMovieId(e.target.value)}
-                                    >
-                                        {movieOptions.length > 0 ? (
-                                            movieOptions.map(m => <option key={m.id} value={m.id}>{m.title}</option>)
-                                        ) : (
-                                            <option value="">데이터 없음</option>
-                                        )}
-                                    </HeaderSelect>
-                                </div>
-                            }
-                        />
-                        <div style={{ flex: 1, overflow: 'auto' }}>
-                            {topTheaters.length > 0 ? (
-                                <GenericTable
-                                    headers={topTheaterHeaders}
-                                    data={topTheaters}
-                                    getRowKey={(item) => item.id}
-                                    hidePagination
-                                />
-                            ) : (
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '14px' }}>
-                                    {movieOptions.length > 0 ? "데이터가 없습니다." : "해당 월에 상영 데이터가 있는 영화가 없습니다."}
-                                </div>
-                            )}
-                        </div>
-                    </CommonSectionCard>
                 </MainContentGrid>
 
                 <WelcomeText>

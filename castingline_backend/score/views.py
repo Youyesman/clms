@@ -40,6 +40,8 @@ from django.db.models.functions import Cast, Concat, Coalesce
 from datetime import datetime, timedelta
 from movie.models import Movie
 from collections import defaultdict
+from castingline_backend.utils.ordering import REGION_ORDER, region_sort_index
+from order.models import Order, OrderList, recalc_last_screening_dates
 from django.db.models.functions import Trim
 from rest_framework.decorators import action
 
@@ -134,9 +136,12 @@ class ScoreViewSet(viewsets.ModelViewSet):
         created_count = 0
         updated_count = 0
 
-        # 1. 삭제 처리
+        # 1. 삭제 처리 — 삭제된 (영화, 극장) 조합은 뒤에서 마지막 상영일을 다시 계산한다
+        touched = set()
         if delete_ids:
-            Score.objects.filter(id__in=delete_ids).delete()
+            del_qs = Score.objects.filter(id__in=delete_ids)
+            touched.update(del_qs.values_list("movie_id", "client_id"))
+            del_qs.delete()
 
         # 2. 생성/수정 처리
         for item in items:
@@ -158,6 +163,8 @@ class ScoreViewSet(viewsets.ModelViewSet):
                 show_count=show_count,
                 defaults={"visitor": visitor},
             )
+
+            touched.add((movie_id, client_id))
 
             if created:
                 created_count += 1
@@ -188,15 +195,16 @@ class ScoreViewSet(viewsets.ModelViewSet):
                             order.release_date = entry_date
                             order.start_date = entry_date
                             changed = True
-                        if not order.last_screening_date or entry_date > str(order.last_screening_date):
-                            order.last_screening_date = entry_date
-                            changed = True
                         if changed:
                             order.save()
                 except Exception:
                     pass  # Order 생성 실패해도 스코어 저장은 유지
             else:
                 updated_count += 1
+
+        # 3. 마지막 상영일 재산출 — 저장/삭제로 영향받은 (영화, 극장)만
+        if touched:
+            recalc_last_screening_dates(pairs=touched)
 
         return Response({
             "message": f"생성 {created_count}건, 수정 {updated_count}건, 삭제 {len(delete_ids)}건 처리되었습니다.",
@@ -213,7 +221,13 @@ class ScoreViewSet(viewsets.ModelViewSet):
             return Response({"error": "삭제할 데이터 ID가 없습니다."}, status=400)
 
         # queryset.delete()는 데이터베이스 단에서 한 번에 삭제를 수행합니다.
-        deleted_count, _ = Score.objects.filter(id__in=ids).delete()
+        del_qs = Score.objects.filter(id__in=ids)
+        touched = set(del_qs.values_list("movie_id", "client_id"))
+        deleted_count, _ = del_qs.delete()
+
+        # 삭제로 마지막 상영일이 줄어들 수 있으므로 다시 계산한다
+        if touched:
+            recalc_last_screening_dates(pairs=touched)
 
         return Response(
             {"message": f"{deleted_count}건의 데이터가 한 번에 삭제되었습니다."},
@@ -311,18 +325,14 @@ class ScoreViewSet(viewsets.ModelViewSet):
 
         entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d").date()
 
-        # 1. 해당 날짜에 상영 중인 오더(Order) 조회
-        # 개봉일 <= 입회일 <= 마지막상영일(또는 종영일)
-        limit_date = entry_date - timedelta(days=180) 
-
+        # 1. 해당 날짜에 상영 중인 오더(Order) 조회 — 개봉일 <= 입회일 이면서,
+        #    종영일이 지나지 않은 오더.
+        #    종영일을 비워둔 오더는 '아직 상영 중'이라는 뜻이므로 기간 제한 없이 노출한다.
+        #    (예전에는 종영일이 없으면 개봉 후 180일까지만 보여줘서, 장기상영·재상영작이
+        #     오더에 등록돼 있는데도 스코어를 입력할 수 없었다.)
         active_orders = Order.objects.filter(
-            Q(release_date__lte=entry_date) & 
-            (
-                # 1. 종영일이 입력되어 있고, 입회일보다 미래인 경우
-                Q(end_date__gte=entry_date) | 
-                # 2. 혹은 종영일이 없더라도, 개봉한 지 180일이 지나지 않은 경우
-                (Q(end_date__isnull=True) & Q(release_date__gte=limit_date))
-            ),
+            Q(release_date__lte=entry_date) &
+            (Q(end_date__gte=entry_date) | Q(end_date__isnull=True)),
             client__isnull=False,
             movie__isnull=False
         ).select_related('client', 'movie')
@@ -448,6 +458,84 @@ def score_summary(request):
         return score_by_multi(movie_id, request)
     else:
         return score_by_region(movie_id, request)
+
+
+@api_view(["GET"])
+def score_daily_movie_summary(request):
+    """기준일 하루 동안 스코어가 등록된 '모든 영화'의 요약.
+
+    관리자 대시보드의 전일 스코어 요약표(D003)용. 하위영화(포맷)별로 쌓인 스코어를
+    대표영화 단위로 합쳐서 영화 한 줄씩 내려준다.
+    GET /Api/score/daily-movie-summary/?date=YYYY-MM-DD  (미지정 시 어제)
+    """
+    date_str = request.query_params.get("date")
+    if not date_str:
+        date_str = (datetime.now().date() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    qs = (
+        Score.objects
+        .filter(entry_date=date_str, movie__isnull=False, client__isnull=False)
+        .annotate(
+            v_int=Cast("visitor", IntegerField()),
+            f_int=Cast("fare", IntegerField()),
+            screen_key=Concat(Cast("client_id", CharField()),
+                              Value("-"), "auditorium"),
+        )
+        .annotate(
+            row_revenue=ExpressionWrapper(
+                F("v_int") * F("f_int"), output_field=IntegerField())
+        )
+        .values(
+            "movie_id",
+            "movie__title_ko",
+            "movie__is_primary_movie",
+            "movie__primary_movie_code",
+            "movie__distributor__client_name",
+        )
+        .annotate(
+            visitors=Sum("v_int"),
+            revenue=Sum("row_revenue"),
+            theaters=Count("client_id", distinct=True),
+            screens=Count("screen_key", distinct=True),
+            shows=Count("id"),
+        )
+    )
+
+    # 하위영화(포맷) → 대표영화로 묶기
+    primary_codes = {r["movie__primary_movie_code"]
+                     for r in qs if r["movie__primary_movie_code"]}
+    primary_map = {
+        m.movie_code: m
+        for m in Movie.objects.filter(movie_code__in=primary_codes)
+    } if primary_codes else {}
+
+    merged = {}
+    for r in qs:
+        code = r["movie__primary_movie_code"]
+        primary = primary_map.get(code)
+        if primary and not r["movie__is_primary_movie"]:
+            key, title, mid = primary.movie_code, primary.title_ko, primary.id
+        else:
+            key, title, mid = f"m{r['movie_id']}", r["movie__title_ko"], r["movie_id"]
+
+        row = merged.setdefault(key, {
+            "movie_id": mid,
+            "title": title,
+            "distributor": r["movie__distributor__client_name"] or "",
+            "visitors": 0, "revenue": 0, "theaters": 0, "screens": 0, "shows": 0,
+        })
+        for f in ("visitors", "revenue", "theaters", "screens", "shows"):
+            row[f] += r[f] or 0
+
+    rows = sorted(merged.values(), key=lambda x: -x["visitors"])
+    return Response({
+        "date": date_str,
+        "rows": rows,
+        "totals": {
+            f: sum(r[f] for r in rows)
+            for f in ("visitors", "revenue", "theaters", "screens", "shows")
+        },
+    })
 
 
 def apply_common_filters(qs, request):
@@ -1358,7 +1446,7 @@ def score_criteria(request):
 
     # ── 4. 결과 조립 ──
     sorted_keys = sorted(base_data.keys(), key=lambda k: (
-        client_info.get(k[0], {}).get("region", ""),
+        region_sort_index(client_info.get(k[0], {}).get("region", "")),
         client_info.get(k[0], {}).get("multi", ""),
         client_info.get(k[0], {}).get("theater", ""),
         k[1], k[2], k[3],
@@ -1403,7 +1491,8 @@ def score_criteria(request):
 # ============================
 MULTI_ORDER = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3, "기타": 4}
 MULTI_LIST = ["CGV", "롯데", "메가박스", "씨네큐", "기타"]
-REGIONS = ["서울", "경강", "경남", "경북", "충청", "호남"]
+# 정규 지역 목록 겸 표시 순서 (공통 REGION_ORDER 사용)
+REGIONS = list(REGION_ORDER)
 
 
 def _normalize_multi(theater_kind, is_car_theater):
@@ -1982,7 +2071,6 @@ def score_timetable(request):
 
     BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스', 'OTHER': '일반'}
     CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반']
-    REGION_ORDER = ['서울', '경강', '경남', '경북', '충청', '호남']
     SLOT_NAMES = ["조조", "오전", "오후", "저녁", "심야"]
 
     def empty_agg():
@@ -2436,14 +2524,12 @@ def score_settlement_detail(request):
 
     # 정렬: 멀티순 → 직영/위탁 → 지역(부금정산 탭과 동일한 고정 순서) → 극장명
     _MULTI_ORD = {"CGV": 0, "롯데": 1, "메가박스": 2, "씨네큐": 3}
-    _REGION_ORD = ["서울", "경강", "충청", "호남", "경북", "경남"]
 
     def _skey(r):
         m = r["multi"] or ""
         mi = next((v for k, v in _MULTI_ORD.items() if k in m), 99)
         ci = 0 if r["classification"] == "직영" else 1
-        ri = _REGION_ORD.index(r["region"]) if r["region"] in _REGION_ORD else 99
-        return (mi, ci, ri, r["theater"], r["format"])
+        return (mi, ci, region_sort_index(r["region"]), r["theater"], r["format"])
 
     rows.sort(key=_skey)
 
@@ -3395,3 +3481,263 @@ def score_competitor_shows(request):
         },
     })
 
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# KOBIS 상세내역 ↔ CLMS 스코어 대사(검증)
+# ──────────────────────────────────────────────────────────────────────────
+
+def _norm_movie_title(s):
+    """영화명 비교용 정규화 (띄어쓰기 제거 + 소문자)."""
+    return str(s or "").replace(" ", "").strip().lower()
+
+
+def _resolve_kofic_movie(movie_name):
+    """
+    KOBIS 목록의 영화명으로 CLMS 대표영화를 자동 매칭한다.
+    띄어쓰기 표기 차이('그림자 아이' vs '그림자아이')를 흡수한다.
+    반환: (movie | None, candidates)
+    """
+    norm = _norm_movie_title(movie_name)
+    if not norm:
+        return None, []
+
+    primaries = Movie.objects.filter(is_primary_movie=True).order_by("-release_date")
+    exact = [m for m in primaries if _norm_movie_title(m.title_ko) == norm]
+    if len(exact) == 1:
+        return exact[0], exact
+    if exact:
+        return None, exact
+
+    partial = [
+        m
+        for m in primaries
+        if norm in _norm_movie_title(m.title_ko)
+        or _norm_movie_title(m.title_ko) in norm
+    ]
+    return None, partial[:20]
+
+
+def _movie_brief(m):
+    return {
+        "id": m.id,
+        "title_ko": m.title_ko,
+        "release_date": str(m.release_date) if m.release_date else "",
+    }
+
+
+def _fare_to_int(value):
+    """Score.fare(CharField) → int. 콤마/공백/비숫자 방어."""
+    digits = re.sub(r"[^\d-]", "", str(value or ""))
+    try:
+        return int(digits)
+    except ValueError:
+        return 0
+
+
+@api_view(["POST"])
+def verify_kofic_score(request):
+    """
+    영진위(KOBIS 상세내역) 엑셀 ↔ CLMS 등록 스코어 대사 API
+    POST /Api/score/verify-kofic/   (multipart/form-data)
+        file        : 영진위 '회원용통계(영화사별)상세' 엑셀 (필수)
+        movie_id    : CLMS 영화 ID (선택). 없으면 movie_name 으로 자동 매칭
+        movie_name  : KOBIS 목록의 영화명 (선택, movie_id 없을 때 사용)
+
+    비교 규칙
+      - 발권금액 0원(무료 발권) 행 제외 — preview_kofic_format 이 이미 제외한다.
+      - CGV/메가박스/롯데/씨네큐 체인은 엑셀·CLMS 양쪽 모두 제외 (별도 수집기 담당)
+      - 관(스크린)/회차는 무시하고 극장 × 요금 × 날짜 단위 인원수 합계를 비교
+    """
+    file = request.FILES.get("file")
+    if not file:
+        return Response({"error": "파일이 업로드되지 않았습니다."}, status=400)
+
+    movie_id = request.data.get("movie_id") or request.POST.get("movie_id")
+    movie_name = request.data.get("movie_name") or request.POST.get("movie_name")
+
+    movie = None
+    if movie_id:
+        try:
+            movie = Movie.objects.get(id=movie_id)
+        except (Movie.DoesNotExist, ValueError, TypeError):
+            return Response({"error": "선택한 영화를 찾을 수 없습니다."}, status=400)
+    else:
+        movie, candidates = _resolve_kofic_movie(movie_name)
+        if movie is None:
+            return Response(
+                {
+                    "need_movie": True,
+                    "movie_name": movie_name or "",
+                    "candidates": [_movie_brief(m) for m in candidates],
+                    "message": (
+                        f"'{movie_name}' 과(와) 일치하는 CLMS 영화를 자동으로 특정하지 "
+                        "못했습니다. 영화를 직접 선택해 주세요."
+                    ),
+                },
+                status=200,
+            )
+
+    # ── 1) 엑셀 파싱 (0원 제외 + 체인 제외 + 극장/관 매칭까지 기존 파서 재사용) ──
+    parsed = preview_kofic_format(file, movie.id)
+    if "error" in parsed:
+        return Response({"error": parsed["error"]}, status=400)
+    rows = parsed.get("data", [])
+    if not rows:
+        return Response(
+            {
+                "error": "엑셀에서 비교할 일반극장 데이터를 찾지 못했습니다. "
+                         "(0원/체인 제외 후 0행)"
+            },
+            status=400,
+        )
+
+    # ── 2) 엑셀 집계: (client_id, 날짜, 요금) → 인원 ──
+    excel_agg = defaultdict(int)
+    theater_label = {}
+    unmatched = {}
+    all_dates = set()
+    excel_total = 0
+
+    for r in rows:
+        date = r["entry_date"]
+        all_dates.add(date)
+        vis = int(r["visitor"] or 0)
+        excel_total += vis
+        cid = r.get("client_id")
+        if not cid:
+            # CLMS에 매핑되지 않은 극장 — 비교 불가. 별도로 보고한다.
+            key = r.get("client_name") or "(극장명 없음)"
+            bucket = unmatched.setdefault(
+                key, {"theater_name": key, "visitor": 0, "rows": 0, "errors": set()}
+            )
+            bucket["visitor"] += vis
+            bucket["rows"] += 1
+            if r.get("match_error"):
+                bucket["errors"].add(r["match_error"])
+            continue
+        theater_label[cid] = r.get("client_name") or ""
+        excel_agg[(cid, date, int(r["fare"] or 0))] += vis
+
+    date_from, date_to = min(all_dates), max(all_dates)
+
+    # ── 3) CLMS 스코어 집계 (같은 기간/영화, 체인 제외) ──
+    movie_ids = get_movie_ids_for_primary(movie.id) or [movie.id]
+    score_qs = (
+        Score.objects.filter(
+            movie_id__in=movie_ids,
+            entry_date__gte=date_from,
+            entry_date__lte=date_to,
+            client_id__isnull=False,
+        )
+        .exclude(client__theater_kind__in=KOFIC_EXCLUDE_KINDS)
+        .annotate(visitor_int=Cast("visitor", IntegerField()))
+        .values("client_id", "client__client_name", "entry_date", "fare")
+        .annotate(total_visitor=Sum("visitor_int"))
+    )
+
+    clms_agg = defaultdict(int)
+    clms_total = 0
+    for row in score_qs:
+        cid = row["client_id"]
+        date = str(row["entry_date"])
+        fare = _fare_to_int(row["fare"])
+        vis = int(row["total_visitor"] or 0)
+        clms_total += vis
+        theater_label.setdefault(cid, row["client__client_name"] or "")
+        clms_agg[(cid, date, fare)] += vis
+
+    # ── 4) 대사 ──
+    diffs = []
+    theater_stat = {}
+    matched_keys = 0
+
+    for key in set(excel_agg) | set(clms_agg):
+        cid, date, fare = key
+        e_vis = excel_agg.get(key, 0)
+        c_vis = clms_agg.get(key, 0)
+        name = theater_label.get(cid) or f"거래처#{cid}"
+
+        stat = theater_stat.setdefault(
+            cid,
+            {
+                "client_id": cid,
+                "theater_name": name,
+                "excel_visitor": 0,
+                "clms_visitor": 0,
+                "diff_count": 0,
+            },
+        )
+        stat["excel_visitor"] += e_vis
+        stat["clms_visitor"] += c_vis
+
+        if e_vis == c_vis:
+            matched_keys += 1
+            continue
+
+        stat["diff_count"] += 1
+        if c_vis == 0:
+            kind = "only_excel"  # CLMS에 미등록
+        elif e_vis == 0:
+            kind = "only_clms"  # 영진위에 없는데 CLMS에만 있음
+        else:
+            kind = "mismatch"
+        diffs.append(
+            {
+                "client_id": cid,
+                "theater_name": name,
+                "entry_date": date,
+                "fare": fare,
+                "excel_visitor": e_vis,
+                "clms_visitor": c_vis,
+                "diff": e_vis - c_vis,
+                "kind": kind,
+            }
+        )
+
+    diffs.sort(key=lambda d: (d["theater_name"], d["entry_date"], d["fare"]))
+
+    theater_summary = [
+        {**s, "diff": s["excel_visitor"] - s["clms_visitor"]}
+        for s in theater_stat.values()
+        if s["diff_count"]
+    ]
+    theater_summary.sort(key=lambda s: (-abs(s["diff"]), s["theater_name"]))
+
+    unmatched_list = sorted(
+        (
+            {
+                "theater_name": v["theater_name"],
+                "visitor": v["visitor"],
+                "rows": v["rows"],
+                "error": " / ".join(sorted(v["errors"])),
+            }
+            for v in unmatched.values()
+        ),
+        key=lambda v: -v["visitor"],
+    )
+    unmatched_visitor = sum(v["visitor"] for v in unmatched_list)
+
+    return Response(
+        {
+            "movie": _movie_brief(movie),
+            "period": {"start": date_from, "end": date_to},
+            "summary": {
+                "excel_visitor": excel_total,
+                "excel_compared_visitor": excel_total - unmatched_visitor,
+                "clms_visitor": clms_total,
+                "diff_visitor": (excel_total - unmatched_visitor) - clms_total,
+                "compare_keys": matched_keys + len(diffs),
+                "match_keys": matched_keys,
+                "diff_keys": len(diffs),
+                "diff_theaters": len(theater_summary),
+                "unmatched_theaters": len(unmatched_list),
+                "unmatched_visitor": unmatched_visitor,
+                "is_ok": not diffs and not unmatched_list,
+            },
+            "theater_summary": theater_summary,
+            "diffs": diffs,
+            "unmatched": unmatched_list,
+        },
+        status=200,
+    )

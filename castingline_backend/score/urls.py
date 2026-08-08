@@ -40,6 +40,10 @@ urlpatterns = [
     path('score/summary/excel/', score_summary_excel,
          name='score-summary-excel'),
 
+    # 5-1. 대시보드 전일 스코어 요약표 (영화별 한 줄)
+    path('score/daily-movie-summary/', score_daily_movie_summary,
+         name='score-daily-movie-summary'),
+
     # 6. 기준별 현황 API
     path('score/criteria/', score_criteria,
          name='score-criteria'),
@@ -97,4 +101,8 @@ urlpatterns = [
     # 19. 주요작 상영회차수 집계 API
     path('score/competitor/shows/', score_competitor_shows,
          name='score-competitor-shows'),
+
+    # 20. 영진위(KOBIS 상세내역) 엑셀 ↔ CLMS 스코어 대사 API
+    path('score/verify-kofic/', verify_kofic_score,
+         name='score-verify-kofic'),
 ]

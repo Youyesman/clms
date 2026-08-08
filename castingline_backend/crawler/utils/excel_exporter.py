@@ -69,6 +69,10 @@ THIN_BORDER = Border(
 CENTER = Alignment(horizontal='center', vertical='center')
 LEFT = Alignment(horizontal='left', vertical='center')
 
+# 소계·총계 줄은 반드시 '숫자'로 기록한다(텍스트로 쓰면 엑셀 수식/자동합계에서 집계되지 않음)
+NUM_FMT = '#,##0'
+PCT_FMT = '0.0%'
+
 TITLE_FONT = Font(name='맑은 고딕', size=14, bold=True, color="0000FF")
 INFO_FONT = Font(name='맑은 고딕', size=10, color="FF0000")
 HEADER_FONT = Font(name='맑은 고딕', size=10, bold=True)
@@ -274,6 +278,7 @@ def _brand_priority(b):
     if 'CGV' in b: return 1
     if 'LOTTE' in b: return 2
     if 'MEGA' in b: return 3
+    if '일반극장' in b: return 4
     return 99
 
 
@@ -282,10 +287,21 @@ def _brand_display(b):
     if 'CGV' in b: return 'CGV 계'
     if 'LOTTE' in b: return 'LOTTE 계'
     if 'MEGA' in b: return 'MEGA 계'
+    if '일반극장' in b: return '일반극장 계'
     return b
 
 
-BRAND_ORDER = ['CGV', 'LOTTE', 'MEGABOX']
+# 요약·비교 시트에 행으로 표기되는 멀티(계열사) 순서. 일반극장을 빼면 각 시트의
+# 행 합계와 '합' 행이 어긋나므로 반드시 포함한다.
+BRAND_ORDER = ['CGV', 'LOTTE', 'MEGABOX', '일반극장']
+
+# 상영시간표 시트의 멀티별 소계 라벨
+SCHEDULE_SUBTOTAL_LABEL = {
+    'CGV': 'CGV소계',
+    'LOTTE': 'LOTTE소계',
+    'MEGABOX': 'MEGA소계',
+    '일반극장': '일반극장 소계',
+}
 
 
 CINE_DE_CHEF_MAP = {
@@ -377,12 +393,15 @@ def _process_to_rows(schedules, region_map, normal_index=None):
 
         for item in items:
             show_times.append(dj_timezone.localtime(item.start_time).strftime("%H:%M"))
-            t_seat = _safe_int(item.total_seats)
+            raw_seat = _safe_int(item.total_seats)
             r_seat = _safe_int(item.remaining_seats)
-            if t_seat == 0 and total_capacity > 0:
-                t_seat = total_capacity
+            # 좌석 정보가 없는 회차(일반극장/KOBIS 등)는 극장 정원으로 총좌석수만 채우고,
+            # 잔여좌석을 모르므로 판매좌석수는 0으로 둔다. (예전엔 정원 전체가 판매된 것으로
+            # 집계돼 소계·총계의 판매좌석수와 좌판율이 부풀려졌다.)
+            t_seat = raw_seat if raw_seat > 0 else total_capacity
             total_seats_sum += t_seat
-            sold_seats_sum += max(0, t_seat - r_seat)
+            if raw_seat > 0:
+                sold_seats_sum += max(0, t_seat - r_seat)
 
         max_shows = max(max_shows, len(show_times))
 
@@ -412,10 +431,11 @@ def _process_to_rows(schedules, region_map, normal_index=None):
 
 def _calc_summary(rows):
     """Calculate summary statistics from a list of rows."""
-    theaters = set(r['theater'] for r in rows)
+    theaters = set((r['brand'], r['theater']) for r in rows)
     theater_count = len(theaters)
     show_count = sum(r['show_count'] for r in rows)
     screen_count = len(rows)
+    capacity = sum(r['capacity'] for r in rows)
     total_seats = sum(r['total_seats'] for r in rows)
     sold_seats = sum(r['sold_seats'] for r in rows)
 
@@ -427,6 +447,7 @@ def _calc_summary(rows):
         'theater_count': theater_count,
         'show_count': show_count,
         'screen_count': screen_count,
+        'capacity': capacity,
         'total_seats': total_seats,
         'sold_seats': sold_seats,
         'avg_shows': avg_shows,
@@ -435,8 +456,17 @@ def _calc_summary(rows):
     }
 
 
-def _write_subtotal_row(ws, ri, max_col, label, theater_count, show_sum, screen_sum, seats_sum, sold_sum, fill, font):
-    """Write a subtotal or grand total row in the schedule sheet."""
+def _write_subtotal_row(ws, ri, max_col, label, fill, font,
+                        data_rows=None, subtotal_rows=None):
+    """상영시간표 시트의 소계/총계 행.
+
+    값이 아니라 **엑셀 수식**으로 기록한다. 사용자가 시트에서 바로 검산할 수 있고,
+    행을 지우거나 필터를 걸어도 합계가 따라간다. (예전엔 '1,234' 문자열이라
+    엑셀이 텍스트로 취급해 수식·자동합계에서 아예 집계되지 않았다.)
+
+    data_rows     : (시작행, 끝행) — 브랜드 데이터 행 범위 → 소계
+    subtotal_rows : [소계행, ...]  — 소계 행들을 더해 총계
+    """
     # Column indices (1-based): C1=지역(극장수), C2=극장명(label), then stats at end
     stat_start = max_col - 3  # 총회차, 총스크린, 총좌석수, 판매좌석수
 
@@ -447,12 +477,26 @@ def _write_subtotal_row(ws, ri, max_col, label, theater_count, show_sum, screen_
         cell.border = THIN_BORDER
         cell.alignment = CENTER
 
-    ws.cell(row=ri, column=1, value=theater_count)
     ws.cell(row=ri, column=2, value=label)
-    ws.cell(row=ri, column=stat_start, value=_fmt_number(show_sum))
-    ws.cell(row=ri, column=stat_start + 1, value=_fmt_number(screen_sum))
-    ws.cell(row=ri, column=stat_start + 2, value=_fmt_number(seats_sum))
-    ws.cell(row=ri, column=stat_start + 3, value=_fmt_number(sold_sum))
+
+    def _ref(letter):
+        if data_rows:
+            start, end = data_rows
+            return f"{letter}{start}:{letter}{end}"
+        return ",".join(f"{letter}{r}" for r in subtotal_rows)
+
+    # 극장수: 극장명(B) 열은 같은 극장끼리 병합돼 그룹당 한 칸만 값이 남으므로
+    # COUNTA 가 곧 극장 수. 총계 행은 소계들의 합.
+    theater_cell = ws.cell(row=ri, column=1)
+    theater_cell.value = (f"=COUNTA({_ref('B')})" if data_rows
+                          else f"=SUM({_ref('A')})")
+    theater_cell.number_format = NUM_FMT
+
+    for off in range(4):
+        col = stat_start + off
+        cell = ws.cell(row=ri, column=col,
+                       value=f"=SUM({_ref(get_column_letter(col))})")
+        cell.number_format = NUM_FMT
 
 
 def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, gen_info):
@@ -504,15 +548,10 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
 
     # Write data rows grouped by brand, with subtotal after each brand
     ri = 5
-    brand_display_map = {'CGV': 'CGV', 'LOTTE': 'LOTTE', 'MEGABOX': 'MEGA'}
     ordered_brands = [b for b in BRAND_ORDER if b in brand_groups]
     other_brands = [b for b in brand_groups if b not in BRAND_ORDER]
 
-    grand_theaters = set()
-    grand_shows = 0
-    grand_screens = 0
-    grand_seats = 0
-    grand_sold = 0
+    subtotal_row_nums = []  # 총 계 행에서 참조할 소계 행 번호
 
     for brand in ordered_brands + other_brands:
         brand_rows = brand_groups[brand]
@@ -532,6 +571,10 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
                 cell.border = THIN_BORDER
                 cell.alignment = CENTER
                 cell.font = DATA_FONT
+                # 좌석수 / 총회차·총스크린·총좌석수·판매좌석수 → 합계줄과 동일한 숫자 서식
+                if ci == 6 or ci > max_col - 4:
+                    cell.number_format = NUM_FMT
+
 
             # 매핑 안 된 일반극장 행: 지역·극장명 셀을 빨갛게 강조
             if row.get('unmapped'):
@@ -553,33 +596,19 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
                         ws.merge_cells(start_row=merge_b_start, start_column=2, end_row=check_ri - 1, end_column=2)
                     merge_b_start = check_ri
 
-        # Calculate brand subtotal
-        s = _calc_summary(brand_rows)
-        brand_label = brand_display_map.get(brand, brand)
-        if brand in BRAND_ORDER:
-            label = f"{brand_label}소계"
-        else:
-            label = "기타 소계"
-
+        # 브랜드 소계 — 해당 브랜드 데이터 행 범위를 참조하는 수식
+        label = SCHEDULE_SUBTOTAL_LABEL.get(brand, "기타 소계")
         _write_subtotal_row(ws, ri, max_col, label,
-                            s['theater_count'], s['show_count'], s['screen_count'],
-                            s['total_seats'], s['sold_seats'],
-                            PINK_FILL, SUBTOTAL_FONT)
-
-        # Accumulate grand total
-        grand_theaters.update(r['theater'] for r in brand_rows)
-        grand_shows += s['show_count']
-        grand_screens += s['screen_count']
-        grand_seats += s['total_seats']
-        grand_sold += s['sold_seats']
+                            PINK_FILL, SUBTOTAL_FONT,
+                            data_rows=(merge_start, ri - 1))
+        subtotal_row_nums.append(ri)
 
         ri += 1
 
-    # Grand total row (총 계)
+    # 총 계 — 소계 행들을 더한다 (데이터 범위를 다시 합산하면 소계까지 이중 집계됨)
     _write_subtotal_row(ws, ri, max_col, "총 계",
-                        len(grand_theaters), grand_shows, grand_screens,
-                        grand_seats, grand_sold,
-                        TOTAL_BLUE_FILL, WHITE_FONT)
+                        TOTAL_BLUE_FILL, WHITE_FONT,
+                        subtotal_rows=subtotal_row_nums)
 
     ws.sheet_view.showGridLines = False
     _auto_width(ws, min_row=4)
@@ -833,7 +862,7 @@ def _write_format_summary(ws, all_data, gen_info):
 
 
 def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info):
-    """Write 집계작 및 경쟁작 멀티3사 비교 sheet."""
+    """Write 집계작 및 경쟁작 멀티별 비교 sheet."""
     # Movie order: main first, then competitors
     movie_titles = [movie_title] + list(competitor_data_dict.keys())
     cols_per_movie = 4  # 상영관, 회차, 총좌석수, 평균좌판율
@@ -918,19 +947,21 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
                 if brand_rows:
                     s = _calc_summary(brand_rows)
                     vals = [
-                        _fmt_number(s['screen_count']),
-                        _fmt_number(s['show_count']),
-                        _fmt_number(s['total_seats']),
-                        f"{s['avg_sold_rate']}%"
+                        (s['screen_count'], NUM_FMT),
+                        (s['show_count'], NUM_FMT),
+                        (s['total_seats'], NUM_FMT),
+                        (s['sold_seats'] / s['total_seats'] if s['total_seats'] else 0, PCT_FMT),
                     ]
                 else:
-                    vals = ['', '', '', '']
+                    vals = [('', None)] * 4
 
-                for si, v in enumerate(vals):
+                for si, (v, fmt) in enumerate(vals):
                     cell = ws.cell(row=row_idx, column=base_col + si, value=v)
                     cell.border = THIN_BORDER
                     cell.alignment = CENTER
                     cell.font = DATA_FONT
+                    if fmt:
+                        cell.number_format = fmt
 
             row_idx += 1
 
@@ -950,21 +981,24 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
 
             if m_rows:
                 s = _calc_summary(m_rows)
+                # 단위(상영관/회/석)는 표시서식으로 붙인다 — 값 자체는 숫자여야 수식이 먹는다
                 vals = [
-                    f"{_fmt_number(s['screen_count'])} 상영관",
-                    f"{_fmt_number(s['show_count'])} 회",
-                    f"{_fmt_number(s['total_seats'])} 석",
-                    f"{s['avg_sold_rate']}%"
+                    (s['screen_count'], '#,##0" 상영관"'),
+                    (s['show_count'], '#,##0" 회"'),
+                    (s['total_seats'], '#,##0" 석"'),
+                    (s['sold_seats'] / s['total_seats'] if s['total_seats'] else 0, PCT_FMT),
                 ]
             else:
-                vals = ['', '', '', '']
+                vals = [('', None)] * 4
 
-            for si, v in enumerate(vals):
+            for si, (v, fmt) in enumerate(vals):
                 cell = ws.cell(row=row_idx, column=base_col + si, value=v)
                 cell.border = THIN_BORDER
                 cell.alignment = CENTER
                 cell.fill = YELLOW_LIGHT
                 cell.font = BOLD_FONT
+                if fmt:
+                    cell.number_format = fmt
 
         # Merge date column
         if row_idx > date_start_row:
@@ -1066,15 +1100,16 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         first = next(iter(mv.values()), None)
         return first[0].get('brand', '') if first else ''
 
-    BRAND_TOTAL_LABEL = {
-        'CGV': 'CGV 총계',
-        'LOTTE': '롯데 총계',
-        'MEGABOX': '메가박스 총계',
-        '일반극장': '일반극장 총계',
+    BRAND_SUBTOTAL_LABEL = {
+        'CGV': 'CGV 소계',
+        'LOTTE': '롯데 소계',
+        'MEGABOX': '메가박스 소계',
+        '일반극장': '일반극장 소계',
     }
 
     def _new_agg():
-        return {mt: {'screens': 0, 'shows': 0, 'total': 0, 'sold': 0} for mt in movie_titles}
+        return {mt: {'screens': 0, 'shows': 0, 'capacity': 0, 'total': 0, 'sold': 0}
+                for mt in movie_titles}
 
     def _accumulate(agg, movie_rows):
         for mt in movie_titles:
@@ -1082,46 +1117,55 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                 a = agg[mt]
                 a['screens'] += 1
                 a['shows'] += r['show_count']
+                a['capacity'] += r['capacity']
                 a['total'] += r['total_seats']
                 a['sold'] += r['sold_seats']
 
-    def _write_total_row(rr, label, agg, fill, font):
+    def _write_total_row(rr, label, agg, fill, font, date_str=None):
         for ci in range(1, total_cols + 1):
             cell = ws.cell(row=rr, column=ci)
             cell.border = THIN_BORDER
             cell.alignment = CENTER
             cell.fill = fill
             cell.font = font
+        if date_str:
+            ws.cell(row=rr, column=1, value=date_str)
         ws.cell(row=rr, column=2, value=label)
         for mi, mt in enumerate(movie_titles):
             base_col = fixed_cols + 1 + mi * cols_per_movie
             a = agg[mt]
             if a['screens'] == 0:
                 continue
-            rate = round(a['sold'] / a['total'] * 100, 1) if a['total'] > 0 else 0
-            # 상영관, 회차, 좌석수(공란), 총좌석수, 판매좌석수, 판매좌석율
-            vals = [a['screens'], a['shows'], '', a['total'], a['sold'], f"{rate}%"]
+            # 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
+            vals = [a['screens'], a['shows'], a['capacity'], a['total'], a['sold']]
             for si, v in enumerate(vals):
-                ws.cell(row=rr, column=base_col + si, value=v)
+                cell = ws.cell(row=rr, column=base_col + si, value=int(v))
+                cell.number_format = NUM_FMT
+            rate_cell = ws.cell(row=rr, column=base_col + 5,
+                                value=(a['sold'] / a['total']) if a['total'] > 0 else 0)
+            rate_cell.number_format = PCT_FMT
 
     # Write data rows (with per-brand subtotals and a grand total)
     row_idx = 5
     grand_agg = _new_agg()
     brand_agg = None
-    current_brand = None
+    current_group = None  # (날짜, 브랜드) — 날짜가 바뀌면 같은 브랜드라도 소계를 끊는다
 
     for key in sorted_keys:
         (proc_date, theater) = key
         kb = _key_brand(key)
+        group = (proc_date, kb)
 
-        if current_brand is None:
-            current_brand = kb
+        if current_group is None:
+            current_group = group
             brand_agg = _new_agg()
-        elif kb != current_brand:
-            _write_total_row(row_idx, BRAND_TOTAL_LABEL.get(current_brand, f"{current_brand} 총계"),
-                             brand_agg, PINK_FILL, BOLD_FONT)
+        elif group != current_group:
+            g_date, g_brand = current_group
+            _write_total_row(row_idx, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
+                             brand_agg, PINK_FILL, BOLD_FONT,
+                             date_str=g_date.strftime("%Y-%m-%d"))
             row_idx += 1
-            current_brand = kb
+            current_group = group
             brand_agg = _new_agg()
 
         movie_rows = theater_movie_index[key]
@@ -1149,7 +1193,7 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
 
                 if screen_idx < len(m_rows):
                     r = m_rows[screen_idx]
-                    sold_rate = round(r['sold_seats'] / r['total_seats'] * 100, 1) if r['total_seats'] > 0 else 0
+                    sold_rate = (r['sold_seats'] / r['total_seats']) if r['total_seats'] > 0 else 0
                     vals = [
                         r['screen'],
                         r['show_count'],
@@ -1166,17 +1210,24 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                     cell.border = THIN_BORDER
                     cell.alignment = CENTER
                     cell.font = DATA_FONT
+                    # 합계줄과 동일한 숫자/백분율 서식 (si 0=상영관명은 문자)
+                    if si in (1, 2, 3, 4) and isinstance(v, (int, float)):
+                        cell.number_format = NUM_FMT
+                    elif si == 5 and isinstance(v, (int, float)):
+                        cell.number_format = PCT_FMT
 
             row_idx += 1
 
-    # flush 마지막 브랜드 소계
-    if current_brand is not None:
-        _write_total_row(row_idx, BRAND_TOTAL_LABEL.get(current_brand, f"{current_brand} 총계"),
-                         brand_agg, PINK_FILL, BOLD_FONT)
+    # flush 마지막 (날짜, 브랜드) 소계
+    if current_group is not None:
+        g_date, g_brand = current_group
+        _write_total_row(row_idx, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
+                         brand_agg, PINK_FILL, BOLD_FONT,
+                         date_str=g_date.strftime("%Y-%m-%d"))
         row_idx += 1
 
-    # 최하단: 모든 극장 총계
-    _write_total_row(row_idx, "모든극장 총계", grand_agg, TOTAL_BLUE_FILL, WHITE_FONT)
+    # 최하단: 전체 총계
+    _write_total_row(row_idx, "총 계", grand_agg, TOTAL_BLUE_FILL, WHITE_FONT)
     row_idx += 1
 
     ws.sheet_view.showGridLines = False
@@ -1192,7 +1243,7 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     2. 계열사별 (brand summary)
     3. 지역별 (region summary)
     4. 포맷별 요약표 (format summary)
-    5. 집계작 및 경쟁작 멀티3사 비교 (comparison)
+    5. 집계작 및 경쟁작 멀티별 비교 (comparison)
     6. 경쟁작 (competitor detail)
     """
     if not queryset.exists():
@@ -1238,6 +1289,15 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
                     comp_data[d] = rows
             if comp_data:
                 competitor_all_data[comp_title] = comp_data
+
+        # 경쟁작은 '크롤 대상 영화' 등록 순이 아니라 총좌석수가 많은 순으로 나열한다.
+        # (집계작은 비교 기준이므로 항상 맨 앞 고정)
+        def _total_seats(comp_data):
+            return sum(r['total_seats'] for rows in comp_data.values() for r in rows)
+
+        competitor_all_data = dict(
+            sorted(competitor_all_data.items(), key=lambda kv: -_total_seats(kv[1]))
+        )
 
     # ========== File Setup ==========
     save_dir = os.path.join(settings.BASE_DIR, 'media', 'crawler_exports')
@@ -1285,9 +1345,9 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     ws = wb.create_sheet("지역별")
     _write_region_summary(ws, all_data)
 
-    # 4. 집계작 및 경쟁작 멀티3사 비교
+    # 4. 집계작 및 경쟁작 멀티별 비교
     if competitor_all_data:
-        ws = wb.create_sheet("집계작 및 경쟁작 멀티3사 비교")
+        ws = wb.create_sheet("집계작 및 경쟁작 멀티별 비교")
         _write_comparison_sheet(ws, all_data, competitor_all_data, movie_title, gen_info)
 
     # 5. 경쟁작

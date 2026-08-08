@@ -7,7 +7,7 @@ from django.db.models.functions import Replace, Lower
 from .models import Score, Movie, Client
 from client.models import Theater
 from collections import Counter
-from order.models import OrderList, Order
+from order.models import OrderList, Order, recalc_last_screening_dates
 from datetime import datetime, date
 
 
@@ -485,7 +485,9 @@ def preview_kofic_format(file, movie_id):
 
                 raw_aud = str(row.iloc[3]).strip()
                 entry_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
-                fare = int(pd.to_numeric(row.iloc[5], errors="coerce") or 0)
+                # 빈 셀은 NaN 으로 읽히므로 0 으로 떨어뜨린다 (NaN은 truthy 라 or 0 로는 못 거름)
+                fare_val = pd.to_numeric(row.iloc[5], errors="coerce")
+                fare = 0 if pd.isna(fare_val) else int(fare_val)
 
                 # 발권금액 0원(무료 발권) 행은 관객수 집계에서 제외
                 if fare == 0:
@@ -502,7 +504,8 @@ def preview_kofic_format(file, movie_id):
                     if vis_col >= len(row):
                         break
                     vis = pd.to_numeric(row.iloc[vis_col], errors="coerce")
-                    if not vis or vis == 0:
+                    # 빈 셀(NaN)/0 은 건너뛴다. NaN은 truthy 이므로 반드시 isna 로 먼저 판별.
+                    if pd.isna(vis) or vis == 0:
                         continue
 
                     match_errs = []
@@ -1318,6 +1321,12 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
 
         # 부율 미등록 (영화×극장) 조합에 국가별 기준 부율 자동 생성
         rate_result = auto_create_rates(valid_data, parse_date)
+
+        # 재업로드로 기존 스코어를 지웠다 다시 넣었으므로, 마지막 상영일을
+        # 실제 남아있는 스코어 기준으로 다시 계산한다(줄어드는 경우까지 반영).
+        touched_movies = {m for (m, _d) in replace_scope.keys()}
+        if touched_movies:
+            recalc_last_screening_dates(movie_ids=touched_movies)
 
     return {
         "saved": len(scores_to_save),

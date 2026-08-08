@@ -84,8 +84,10 @@ class ExcelGenerator:
             # 한글/숫자 폰트 크기를 고려해 여유공간(+3) 추가
             self.ws.column_dimensions[column].width = max_length + 3
 
-    def to_response(self, filename):
-        self.auto_fit_columns()
+    def to_response(self, filename, auto_fit=True):
+        # auto_fit=False: 호출부에서 열 너비를 직접 지정한 경우 덮어쓰지 않는다
+        if auto_fit:
+            self.auto_fit_columns()
         response = HttpResponse(
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )

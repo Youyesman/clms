@@ -41,6 +41,7 @@ export function OrderDetail({
     selectedOrderDetail,
     setSelectedOrderDetail,
     handleSelectOrderDetail,
+    kobisLinked = "",
 }) {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
@@ -86,6 +87,9 @@ export function OrderDetail({
             if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
         }
 
+        // 오더 목록 상단에서 고른 KOBIS 연동 여부 필터
+        if (kobisLinked) params.append("kobis_linked", kobisLinked);
+
         params.append("ordering", ordering);
         params.append("page", String(currentPage));
         params.append("page_size", String(pageSize));
@@ -96,7 +100,7 @@ export function OrderDetail({
                 setTotalCount(res.data.count);
             })
             .catch((error) => toast.error(handleBackendErrors(error)));
-    }, [selectedOrderList?.id, filterStartDate, searchClient.theater?.id, isFilterMode, sortKey, sortOrder]);
+    }, [selectedOrderList?.id, filterStartDate, searchClient.theater?.id, isFilterMode, sortKey, sortOrder, kobisLinked]);
 
     /** ✅ 2. 검색 버튼 클릭 핸들러 **/
     const onClickSearch = () => {
@@ -120,13 +124,15 @@ export function OrderDetail({
                 page: "1",
                 page_size: String(pageSize),
             });
+            if (kobisLinked) params.append("kobis_linked", kobisLinked);
             AxiosGet(`order/?${params.toString()}`)
                 .then((res) => {
                     setOrderDetail(res.data.results);
                     setTotalCount(res.data.count);
                 });
         }
-    }, [selectedOrderList?.id]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedOrderList?.id, kobisLinked]);
     const handlePageChange = (newPage: number) => {
         if (newPage < 1 || newPage > Math.ceil(totalCount / pageSize)) return;
         setPage(newPage);
@@ -230,7 +236,21 @@ export function OrderDetail({
     const headers = [
         { key: "format", label: "포맷" },
         { key: "movie", label: "영화" },
-        { key: "client", label: "극장명" },
+        {
+            key: "client",
+            label: "극장명",
+            // KOBIS 상세내역에 스코어가 넘어오지 않는 극장은 눈에 띄게 표시
+            renderCell: (value: any) => (
+                <span>
+                    {value?.client_name ?? ""}
+                    {value && value.kobis_linked === false && (
+                        <span style={{ color: "#dc2626", fontWeight: 700, marginLeft: "6px" }}>
+                            (KOBIS 미연동 극장)
+                        </span>
+                    )}
+                </span>
+            ),
+        },
         { key: "release_date", label: "개봉일", editable: true },
         { key: "end_date", label: "종영일", editable: true }, // 업데이트될 대상
         {

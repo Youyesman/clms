@@ -9,7 +9,7 @@ from rest_framework import filters
 from rest_framework.permissions import AllowAny
 from django.db.models import F, Sum, Count, Case, When, IntegerField, Value
 from django.db.models.functions import Cast, Coalesce
-from datetime import datetime
+from datetime import datetime, date
 from rest_framework.views import APIView
 from django.http import JsonResponse
 from difflib import get_close_matches
@@ -549,6 +549,19 @@ class TheaterMapExcelExportView(APIView):
         
         # DB 정렬 대신 Python 정렬 사용 (특수문자 -> 한글 -> 영어)
         maps_list = list(queryset)
+
+        # 최신본만 받기 (?latest=true) — 같은 (배급사, 극장)의 변경 이력 중 적용일이
+        # 가장 늦은 한 줄만 남긴다. 기본은 기존처럼 전체 이력을 그대로 출력.
+        latest_only = str(request.query_params.get("latest", "")).lower() in ("1", "true", "yes")
+        if latest_only:
+            newest = {}
+            for m in maps_list:
+                key = (m.distributor_id, m.theater_id)
+                cur = newest.get(key)
+                if cur is None or (m.apply_date or date.min) > (cur.apply_date or date.min):
+                    newest[key] = m
+            maps_list = list(newest.values())
+
         import re
         def map_sort_key(m):
             name = m.t_name or ""
@@ -579,7 +592,8 @@ class TheaterMapExcelExportView(APIView):
         excel.add_rows(data_rows)
 
         # 6. 응답 반환
-        filename = f"TheaterMap_Export_{datetime.now().strftime('%Y%m%d')}"
+        suffix = "Latest" if latest_only else "All"
+        filename = f"TheaterMap_Export_{suffix}_{datetime.now().strftime('%Y%m%d')}"
         return excel.to_response(filename)
 
 # ── 부금처 목록 관리 ──

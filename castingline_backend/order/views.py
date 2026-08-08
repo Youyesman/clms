@@ -4,7 +4,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
-from django.db.models import F
+from django.db.models import F, Q
 from django.db.models.functions import Coalesce
 from datetime import datetime
 from castingline_backend.utils.ordering import KoreanOrderingFilter
@@ -19,6 +19,31 @@ class DefaultPagination(PageNumberPagination):
     page_size = 20  # 한 페이지에 보여질 항목 수 설정
     page_size_query_param = "page_size"
     max_page_size = 100  # 최대 몇개 항목까지 보여줄건지?
+
+
+def movie_scope_q(movie_id, prefix="movie"):
+    """영화 필터 Q 객체. 대표영화를 고르면 하위 포맷 영화까지 함께 조회한다.
+
+    오더/스코어는 하위영화(포맷) 단위로 생성되므로 대표영화 id 하나로만 걸면
+    결과가 비어 버린다. 예: <눈동자> 선택 → <눈동자(디지털 2D)>, <눈동자(ATMOS Dolby)> 포함.
+    """
+    from movie.models import Movie
+
+    try:
+        movie = Movie.objects.only(
+            'id', 'movie_code', 'is_primary_movie').get(pk=movie_id)
+    except (Movie.DoesNotExist, ValueError, TypeError):
+        return Q(**{f"{prefix}_id": movie_id})
+
+    if not movie.is_primary_movie or not movie.movie_code:
+        return Q(**{f"{prefix}_id": movie.id})
+
+    sub_ids = list(
+        Movie.objects.filter(primary_movie_code=movie.movie_code)
+        .exclude(pk=movie.pk)
+        .values_list('id', flat=True)
+    )
+    return Q(**{f"{prefix}_id__in": [movie.id] + sub_ids})
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -49,11 +74,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         filter_start_date = self.request.query_params.get("start_date")  # 기준일자
         filter_client_id = self.request.query_params.get("client_id")  # 극장 ID
 
-        # 3. 기존 로직: OrderList ID가 있으면 해당 영화의 오더들만 1차 필터링
+        # 3. OrderList ID가 있으면 해당 영화의 오더들만 1차 필터링.
+        #    대표영화(포맷 없는 상위 영화)를 고르면 하위 포맷 오더까지 모두 보여준다.
+        #    예: <눈동자> 선택 → <눈동자(디지털 2D)>·<눈동자(ATMOS Dolby)> 상세 내역 전부
         if ol_id:
             try:
                 base_order = OrderList.objects.get(id=ol_id)
-                queryset = queryset.filter(movie=base_order.movie)
+                queryset = queryset.filter(movie_scope_q(base_order.movie_id))
             except OrderList.DoesNotExist:
                 return queryset.none()
 
@@ -68,6 +95,12 @@ class OrderViewSet(viewsets.ModelViewSet):
         # 5. ✅ 추가 로직: 특정 극장 필터링 (client_id)
         if filter_client_id:
             queryset = queryset.filter(client_id=filter_client_id)
+
+        # 6. KOBIS 연동 여부 필터 (?kobis_linked=true|false)
+        #    영진위 상세내역에 스코어가 넘어오지 않는 극장만 따로 보기 위한 필터
+        kobis_linked = self.request.query_params.get("kobis_linked")
+        if kobis_linked in ("true", "false"):
+            queryset = queryset.filter(client__kobis_linked=(kobis_linked == "true"))
 
         return queryset
 
@@ -198,9 +231,11 @@ class OrderListViewSet(viewsets.ModelViewSet):
 
         # 2. 특정 영화 필터 (?movie_id=123)
         # 프론트엔드 AutocompleteMovie에서 선택된 ID가 넘어올 때 처리
+        # 대표영화(포맷 없는 상위 영화)를 고르면 그 하위 포맷 오더까지 모두 조회한다.
+        # (오더는 하위영화 단위로 생성되므로 대표영화 id로만 걸면 아무것도 안 나온다.)
         movie_id = self.request.query_params.get("movie_id")
         if movie_id:
-            queryset = queryset.filter(movie_id=movie_id)
+            queryset = queryset.filter(movie_scope_q(movie_id, prefix="movie"))
 
         # 3. 생성일자 필터 (?created_date_at=2026-01-23)
         created_date_at = self.request.query_params.get("created_date_at")

@@ -12,6 +12,7 @@ import { Plus, Trash, PencilSimpleLine } from "@phosphor-icons/react";
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { CustomInput } from "../../../components/common/CustomInput";
+import { CustomSelect } from "../../../components/common/CustomSelect";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { AutocompleteInputMovie } from "../../../components/common/AutocompleteInputMovie";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
@@ -71,7 +72,7 @@ const RemarkSection = styled.div`
 `;
 
 /** 2. 메인 컴포넌트 **/
-export function OrderList({ orderList, setOrderList, selectedOrderList, setSelectedOrderList, handleSelectOrderList }) {
+export function OrderList({ orderList, setOrderList, selectedOrderList, setSelectedOrderList, handleSelectOrderList, kobisLinked = "", setKobisLinked = (_v: string) => { } }) {
     const toast = useToast();
     const { openModal, closeModal } = useGlobalModal();
     const [filterYear, setFilterYear] = useState("");
@@ -218,6 +219,16 @@ export function OrderList({ orderList, setOrderList, selectedOrderList, setSelec
                     setFormData={setSearchMovie}
                     inputValue={movieInputValue}
                     setInputValue={setMovieInputValue}
+                />
+                <CustomSelect
+                    label="KOBIS 연동 여부"
+                    value={kobisLinked}
+                    onChange={(v: string) => setKobisLinked(v)}
+                    options={[
+                        { label: "전체", value: "" },
+                        { label: "연동 극장만", value: "true" },
+                        { label: "미연동 극장만", value: "false" },
+                    ]}
                 />
             </CommonFilterBar>
 

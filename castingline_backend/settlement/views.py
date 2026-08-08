@@ -1,5 +1,6 @@
 import calendar
 import os
+import re
 import openpyxl
 from django.conf import settings
 from decimal import Decimal, ROUND_HALF_UP
@@ -11,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from openpyxl.styles import Font, PatternFill, Alignment  # ✅ 스타일 관련 임포트
+from openpyxl.utils import get_column_letter
 
 # 모델 및 유틸 임포트
 from score.models import Score
@@ -19,6 +21,7 @@ from rate.models import Rate, TheaterRate, DefaultRate
 from client.models import Client, Theater
 from movie.models import Movie
 from castingline_backend.utils.excel_helper import ExcelGenerator
+from castingline_backend.utils.ordering import region_sort_index
 
 # 1. 정산용 영화 목록 조회
 
@@ -484,7 +487,6 @@ class SettlementListView(APIView):
 
     def sort_and_add_subtotals(self, items):
         brand_order = ["CGV", "롯데", "메가", "씨네큐"]
-        region_order = ["서울", "경강", "충청", "호남", "경북", "경남"]
 
         def get_sort_key(x):
             brand_idx = 99
@@ -493,9 +495,7 @@ class SettlementListView(APIView):
                     brand_idx = i
                     break
             class_idx = 0 if x["classification"] == "직영" else 1
-            region_idx = region_order.index(
-                x["지역"]) if x["지역"] in region_order else 99
-            return (brand_idx, class_idx, region_idx, x["극장명"])
+            return (brand_idx, class_idx, region_sort_index(x["지역"]), x["극장명"])
 
         items.sort(key=get_sort_key)
         if not items:
@@ -543,7 +543,9 @@ class SettlementListView(APIView):
     def make_subtotal_row(self, section_key, sums):
         brand, clss = section_key
         return {
-            "is_subtotal": True, "극장명": f"[{brand} {clss}] 합계",
+            # 엑셀 양식에서는 합계 라벨을 지역/멀티/구분 칸에 나눠 넣으므로 원본 값도 함께 보관
+            "is_subtotal": True, "subtotal_brand": brand, "subtotal_class": clss,
+            "극장명": f"[{brand} {clss}] 합계",
             "인원": sums["인원"], "금액(입장료)": sums["금액(입장료)"],
             "기금제외금액": sums["기금제외금액"], "부가세제외금액": sums["부가세제외금액"],
             "공급가액": sums["공급가액"], "부가세": sums["부가세"], "영화사 지급금": sums["영화사 지급금"],
@@ -840,7 +842,12 @@ class SettlementCompareView(SettlementListView):
         import re as _re
 
         from settlement.compare import (FILE_THEATER_MERGE, FORMAT_SPLIT_CHAINS,
-                                        format_bucket, norm_date)
+                                        FUND_EXEMPT_SUFFIX, format_bucket, norm_date)
+
+        # 발전기금면제관을 본관과 따로 대사해야 하는 극장(메가박스 코엑스)은
+        # 정규화 키에 접미사를 남긴다. 그 외 극장은 기존처럼 본관에 합산. (F001)
+        def nt(name):
+            return norm_theater(name, keep_fund_exempt=True)
 
         def _fmt_split(chain, cls):
             return chain in FORMAT_SPLIT_CHAINS and cls == "직영"
@@ -856,10 +863,12 @@ class SettlementCompareView(SettlementListView):
             row_chain = row.get("멀티구분") or ""
             cls = row.get("classification") or ""
             fmt = format_bucket(row.get("상영타입"), row_chain) if _fmt_split(row_chain, cls) else ""
-            key = (row_chain, cls, norm_theater(row["극장명"]), fmt)
+            key = (row_chain, cls, nt(row["극장명"]), fmt)
             agg = sys_by_theater.setdefault(key, {
-                # 발전기금면제관 별도 거래처는 본 극장에 합산되므로 표시명에서 접미사 제거
-                "name": row["극장명"].replace("(발전기금면제관)", ""),
+                # 본관에 합산되는 면제관은 표시명에서 접미사를 떼고,
+                # 따로 대사하는 극장(코엑스)은 어느 쪽인지 보이도록 그대로 둔다
+                "name": (row["극장명"] if key[2].endswith(FUND_EXEMPT_SUFFIX)
+                         else row["극장명"].replace(FUND_EXEMPT_SUFFIX, "")),
                 "chain": row_chain, "cls": cls, "format": fmt, "client_code": row.get("거래처코드"),
                 "인원": 0, "공급가액": 0, "부가세": 0,
                 "영화사 지급금": 0, "missing_rate": False, "date_to": "",
@@ -891,13 +900,13 @@ class SettlementCompareView(SettlementListView):
                 # PDF(AI): 매칭된 거래처 기준 키 — 시스템측 키와 그대로 일치.
                 # 미매칭(cls None)은 파일에만 있는 행으로 남는다.
                 if row.get("client") is not None:
-                    ch, cls, norm = row["chain"], row["cls"], norm_theater(row["client_name"])
+                    ch, cls, norm = row["chain"], row["cls"], nt(row["client_name"])
                 else:
-                    ch, cls, norm = row["chain"], None, norm_theater(row["theater"])
+                    ch, cls, norm = row["chain"], None, nt(row["theater"])
                 fmt = ""
             else:
                 ch = row["chain"]
-                norm = norm_theater(row["theater"])
+                norm = nt(row["theater"])
                 norm = FILE_THEATER_MERGE.get(norm, norm)
                 cls_set = sys_theater_cls.get((ch, norm), set())
                 cls = next((c for c in ("직영", "위탁", "기타") if c in cls_set), "직영")
@@ -956,7 +965,7 @@ class SettlementCompareView(SettlementListView):
                 yyyymm=yyyy_mm, movie=primary_movie).select_related("client"):
             chain_k = adj.client.theater_kind or ""
             cls_k = adj.client.classification or ""
-            name_k = norm_theater(adj.client.client_name)
+            name_k = nt(adj.client.client_name)
             theater_keys = [k for k in sys_by_theater
                             if k[0] == chain_k and k[1] == cls_k and k[2] == name_k]
             if not theater_keys:
@@ -1120,9 +1129,13 @@ class SettlementCompareView(SettlementListView):
         skip_keys = set()  # 부율 미설정 스코어가 있는 극장은 재계산하지 않음(기존 값 유지)
         from settlement.compare import format_bucket
 
+        # 대사 키와 동일하게 발전기금면제관 분리 극장은 접미사를 유지 (F001)
+        def nt(name):
+            return norm_theater(name, keep_fund_exempt=True)
+
         for s in scores:
             # 포맷 버킷: 스코어의 하위영화(상영타입) 기준 — 파일의 상영종류 컬럼과 대응
-            key = ("메가박스", "직영", norm_theater(s.client.client_name),
+            key = ("메가박스", "직영", nt(s.client.client_name),
                    format_bucket(self._get_screening_type(s.movie), "메가박스"))
             n = int(s.visitor or 0)
             daily_visitors[s.entry_date] = daily_visitors.get(s.entry_date, 0) + n
@@ -1151,7 +1164,7 @@ class SettlementCompareView(SettlementListView):
         for r in mega_file_rows:
             if not r.get("fare"):
                 continue
-            k = ("메가박스", "직영", norm_theater(r["theater"]),
+            k = ("메가박스", "직영", nt(r["theater"]),
                  format_bucket(r.get("screen_kind"), "메가박스"))
             file_fare_ns.setdefault((k, int(r["fare"]), int(r.get("danga") or 0)),
                                     []).append(int(r["visitors"]))
@@ -1462,6 +1475,10 @@ class SettlementConfirmView(APIView):
 # 3. 월간 부금 정산 엑셀 출력 (SettlementListView 상속)
 
 
+# 부금정산 엑셀 합계 행의 멀티 표기 (내부 정렬키는 '메가', 양식 표기는 '메가박스')
+EXCEL_BRAND_LABEL = {"메가": "메가박스"}
+
+
 class SettlementExcelExportView(SettlementListView):
     def get(self, request):
         yyyy_mm = request.query_params.get("yyyyMm")
@@ -1516,7 +1533,7 @@ class SettlementExcelExportView(SettlementListView):
         sheet_name = movie_title[:31]
         excel = ExcelGenerator(sheet_name=sheet_name)
         header_labels = [
-            "지역", "멀티", "구분", "거래처코드(바이포엠만 해당)", "극장명",
+            "지역", "멀티", "구분", "거래처코드", "극장명",
             "사업자 등록번호", "종사업장번호", "공급받는자 상호", "공급받는자 성명",
             "사업장 소재", "업태", "업종", "수신자이메일", "수신자 전화번호",
             "날짜(From)", "날짜(To)", "상영타입", "인원", "금액(입장료)",
@@ -1527,8 +1544,20 @@ class SettlementExcelExportView(SettlementListView):
         # 틀 고정: 극장명(5번째 열) 이후 고정 → F2
         excel.ws.freeze_panes = "F2"
 
+        def _as_date(value):
+            """'YYYY-MM-DD' 문자열을 실제 날짜 값으로. 엑셀에서 MAX/IF 등 함수가 먹으려면
+            텍스트가 아니라 날짜(숫자)로 들어가야 한다.
+            빈 값은 빈 문자열이 아니라 None — 빈 문자열은 '텍스트 셀'이라 날짜 열이 섞인다."""
+            if not value:
+                return None
+            try:
+                return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return value
+
+        ws = excel.ws
         data_rows = []
-        subtotal_row_indices = []  # 합계 행 위치 추적 (1-based, 헤더 제외)
+        subtotal_marks = []  # (data_rows 인덱스, 멀티, 구분)
 
         for item in items:
             row = [
@@ -1538,33 +1567,103 @@ class SettlementExcelExportView(SettlementListView):
                 item.get("공급받는자 상호", ""), item.get("공급받는자 성명", ""),
                 item.get("사업장 소재", ""), item.get("업태", ""), item.get("업종", ""),
                 item.get("수신자이메일", ""), item.get("수신자 전화번호", ""),
-                item.get("날짜(From)", ""), item.get("날짜(To)", ""),
+                _as_date(item.get("날짜(From)")), _as_date(item.get("날짜(To)")),
                 item.get("상영타입", "") or "-",
                 item.get("인원", 0), item.get("금액(입장료)", 0),
                 item.get("기금제외금액", 0), item.get("부가세제외금액", 0), item.get("부율", 0),
                 item.get("공급가액", 0), item.get("부가세", 0), item.get("영화사 지급금", 0),
             ]
             if item.get("is_subtotal"):
-                subtotal_row_indices.append(len(data_rows))
+                # 합계 라벨은 지역/멀티/구분 칸으로 (양식 기준). 극장명 칸은 비운다.
+                brand = item.get("subtotal_brand", "")
+                row[0], row[1], row[2], row[4] = (
+                    "합계", EXCEL_BRAND_LABEL.get(brand, brand),
+                    item.get("subtotal_class", ""), "")
+                subtotal_marks.append(len(data_rows))
             data_rows.append(row)
 
         excel.add_rows(data_rows)
 
-        # 지역~종사업장번호(A~G열)는 가운데 정렬
-        for row_cells in excel.ws.iter_rows(min_row=2, min_col=1, max_col=7):
-            for cell in row_cells:
+        # ── 양식(E002) 서식 적용 ───────────────────────────────────────────
+        SUM_COLS = [18, 19, 20, 21, 23, 24, 25]  # 인원·금액·기금제외·부가세제외·공급가액·부가세·지급금 (부율 제외)
+        DATE_COLS = [15, 16]  # O=날짜(From), P=날짜(To)
+        BODY_FONT = Font(name="맑은 고딕", size=9, color="FF000000")
+        BOLD_FONT = Font(name="맑은 고딕", size=9, bold=True, color="FF000000")
+        HEAD_FONT = Font(name="맑은 고딕", size=9, bold=True, color="FFFFFFFF")
+        HEAD_FILL = PatternFill("solid", start_color="FF000000", end_color="FF000000")
+        SUB_FILL = PatternFill("solid", start_color="FFF1F5F9", end_color="FFF1F5F9")
+        TOTAL_FILL = PatternFill("solid", start_color="FFD9AAD4", end_color="FFD9AAD4")
+        WIDTHS = {
+            'A': 4.5, 'B': 7.5, 'C': 4.5, 'D': 9.0, 'E': 29.4, 'F': 12.8, 'G': 10.5,
+            'H': 40.0, 'I': 25.2, 'J': 76.5, 'K': 28.6, 'L': 30.4, 'M': 33.8, 'N': 12.8,
+            'O': 9.8, 'P': 13.0, 'Q': 19.5, 'R': 6.9, 'S': 11.4, 'T': 13.0, 'U': 12.4,
+            'V': 4.6, 'W': 11.4, 'X': 10.2, 'Y': 11.4,
+        }
+        for letter, width in WIDTHS.items():
+            ws.column_dimensions[letter].width = width
+
+        for cell in ws[1]:
+            cell.font = HEAD_FONT
+            cell.fill = HEAD_FILL
+            cell.alignment = excel.center_align
+
+        last_data_row = ws.max_row
+        for r in range(2, last_data_row + 1):
+            for c in range(1, 26):
+                cell = ws.cell(row=r, column=c)
+                cell.font = BODY_FONT
+                if c in SUM_COLS:
+                    cell.number_format = '#,##0'
+                if c <= 7 or c in DATE_COLS:
+                    cell.alignment = excel.center_align
+
+        # 멀티×구분 합계 행: 해당 구간 데이터 행을 더하는 수식
+        subtotal_row_nums = []
+        prev = 2
+        for idx in subtotal_marks:
+            r = idx + 2  # 헤더(1행) 다음부터 데이터
+            for c in SUM_COLS:
+                letter = get_column_letter(c)
+                ws.cell(row=r, column=c,
+                        value=(f"=SUM({letter}{prev}:{letter}{r - 1})" if r > prev else 0)
+                        ).number_format = '#,##0'
+            for cell in ws[r]:
+                cell.font = BOLD_FONT
+                cell.fill = SUB_FILL
+            subtotal_row_nums.append(r)
+            prev = r + 1
+
+        # 맨 아래 전체 합계 행
+        total_row = ws.max_row + 1
+        ws.cell(row=total_row, column=1, value="합계")
+        ws.cell(row=total_row, column=2, value="전체")
+        ws.cell(row=total_row, column=3, value="전체")
+        for c in SUM_COLS:
+            letter = get_column_letter(c)
+            if subtotal_row_nums:
+                ref = ",".join(f"{letter}{r}" for r in subtotal_row_nums)
+            else:  # 확인여부 필터 등으로 소계 행이 빠진 경우엔 데이터 전체를 합산
+                ref = f"{letter}2:{letter}{last_data_row}"
+            ws.cell(row=total_row, column=c, value=f"=SUM({ref})").number_format = '#,##0'
+        for c in range(1, 26):
+            cell = ws.cell(row=total_row, column=c)
+            cell.font = BOLD_FONT
+            cell.fill = TOTAL_FILL
+            cell.border = excel.border
+            if c <= 7:
                 cell.alignment = excel.center_align
 
-        # 합계 행 스타일 추가 적용 (굵게 + 배경색), 헤더 행이 1행이므로 데이터는 2행~
-        for idx in subtotal_row_indices:
-            excel_row_num = idx + 2  # 헤더(1행) + 1-based index
-            for cell in excel.ws[excel_row_num]:
-                cell.font = Font(bold=True, size=10)
-                cell.fill = PatternFill(
-                    start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+        # 날짜(From)/날짜(To)는 열 전체를 날짜 서식으로 고정한다.
+        # 합계 행까지 모두 만든 뒤에 한 번에 지정 — 예전엔 합계 행이 만들어지기 전에
+        # 서식을 걸어서 맨 아래 전체 합계 행만 '일반' 서식으로 남았다.
+        for c in DATE_COLS:
+            letter = get_column_letter(c)
+            ws.column_dimensions[letter].number_format = "yyyy-mm-dd"
+            for r in range(2, ws.max_row + 1):
+                ws.cell(row=r, column=c).number_format = "yyyy-mm-dd"
 
         filename = f"Settlement_{movie_title}_{yyyy_mm}_{datetime.now().strftime('%Y%m%d')}"
-        return excel.to_response(filename)
+        return excel.to_response(filename, auto_fit=False)
 
 # 4. 지정 부금 관리 (리스트 및 엑셀)
 
@@ -1815,10 +1914,27 @@ class SettlementEseroExportView(SettlementListView):
         wb = openpyxl.load_workbook(template_path)
         ws = wb.active
 
+        # I003: 템플릿 제목 줄에 달려 있는 숨은 메모(작성 안내용)는 결과 파일에서 제거
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.comment is not None:
+                    cell.comment = None
+
         # 말일자 계산
         yyyy, mm = map(int, yyyy_mm.split("-"))
         last_day_val = calendar.monthrange(yyyy, mm)[1]
         last_day_str = f"{yyyy}{mm:02d}{last_day_val:02d}"
+
+        # I001: 맨 끝 '영수(01), 청구(02)' 열은 필수값 — 항상 청구(02)
+        receipt_col = 51 if is_over_100 else 59  # over100=AY, under100=BG
+
+        def _esero_item_name(item):
+            """품목1. 씨네큐 직영은 'YYYYMM '영화명' 부금정산(지점명)' 형식 (I004)."""
+            if "씨네큐" in (item.get("멀티구분") or "") and item.get("classification") == "직영":
+                branch = re.sub(r"^\(.*?\)", "", item.get("극장명") or "")
+                branch = branch.replace("씨네큐", "", 1).strip()
+                return f"{yyyy}{mm:02d} '{display_movie_title}' 부금정산({branch})"
+            return f"[{display_movie_title}]{mm}월 극장부금"
 
         row_idx = 7
         for (biz_no, sub_biz), item in aggregated_for_esero.items():
@@ -1839,7 +1955,10 @@ class SettlementEseroExportView(SettlementListView):
 
             supply_val = item.get("공급가액", 0)
             vat_val = item.get("부가세", 0)
-            item_name = f"[{display_movie_title}]{mm}월 극장부금"
+            item_name = _esero_item_name(item)
+
+            # 맨 끝 열: 영수(01)/청구(02) — 전부 청구(02)
+            ws.cell(row=row_idx, column=receipt_col, value="02")
 
             if not is_over_100:
                 # [CASE 1] 100건 이하 (공급자 정보 포함)

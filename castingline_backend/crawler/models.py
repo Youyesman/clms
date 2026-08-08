@@ -250,6 +250,19 @@ class MovieSchedule(models.Model):
         return False
 
     @staticmethod
+    def decode_html_entities(text):
+        """HTML 엔티티(&#40; &amp; 등)를 실제 문자로 되돌린다.
+
+        메가박스 API의 brchNm/movieNm 등은 괄호를 &#40; &#41; 로 내려주므로
+        저장 전에 반드시 디코딩해야 한다. (미적용 시 '미사강변&#40;하남종합운동장&#41;'
+        같은 극장명이 그대로 저장돼 화면·엑셀에 노출되고 극장 매칭도 실패한다.)
+        """
+        import html
+        if not text:
+            return text
+        return html.unescape(str(text)).strip()
+
+    @staticmethod
     def normalize_screen_name(name):
         """
         상영관 이름 정규화
@@ -260,13 +273,10 @@ class MovieSchedule(models.Model):
         import re
         if not name:
             return ""
-        
-        name = str(name).strip()
-        
+
         # 1. HTML Entity Decoding
-        name = name.replace("&#40;", "(").replace("&#41;", ")")
-        name = name.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        
+        name = MovieSchedule.decode_html_entities(name)
+
         # 2. Simple Digit Check
         if name.isdigit():
             return f"{name}관"
@@ -686,8 +696,11 @@ class MovieSchedule(models.Model):
         # 메가박스는 응답이 date 파라미터(playDe) 기준이므로 보통 하루치 데이터임.
         play_date_str = mega_map.get("playDe") or log.query_date
         
+        # 구 로그(엔티티가 남아있는 상태로 저장된 것)를 재변환해도 깨끗하게 나오도록 여기서도 디코딩
+        log_theater_name = cls.decode_html_entities(log.theater_name)
+
         for movie in movie_list:
-            movie_title = movie.get("movieNm", "제목없음")
+            movie_title = cls.decode_html_entities(movie.get("movieNm", "제목없음"))
 
             # 메가박스 특수상영은 제목 대괄호([무대인사],[메가토크] 등)로 표기됨
             is_special_event = bool(cls.extract_special_event_tags(movie_title))
@@ -777,7 +790,7 @@ class MovieSchedule(models.Model):
                     
                     parsed_items.append({
                         'brand': 'MEGABOX',
-                        'theater_name': log.theater_name,
+                        'theater_name': log_theater_name,
                         'screen_name': screen_nm,
                         'start_time': start_dt,
                         'end_time': end_dt,
@@ -791,7 +804,7 @@ class MovieSchedule(models.Model):
                     })
                 except Exception as e:
                     errors.append({
-                        'theater': log.theater_name,
+                        'theater': log_theater_name,
                         'site_code': log.site_code,
                         'movie': movie_title,
                         'error': str(e),
@@ -799,14 +812,14 @@ class MovieSchedule(models.Model):
                         'end_time': play_end_tm
                     })
                     continue
-        
+
         if not parsed_items:
             return 0, errors
-            
+
         # Bulk Create/Update (CGV와 동일 로직)
         existing_qs = cls.objects.filter(
             brand='MEGABOX',
-            theater_name=log.theater_name,
+            theater_name=log_theater_name,
             start_time__date__in=target_dates
         )
         existing_map = {(obj.screen_name, obj.start_time): obj for obj in existing_qs}

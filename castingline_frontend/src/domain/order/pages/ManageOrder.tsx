@@ -42,6 +42,9 @@ export function ManageOrder() {
     const [orderDetail, setOrderDetail] = useState<any[]>([]);
     const [selectedOrderList, setSelectedOrderList] = useState<any>(null);
     const [selectedOrderDetail, setSelectedOrderDetail] = useState<any>(null);
+    // 오더 목록 상단에서 고르는 KOBIS 연동 여부 — 아래 상세 내역 조회에 적용된다
+    // ("" = 전체 / "true" = 연동 극장만 / "false" = 미연동 극장만)
+    const [kobisLinked, setKobisLinked] = useState<string>("");
 
     // 오더(메인) 선택 시 핸들러
     const handleSelectOrderList = (order: any) => {
@@ -66,6 +69,8 @@ export function ManageOrder() {
                         selectedOrderList={selectedOrderList}
                         setSelectedOrderList={setSelectedOrderList}
                         handleSelectOrderList={handleSelectOrderList}
+                        kobisLinked={kobisLinked}
+                        setKobisLinked={setKobisLinked}
                     />
                 </TopSection>
 
@@ -78,6 +83,7 @@ export function ManageOrder() {
                         selectedOrderDetail={selectedOrderDetail}
                         setSelectedOrderDetail={setSelectedOrderDetail}
                         handleSelectOrderDetail={handleSelectOrderDetail}
+                        kobisLinked={kobisLinked}
                     />
                 </BottomSection>
             </MainGrid>

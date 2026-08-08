@@ -25,7 +25,7 @@ from datetime import datetime
 import requests
 from django.db import close_old_connections
 
-from crawler.models import MegaboxScheduleLog
+from crawler.models import MegaboxScheduleLog, MovieSchedule
 
 BASE = "https://www.megabox.co.kr"
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -101,10 +101,11 @@ def fetch_theater_list(session, play_de):
         brch_no = b.get("brchNo")
         if not brch_no:
             continue
+        # 메가박스는 극장명 괄호를 &#40; &#41; 로 내려준다. 저장 전에 반드시 디코딩.
         theaters.append({
             "brchNo": brch_no,
-            "brchNm": b.get("brchNm") or "",
-            "areaNm": b.get("areaCdNm") or "",
+            "brchNm": MovieSchedule.decode_html_entities(b.get("brchNm") or ""),
+            "areaNm": MovieSchedule.decode_html_entities(b.get("areaCdNm") or ""),
         })
     return theaters
 
