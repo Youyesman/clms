@@ -1011,6 +1011,32 @@ def confirm_order_save(request):
     )
 
 
+def _movie_client_q(client_id):
+    """고객 계정 소속(client)이 영화의 배급사 1~3 또는 제작사 1~3 중
+    어디에라도 등록돼 있으면 매칭되는 Q 객체"""
+    return (
+        Q(distributor_id=client_id)
+        | Q(distributor_2_id=client_id)
+        | Q(distributor_3_id=client_id)
+        | Q(production_company_id=client_id)
+        | Q(production_company_2_id=client_id)
+        | Q(production_company_3_id=client_id)
+    )
+
+
+def _filter_movies_by_client(qs, client_id):
+    """대표영화 queryset 을 고객 소속 기준으로 필터링.
+    배급사·제작사가 서브 포맷 영화에만 등록된 경우도 대표영화 코드로 묶어 매칭한다."""
+    member = Movie.objects.filter(_movie_client_q(client_id)).values_list(
+        "movie_code", "primary_movie_code")
+    codes = set()
+    for mc, pmc in member:
+        root = (pmc or "").strip() or (mc or "").strip()
+        if root:
+            codes.add(root)
+    return qs.annotate(_trimmed_code=Trim("movie_code")).filter(_trimmed_code__in=codes)
+
+
 # ── 배급사(유저)별 연도별 영화 목록 API ──
 @api_view(["GET"])
 def movies_by_year(request):
@@ -1028,10 +1054,10 @@ def movies_by_year(request):
         is_primary_movie=True,
     ).order_by("-release_date")
 
-    # 일반 유저(배급사 소속)일 경우 해당 배급사 영화만 필터링
+    # 일반 유저(고객 소속)일 경우 배급사 1~3·제작사 1~3 어디든 소속된 영화만 필터링
     user = request.user
     if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        qs = qs.filter(distributor_id=user.client_id)
+        qs = _filter_movies_by_client(qs, user.client_id)
 
     result = []
     for m in qs.select_related("distributor"):
@@ -2710,7 +2736,7 @@ def score_movies_search(request):
     qs = Movie.objects.filter(title_ko__icontains=q, is_primary_movie=True).order_by("-release_date")
     user = request.user
     if user.is_authenticated and not user.is_superuser and hasattr(user, 'client_id') and user.client_id:
-        qs = qs.filter(distributor_id=user.client_id)
+        qs = _filter_movies_by_client(qs, user.client_id)
     return Response([{
         "id": m.id,
         "title_ko": m.title_ko,
@@ -2740,7 +2766,7 @@ def score_settlement_search(request):
     # ── 영화명 ──
     movie_qs = Movie.objects.filter(title_ko__icontains=q, is_primary_movie=True).order_by("-release_date")
     if is_distributor:
-        movie_qs = movie_qs.filter(distributor_id=user.client_id)
+        movie_qs = _filter_movies_by_client(movie_qs, user.client_id)
     movies = [{
         "id": m.id,
         "title_ko": m.title_ko,
