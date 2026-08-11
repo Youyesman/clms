@@ -16,6 +16,24 @@ class UserSerializer(serializers.ModelSerializer):
             "groups", "groups_display", "last_login", "created_date",
             "client", "client_id", "client_name", "client_type",
         ]
+        # 필수는 아이디/비밀번호/소속사뿐 — 나머지 정보성 필드는 비워도 저장 가능
+        extra_kwargs = {
+            "nickname": {"required": False, "allow_blank": True},
+            "email": {"required": False, "allow_blank": True, "allow_null": True},
+            "team": {"required": False, "allow_blank": True, "allow_null": True},
+            "direct_call": {"required": False, "allow_blank": True, "allow_null": True},
+            "phone": {"required": False, "allow_blank": True, "allow_null": True},
+            "country": {"required": False, "allow_blank": True},
+        }
+
+    def validate(self, attrs):
+        # 닉네임은 unique 제약이 있어 빈 값이 두 개 이상이면 충돌 → 빈 값으로 오면 아이디로 대체
+        # (nickname 키 없이 오는 부분 수정에서는 기존 닉네임을 건드리지 않음)
+        if not attrs.get("nickname") and ("nickname" in attrs or self.instance is None):
+            username = attrs.get("username") or (self.instance.username if self.instance else None)
+            if username:
+                attrs["nickname"] = username
+        return attrs
 
     def get_client_name(self, obj):
         if obj.client:

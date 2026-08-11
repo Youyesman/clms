@@ -138,12 +138,25 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
     };
 
     const handleSubmit = async () => {
+        // 필수값은 아이디/비밀번호(신규)/소속사(고객 계정)뿐 — 나머지는 비워도 저장 가능
+        if (!formData.username.trim()) {
+            toast.warning("아이디를 입력해주세요.");
+            return;
+        }
+        if (!user && !formData.password) {
+            toast.warning("비밀번호를 입력해주세요.");
+            return;
+        }
         // 소속사명을 입력만 하고 목록에서 선택하지 않으면 id가 없음 → 저장 전 확인
         if (clientPick.client_company?.client_name && !clientPick.client_company?.id) {
             toast.warning("소속사를 검색 목록에서 선택해주세요.");
             return;
         }
         const clientId = clientPick.client_company?.id ?? null;
+        if (!formData.is_superuser && !clientId) {
+            toast.warning("고객 계정은 소속사(배급사/제작사)를 지정해주세요.");
+            return;
+        }
         try {
             if (user) {
                 const payload: Partial<UserFormData> = { ...formData, client: clientId };
