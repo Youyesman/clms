@@ -200,7 +200,7 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
                 label="권한(그룹)"
                 options={groups.map((g) => ({ label: g.name, value: g.id }))}
                 value={formData.groups[0] ? String(formData.groups[0]) : ""}
-                onChange={(v) => handleChange("groups", [Number(v)])}
+                onChange={(v) => handleChange("groups", v ? [Number(v)] : [])}
             />
 
             <CustomInput label="팀" value={formData.team || ""} setValue={(v) => handleChange("team", v)} />
