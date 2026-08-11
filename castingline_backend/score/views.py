@@ -124,6 +124,14 @@ class ScoreViewSet(viewsets.ModelViewSet):
             if changed:
                 order.save()
 
+        # 4. 기준 부율 자동 생성 (엑셀 확정 저장과 동일 규칙 — P001)
+        try:
+            from .auto_rate import auto_create_rates_for_score_pairs
+
+            auto_create_rates_for_score_pairs({(score.movie_id, score.client_id)})
+        except Exception:
+            pass  # 부율 생성 실패해도 스코어 저장은 유지
+
     @action(detail=False, methods=["post"], url_path="bulk-save")
     def bulk_save(self, request):
         """
@@ -205,6 +213,15 @@ class ScoreViewSet(viewsets.ModelViewSet):
         # 3. 마지막 상영일 재산출 — 저장/삭제로 영향받은 (영화, 극장)만
         if touched:
             recalc_last_screening_dates(pairs=touched)
+
+        # 4. 기준 부율 자동 생성 (엑셀 확정 저장과 동일 규칙 — P001)
+        if touched:
+            try:
+                from .auto_rate import auto_create_rates_for_score_pairs
+
+                auto_create_rates_for_score_pairs(touched)
+            except Exception:
+                pass  # 부율 생성 실패해도 스코어 저장은 유지
 
         return Response({
             "message": f"생성 {created_count}건, 수정 {updated_count}건, 삭제 {len(delete_ids)}건 처리되었습니다.",
@@ -966,9 +983,88 @@ def confirm_score_save(request):
             "rates_created": result["rates_created"],
             "rates_skipped_no_country": result["rates_skipped_no_country"],
             "skipped_non_theater": result.get("skipped_non_theater", []),
+            "saved_scope": result.get("saved_scope", []),
+            "saved_source_file": result.get("saved_source_file"),
         },
         status=200,
     )
+
+
+@api_view(["POST"])
+def delete_scores(request):
+    """스코어 일괄 삭제 (A001).
+
+    두 가지 방식 지원 —
+    1) scope: [{movie_id, entry_date, multis:[...]}]  ← 방금 한 업로드 취소
+       (+ source_file 이 있으면 그 파일로 올린 행만)
+    2) movie_id + date_from + date_to + multis        ← 기간·영화·멀티 지정 일괄 삭제
+       movie_id 는 대표영화면 하위(포맷) 영화까지 함께 지운다.
+    """
+    scope = request.data.get("scope") or []
+    source_file = request.data.get("source_file") or None
+
+    qs = None
+    if scope:
+        cond = Q()
+        for item in scope:
+            movie_id = item.get("movie_id")
+            entry_date = item.get("entry_date")
+            multis = item.get("multis") or []
+            if not movie_id or not entry_date:
+                continue
+            cond |= Q(movie_id=movie_id, entry_date=entry_date) & _multi_q(multis)
+        if cond:
+            qs = Score.objects.filter(cond)
+            if source_file:
+                qs = qs.filter(source_file=source_file)
+    else:
+        movie_id = request.data.get("movie_id")
+        date_from = request.data.get("date_from")
+        date_to = request.data.get("date_to")
+        multis = request.data.get("multis") or []
+        exclude_multis = request.data.get("exclude_multis") or []
+        if not movie_id or not date_from or not date_to:
+            return Response(
+                {"error": "영화와 상영일(시작/종료)을 모두 지정해 주세요."}, status=400
+            )
+        movie_ids = get_movie_ids_for_primary(movie_id) or [movie_id]
+        qs = Score.objects.filter(
+            Q(movie_id__in=movie_ids, entry_date__gte=date_from, entry_date__lte=date_to)
+            & _multi_q(multis)
+        )
+        # KOBIS·메일함 일반극장처럼 "체인을 뺀 나머지"가 대상인 화면용
+        if exclude_multis:
+            qs = qs.exclude(client__theater_kind__in=exclude_multis)
+        if source_file:
+            qs = qs.filter(source_file=source_file)
+
+    if qs is None:
+        return Response({"error": "삭제 범위가 비어 있습니다."}, status=400)
+
+    touched_movies = set(qs.values_list("movie_id", flat=True).distinct())
+    deleted, _ = qs.delete()
+
+    # 삭제로 마지막 상영일이 줄어들 수 있으므로 다시 계산한다
+    if touched_movies:
+        recalc_last_screening_dates(movie_ids=touched_movies)
+
+    return Response(
+        {"deleted": deleted, "message": f"스코어 {deleted}건을 삭제했습니다."},
+        status=200,
+    )
+
+
+def _multi_q(multis):
+    """멀티(theater_kind) 목록 → Score 필터 조건. 비어 있으면 전체 멀티."""
+    if not multis:
+        return Q()
+    named = sorted(k for k in multis if k)
+    cond = Q()
+    if named:
+        cond |= Q(client__theater_kind__in=named)
+    if any(not k for k in multis):
+        cond |= Q(client__theater_kind__isnull=True) | Q(client__theater_kind="")
+    return cond
 
 
 @api_view(["POST"])
@@ -3744,7 +3840,9 @@ def verify_kofic_score(request):
 
     비교 규칙
       - 발권금액 0원(무료 발권) 행 제외 — preview_kofic_format 이 이미 제외한다.
-      - CGV/메가박스/롯데/씨네큐 체인은 엑셀·CLMS 양쪽 모두 제외 (별도 수집기 담당)
+      - CGV/메가박스/롯데/씨네큐 체인 + 기타(일반)극장 전부 포함 (S001)
+        · 업로드(스코어 등록)는 일반극장만 대상이지만, 대사는 CLMS에 등록된
+          해당 영화의 모든 스코어를 대상으로 한다.
       - 관(스크린)/회차는 무시하고 극장 × 요금 × 날짜 단위 인원수 합계를 비교
     """
     file = request.FILES.get("file")
@@ -3776,17 +3874,14 @@ def verify_kofic_score(request):
                 status=200,
             )
 
-    # ── 1) 엑셀 파싱 (0원 제외 + 체인 제외 + 극장/관 매칭까지 기존 파서 재사용) ──
-    parsed = preview_kofic_format(file, movie.id)
+    # ── 1) 엑셀 파싱 (0원 제외 + 체인 포함 + 극장/관 매칭까지 기존 파서 재사용) ──
+    parsed = preview_kofic_format(file, movie.id, include_chains=True)
     if "error" in parsed:
         return Response({"error": parsed["error"]}, status=400)
     rows = parsed.get("data", [])
     if not rows:
         return Response(
-            {
-                "error": "엑셀에서 비교할 일반극장 데이터를 찾지 못했습니다. "
-                         "(0원/체인 제외 후 0행)"
-            },
+            {"error": "엑셀에서 비교할 데이터를 찾지 못했습니다. (0원 행 제외 후 0행)"},
             status=400,
         )
 
@@ -3819,7 +3914,7 @@ def verify_kofic_score(request):
 
     date_from, date_to = min(all_dates), max(all_dates)
 
-    # ── 3) CLMS 스코어 집계 (같은 기간/영화, 체인 제외) ──
+    # ── 3) CLMS 스코어 집계 (같은 기간/영화, 체인 포함 전 극장) ──
     movie_ids = get_movie_ids_for_primary(movie.id) or [movie.id]
     score_qs = (
         Score.objects.filter(
@@ -3828,7 +3923,6 @@ def verify_kofic_score(request):
             entry_date__lte=date_to,
             client_id__isnull=False,
         )
-        .exclude(client__theater_kind__in=KOFIC_EXCLUDE_KINDS)
         .annotate(visitor_int=Cast("visitor", IntegerField()))
         .values("client_id", "client__client_name", "entry_date", "fare")
         .annotate(total_visitor=Sum("visitor_int"))

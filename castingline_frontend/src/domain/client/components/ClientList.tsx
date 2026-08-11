@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { AxiosGet } from "../../../axios/Axios";
 import { GenericTable } from "../../../components/GenericTable";
 import { CustomButton } from "../../../components/common/CustomButton"; // 경로 확인
-import { Plus } from "@phosphor-icons/react";
+import { Plus, Trash } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useToast } from "../../../components/common/CustomToast";
@@ -20,7 +20,7 @@ const TableWrapper = styled.div`
 `;
 
 /** 2. 메인 컴포넌트 **/
-export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, filter, refreshTrigger, searchTrigger, checkedClientIds, setCheckedClientIds }) {
+export function ClientList({ clients, setClients, selectedClient, handleSelectClient, handleAddClient, handleDeleteClient, filter, refreshTrigger, searchTrigger, checkedClientIds, setCheckedClientIds }) {
     const toast = useToast();
     const [sortKey, setSortKey] = useState<string | null>("client_name");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -148,6 +148,14 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
                         )}
                         <CustomIconButton onClick={handleAddClient} title="거래처 추가">
                             <Plus size={16} weight="bold" />
+                        </CustomIconButton>
+                        <CustomIconButton
+                            onClick={handleDeleteClient}
+                            color="red"
+                            title="거래처 삭제"
+                            disabled={!selectedClient}
+                        >
+                            <Trash size={16} weight="bold" />
                         </CustomIconButton>
                     </>
                 }

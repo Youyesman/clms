@@ -102,11 +102,27 @@ class OrderViewSet(viewsets.ModelViewSet):
         if kobis_linked in ("true", "false"):
             queryset = queryset.filter(client__kobis_linked=(kobis_linked == "true"))
 
+        # 7. 영화를 고르지 않고 극장만 검색한 경우: 개봉일이 최신인 영화가 위로 (O001)
+        if filter_client_id and not ol_id and not self.request.query_params.get("ordering"):
+            queryset = queryset.order_by(
+                F("release_date").desc(nulls_last=True), "-id"
+            )
+
         return queryset
 
     def destroy(self, request, *args, **kwargs):
         # 1. 삭제하려는 대상(Order) 객체 가져오기
         instance = self.get_object()
+
+        # 1-1. 같은 (극장, 영화) 오더가 더 있으면 이 건은 중복 등록분이다.
+        #      남은 오더가 스코어를 그대로 커버하므로 스코어 검사 없이 삭제한다. (O004)
+        if (
+            Order.objects.filter(client=instance.client, movie=instance.movie)
+            .exclude(pk=instance.pk)
+            .exists()
+        ):
+            self.perform_destroy(instance)
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
         # 2. 관련 스코어 데이터 조회
         scores = Score.objects.filter(
@@ -171,6 +187,23 @@ class OrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             data["client"] = client_id
+
+        # 중복 오더 등록 방지 (O003) — 영화(=포맷 단위 하위영화) × 극장이 같으면 차단
+        if movie_id and client_id:
+            existing = (
+                Order.objects.filter(movie_id=movie_id, client_id=client_id)
+                .select_related("movie", "client")
+                .first()
+            )
+            if existing:
+                movie_name = existing.movie.title_ko if existing.movie else ""
+                client_name = existing.client.client_name if existing.client else ""
+                return Response(
+                    {
+                        "detail": f"이미 등록된 오더입니다. ({client_name} / {movie_name})",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # 시리얼라이저를 통한 저장 (여기서 내부적으로 perform_create가 호출됨)
         serializer = self.get_serializer(data=data)
@@ -247,8 +280,14 @@ class OrderListViewSet(viewsets.ModelViewSet):
 
 class OrderExcelExportView(APIView):
     def get(self, request):
-        if not request.query_params.get("start_date") and not request.query_params.get("id"):
-            return Response({"detail": "기준일자 또는 영화를 선택해주세요."}, status=status.HTTP_400_BAD_REQUEST)
+        # 극장명만으로 조회한 결과도 다운로드할 수 있어야 한다 (O002)
+        if not any(
+            request.query_params.get(k) for k in ("start_date", "id", "client_id")
+        ):
+            return Response(
+                {"detail": "영화·기준일자·극장명 중 하나는 지정해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         viewset = OrderViewSet()
         viewset.request = request

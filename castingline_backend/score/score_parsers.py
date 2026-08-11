@@ -50,15 +50,20 @@ def _read_excel(file, **kwargs):
 
 
 class BulkMatcher:
-    def __init__(self, theater_kind, exclude_kinds=None):
+    def __init__(self, theater_kind, exclude_kinds=None, all_kinds=False, relaxed=None):
         """
         데이터를 메모리에 로드하고 중복 지점을 지능적으로 처리하기 위한 구조 생성
 
         exclude_kinds가 주어지면 해당 theater_kind들을 제외한 전체 극장을 로드한다.
         (영진위 일반극장 업로드 시 CGV/메가박스/롯데를 제외하기 위해 사용)
+        all_kinds=True면 체인 포함 전 극장을 로드한다. (영진위 대사 — S001)
+        relaxed는 영진위식 완화 매칭(영진위극장명/관번호 폴백) 사용 여부.
+        기본값은 exclude_kinds/all_kinds 지정 시 True.
         """
         self.kind = theater_kind
-        if exclude_kinds:
+        if all_kinds:
+            clients = Client.objects.all()
+        elif exclude_kinds:
             clients = Client.objects.exclude(theater_kind__in=exclude_kinds)
         else:
             clients = Client.objects.filter(theater_kind=theater_kind)
@@ -68,7 +73,9 @@ class BulkMatcher:
         # 거래처 구분이 비어있는 옛 극장 데이터는 계속 매칭되도록 exclude 형태로 거른다.
         clients = clients.exclude(client_type__in=NON_THEATER_CLIENT_TYPES)
 
-        self.relaxed_aud = bool(exclude_kinds)
+        self.relaxed_aud = (
+            relaxed if relaxed is not None else bool(exclude_kinds) or all_kinds
+        )
         self.name_to_clients = {}  # 정규화이름 -> [Client 객체 리스트]
 
         for c in clients:
@@ -444,11 +451,12 @@ def _is_excluded_kofic_theater(theater_name):
     )
 
 
-def preview_kofic_format(file, movie_id):
+def preview_kofic_format(file, movie_id, include_chains=False):
     """
     영진위 '회원용통계(영화사별)상세' 양식 파서.
     - 파일에 영화명 컬럼이 없으므로 사용자가 선택한 movie_id로 전체 행을 매칭한다.
     - CGV/메가박스/롯데/씨네큐 체인 행은 제외하고 나머지 일반극장 데이터만 추출한다.
+      단 include_chains=True(스코어 검증 대사용)면 체인도 포함해 전 극장을 매칭한다.
     - 여러 시트(날짜별 분할)를 모두 합산 처리한다.
 
     레이아웃(0-indexed):
@@ -465,7 +473,12 @@ def preview_kofic_format(file, movie_id):
         return {"error": "선택한 영화를 찾을 수 없습니다."}
 
     try:
-        matcher = BulkMatcher(theater_kind="일반극장", exclude_kinds=KOFIC_EXCLUDE_KINDS)
+        if include_chains:
+            matcher = BulkMatcher(theater_kind="일반극장", all_kinds=True)
+        else:
+            matcher = BulkMatcher(
+                theater_kind="일반극장", exclude_kinds=KOFIC_EXCLUDE_KINDS
+            )
 
         # 모든 시트를 읽어 합산 (영진위는 날짜별로 시트가 분할될 수 있음)
         sheets = _read_excel(file, sheet_name=None, header=None)
@@ -479,8 +492,8 @@ def preview_kofic_format(file, movie_id):
                     continue
 
                 theater_name = str(row.iloc[2]).strip()
-                # CGV/메가박스/롯데/씨네큐 체인은 제외
-                if _is_excluded_kofic_theater(theater_name):
+                # CGV/메가박스/롯데/씨네큐 체인은 제외 (대사 모드에서는 포함)
+                if not include_chains and _is_excluded_kofic_theater(theater_name):
                     continue
 
                 raw_aud = str(row.iloc[3]).strip()
@@ -1334,4 +1347,14 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
         "rates_created": rate_result["created"],
         "rates_skipped_no_country": rate_result["skipped_no_country"],
         "skipped_non_theater": skipped_non_theater,
+        # 방금 저장한 범위 — 프론트의 '업로드 취소'가 그대로 되돌려 지우는 데 쓴다 (A001)
+        "saved_scope": [
+            {
+                "movie_id": movie_id,
+                "entry_date": str(entry_date),
+                "multis": sorted(k or "" for k in kinds),
+            }
+            for (movie_id, entry_date), kinds in replace_scope.items()
+        ],
+        "saved_source_file": source_file or None,
     }

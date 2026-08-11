@@ -7,9 +7,12 @@
 - 씨네큐/프리머스/자동차극장 등 표 외 체인은 일반극장과 동일 취급
 - 영화 국가(Movie.country)가 미지정이면 생성하지 않고 결과에 영화명을 담아 알린다
 - 이미 해당 (영화×극장) Rate가 있으면 건드리지 않는다 (수동 입력 우선)
+- 시작일은 해당 (영화×극장)의 실제 최초 스코어 발생일, 종료일은 9999-12-31
 """
 from datetime import date
 from decimal import Decimal
+
+from django.db.models import Min
 
 from client.models import Client
 from movie.models import Movie
@@ -63,7 +66,7 @@ def auto_create_rates(valid_data, parse_date):
 
     반환: {"created": 생성 건수, "skipped_no_country": [국가 미지정 영화명, ...]}
     """
-    # 1. (영화, 극장) 조합별 최소 상영일 집계 (개봉일 미입력 시 시작일 대체용)
+    # 1. (영화, 극장) 조합별 최소 상영일 집계 (= 부율 시작일)
     pair_first_date = {}
     for i in valid_data:
         key = (i["movie_id"], i["client_id"])
@@ -71,6 +74,15 @@ def auto_create_rates(valid_data, parse_date):
         if entry_date and (key not in pair_first_date or entry_date < pair_first_date[key]):
             pair_first_date[key] = entry_date
 
+    return auto_create_rates_for_pairs(pair_first_date)
+
+
+def auto_create_rates_for_pairs(pair_first_date):
+    """(영화ID, 극장ID) → 최초 상영일 매핑을 받아 기준 부율을 생성.
+
+    엑셀 확정 저장뿐 아니라 스코어 직접 입력/일괄 저장 경로에서도 재사용한다(P001).
+    """
+    pair_first_date = {k: v for k, v in pair_first_date.items() if k[0] and k[1] and v}
     if not pair_first_date:
         return {"created": 0, "skipped_no_country": []}
 
@@ -98,6 +110,20 @@ def auto_create_rates(valid_data, parse_date):
         .values_list("movie_id", "client_id")
     )
 
+    # 부율 시작일은 '실제 스코어 발생일'(P002). 이번 배치보다 앞선 스코어가 이미
+    # DB에 있으면(국가 미지정으로 건너뛴 뒤 재확정한 경우 등) 그 날짜까지 소급한다.
+    from score.models import Score  # 순환 임포트 방지용 지연 임포트
+
+    for row in (
+        Score.objects.filter(movie_id__in=movie_ids, client_id__in=client_ids)
+        .values("movie_id", "client_id")
+        .annotate(first_date=Min("entry_date"))
+    ):
+        key = (row["movie_id"], row["client_id"])
+        existing_first = row["first_date"]
+        if key in pair_first_date and existing_first and existing_first < pair_first_date[key]:
+            pair_first_date[key] = existing_first
+
     rates_to_create = []
     skipped_no_country = set()
     for (movie_id, client_id), first_date in pair_first_date.items():
@@ -113,7 +139,10 @@ def auto_create_rates(valid_data, parse_date):
             skipped_no_country.add(movie.title_ko or f"영화ID {movie_id}")
             continue
 
-        start_date = movie.release_date or first_date
+        # 시작일 = 실제 스코어 발생일 (개봉일이 아님 — P002).
+        # 개봉 전 시사/유료시사 스코어가 개봉일보다 앞서는 경우가 있어
+        # 개봉일을 쓰면 부율이 해당 스코어를 덮지 못한다.
+        start_date = first_date
         rates_to_create.append(
             Rate(
                 client_id=client_id,
@@ -131,3 +160,29 @@ def auto_create_rates(valid_data, parse_date):
         "created": len(rates_to_create),
         "skipped_no_country": sorted(skipped_no_country),
     }
+
+
+def auto_create_rates_for_score_pairs(pairs):
+    """(영화ID, 극장ID) 집합에 대해 DB의 최초 스코어일 기준으로 기준 부율 생성.
+
+    스코어 직접 입력/일괄 저장(매트릭스) 경로에서 호출한다(P001).
+    """
+    from score.models import Score  # 순환 임포트 방지용 지연 임포트
+
+    pairs = {(m, c) for m, c in pairs if m and c}
+    if not pairs:
+        return {"created": 0, "skipped_no_country": []}
+
+    movie_ids = {m for m, _ in pairs}
+    client_ids = {c for _, c in pairs}
+    pair_first_date = {}
+    for row in (
+        Score.objects.filter(movie_id__in=movie_ids, client_id__in=client_ids)
+        .values("movie_id", "client_id")
+        .annotate(first_date=Min("entry_date"))
+    ):
+        key = (row["movie_id"], row["client_id"])
+        if key in pairs and row["first_date"]:
+            pair_first_date[key] = row["first_date"]
+
+    return auto_create_rates_for_pairs(pair_first_date)

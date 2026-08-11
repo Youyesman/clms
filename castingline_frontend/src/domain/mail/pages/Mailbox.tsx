@@ -14,6 +14,7 @@ import {
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { ScoreExcelUploader } from "../../score/pages/ScoreExcelUploader";
+import { ScoreDeleteModal } from "../../score/components/ScoreDeleteModal";
 import {
     fetchFolders,
     fetchMessages,
@@ -28,6 +29,22 @@ import {
     IMailDetail,
     IMailAttachment,
 } from "../api";
+
+/** 메일함 폴더명 → 스코어 삭제 대상 멀티 (A001).
+ *  *스코어/CGV → CGV, *스코어/롯데 → 롯데, *스코어/일반극장 → 체인 4사 제외 */
+const CHAIN_MULTIS = ["CGV", "메가박스", "롯데", "씨네큐"];
+function scoreDeleteScopeOf(folderName: string) {
+    const name = (folderName || "").replace(/\s/g, "");
+    if (name.includes("스코어/CGV")) return { multis: ["CGV"], excludeMultis: [], label: "CGV" };
+    if (name.includes("스코어/롯데")) return { multis: ["롯데"], excludeMultis: [], label: "롯데" };
+    if (name.includes("스코어/일반극장"))
+        return {
+            multis: [],
+            excludeMultis: CHAIN_MULTIS,
+            label: "일반극장(CGV·메가박스·롯데·씨네큐 제외)",
+        };
+    return null;
+}
 
 /** 스코어 업로드 가능한 엑셀 첨부인지 (.xlsx/.xls) */
 const isScoreExcel = (filename: string) =>
@@ -200,6 +217,25 @@ export const Mailbox = () => {
                 onUploadSuccess={() => { /* 저장 완료 시 처리 (메일함 갱신 불필요) */ }}
             />,
             { title: "스코어 엑셀 업로드", width: "1600px" }
+        );
+    };
+
+    // 폴더 상태값은 IMAP UTF-7 인코딩명이므로, 매칭은 한글 표시명(display)으로 한다
+    const folderDisplay =
+        folders.find((f) => f.name === folder)?.display ?? folder;
+
+    // 현재 스코어 폴더(CGV/롯데/일반극장)에 맞춰 스코어 일괄 삭제 박스를 연다 (A001)
+    const openScoreDelete = () => {
+        const scope = scoreDeleteScopeOf(folderDisplay);
+        if (!scope) return;
+        openModal(
+            <ScoreDeleteModal
+                multis={scope.multis}
+                excludeMultis={scope.excludeMultis}
+                scopeLabel={scope.label}
+                sourceLabel="메일함 스코어"
+            />,
+            { title: "스코어 삭제", width: "560px" }
         );
     };
 
@@ -444,6 +480,16 @@ export const Mailbox = () => {
                                                                 : "스코어 업로드"}
                                                         </ReportBtn>
                                                     )}
+                                                    {isScoreExcel(a.filename) &&
+                                                        scoreDeleteScopeOf(folderDisplay) && (
+                                                            <ReportBtn
+                                                                onClick={openScoreDelete}
+                                                                title="상영일·영화를 지정해 이미 등록된 스코어를 일괄 삭제합니다."
+                                                                style={{ background: "#dc2626", borderColor: "#dc2626" }}
+                                                            >
+                                                                스코어 삭제
+                                                            </ReportBtn>
+                                                        )}
                                                 </span>
                                             ))}
                                         </div>
@@ -496,6 +542,15 @@ export const Mailbox = () => {
                                                         : "스코어 업로드"}
                                                 </ReportBtn>
                                             ))}
+                                            {scoreDeleteScopeOf(folderDisplay) && (
+                                                <ReportBtn
+                                                    onClick={openScoreDelete}
+                                                    title="상영일·영화를 지정해 이미 등록된 스코어를 일괄 삭제합니다."
+                                                    style={{ background: "#dc2626", borderColor: "#dc2626" }}
+                                                >
+                                                    스코어 삭제
+                                                </ReportBtn>
+                                            )}
                                         </div>
                                         <p className="hint">
                                             링크의 리포트를 메일 첨부와 동일한 양식의

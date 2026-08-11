@@ -117,6 +117,13 @@ const TableSection = styled.div`
     overflow: hidden;
 `;
 
+// R001: 지역별/멀티별 총괄은 집계값과 무관하게 아래 순서로 고정 표시한다.
+// (사용자가 표 헤더를 눌러 직접 정렬하면 그때만 값 정렬로 전환)
+const FIXED_SECTION_ORDER: Record<string, string[]> = {
+    region: ["경강", "경남", "경북", "서울", "충청", "호남"],
+    multi: ["CGV", "롯데", "메가박스", "씨네큐", "일반극장"],
+};
+
 export function ScorePage() {
     const toast = useToast();
     const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
@@ -192,8 +199,9 @@ export function ScorePage() {
 
     const [compareMode, setCompareMode] = useState<"daily" | "weekly">("daily");
     const [activeFilters, setActiveFilters] = useState<any>({ movie_id: null });
+    // key가 비어 있으면 "직접 정렬 안 함" → 고정 순서(FIXED_SECTION_ORDER) 적용
     const [sortConfig, setSortConfig] = useState({
-        key: "total_fare",
+        key: "",
         order: "desc" as "asc" | "desc",
     });
     const handleTableSort = (key: string) => {
@@ -243,9 +251,24 @@ export function ScorePage() {
     const handleSortChange = (newSort: string) => {
         setSearchParams((prev) => ({ ...prev, sort_by: newSort }));
         setActiveFilters((prev) => ({ ...prev, sort_by: newSort }));
+        // 분류를 바꾸면 직접 정렬을 해제해 고정 순서로 되돌린다 (R001)
+        setSortConfig({ key: "", order: "desc" });
     };
     const sortedData = useMemo(() => {
-        if (!sortConfig.key) return data;
+        if (!sortConfig.key) {
+            // R001: 지역/멀티 총괄은 고정 순서. 목록에 없는 값은 뒤에 이름순으로.
+            const fixedOrder = FIXED_SECTION_ORDER[activeFilters.sort_by];
+            if (!fixedOrder) return data;
+            const rank = (row: any) => {
+                const i = fixedOrder.indexOf(String(row.section ?? "").trim());
+                return i === -1 ? fixedOrder.length : i;
+            };
+            return [...data].sort(
+                (a, b) =>
+                    rank(a) - rank(b) ||
+                    String(a.section ?? "").localeCompare(String(b.section ?? ""), "ko")
+            );
+        }
 
         const sorted = [...data].sort((a, b) => {
             let aVal = a[sortConfig.key];
@@ -262,7 +285,7 @@ export function ScorePage() {
             return 0;
         });
         return sorted;
-    }, [data, sortConfig]);
+    }, [data, sortConfig, activeFilters.sort_by]);
     const totals = useMemo(() => {
         const initial = {
             theater_count: 0,
@@ -379,7 +402,7 @@ export function ScorePage() {
                                 value={searchParams.yyyy}
                                 onChange={(v) => {
                                     setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
-                                    setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                    setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "", movieTitle: "" }));
                                     setFormatOptions([]);
                                     setSelectedFormats([]);
                                 }} variant="chip" />
@@ -396,7 +419,7 @@ export function ScorePage() {
                                 value={searchParams.movie_id}
                                 onChange={(val) => {
                                     setSearchParams((prev) => ({ ...prev, movie_id: val }));
-                                    setScoreFilter((f) => ({ ...f, movieId: val }));
+                                    setScoreFilter((f) => ({ ...f, movieId: val, movieTitle: moviesList.find((m) => m.id.toString() === val)?.title_ko || "" }));
                                     fetchMovieFormats(val);
                                 }} variant="chip" />
                         </div>

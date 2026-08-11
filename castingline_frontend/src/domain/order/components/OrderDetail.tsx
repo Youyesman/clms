@@ -39,92 +39,88 @@ export function OrderDetail({
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
     const [page, setPage] = useState(1);
-    const [pageSize] = useState(10);
+    const [pageSize] = useState(50);
     const [totalCount, setTotalCount] = useState(0);
-    const [isFilterMode, setIsFilterMode] = useState(false);
     const [isExcelLoading, setIsExcelLoading] = useState(false);
-    const fetchSortedOrderDetail = useCallback((
-        key: string | null,
-        order: "asc" | "desc",
-        currentPage = 1,
-        forceFilterMode = false // 검색 버튼 클릭 시 true로 전달
-    ) => {
-        const currentFilterMode = forceFilterMode || isFilterMode;
+    const [isLoading, setIsLoading] = useState(false);
 
-        // 검색 버튼도 안 눌렀고, 선택된 영화도 없으면 조회 안 함
-        if (!selectedOrderList?.id && !currentFilterMode && !filterStartDate && !searchClient.theater?.id) {
-            setOrderDetail([]);
-            setTotalCount(0);
-            return;
-        }
+    const movieOrderListId = selectedOrderList?.id ?? null;
+    const theaterId = searchClient.theater?.id ?? null;
 
-        const ordering = key ? `${order === "asc" ? "" : "-"}${key}` : "";
-        const params = new URLSearchParams();
-
-        // -----------------------------------------------------------
-        // [핵심 로직]
-        // 영화 선택 모드: 영화 ID만 적용 / 필터 모드: 기준일자·극장 필터만 적용
-        // (모드별 파라미터를 섞으면 첫 조회와 페이지 이동 조회의 카운트가 달라져
-        //  invalid page 오류가 발생하므로 반드시 분리)
-        // -----------------------------------------------------------
-        if (!currentFilterMode) {
-            if (selectedOrderList?.id) params.append("id", String(selectedOrderList.id));
-        } else {
+    /**
+     * 조회 파라미터 — 영화(오더목록 선택)와 극장명 검색을 함께 적용한다 (O001).
+     * · 영화 선택 + 극장 검색 → 그 영화의 그 극장 오더만
+     * · 영화 미선택 + 극장 검색 → 해당 극장의 모든 영화 (백엔드에서 개봉일 최신순)
+     */
+    const buildParams = useCallback(
+        (key: string | null, order: "asc" | "desc") => {
+            const params = new URLSearchParams();
+            if (movieOrderListId) params.append("id", String(movieOrderListId));
             if (filterStartDate) params.append("start_date", filterStartDate);
-            if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
-        }
+            if (theaterId) params.append("client_id", String(theaterId));
+            // 오더 목록 상단에서 고른 KOBIS 연동 여부 필터
+            if (kobisLinked) params.append("kobis_linked", kobisLinked);
+            if (key) params.append("ordering", `${order === "asc" ? "" : "-"}${key}`);
+            return params;
+        },
+        [movieOrderListId, filterStartDate, theaterId, kobisLinked]
+    );
 
-        // 오더 목록 상단에서 고른 KOBIS 연동 여부 필터
-        if (kobisLinked) params.append("kobis_linked", kobisLinked);
+    const hasAnyFilter = !!(movieOrderListId || filterStartDate || theaterId);
 
-        params.append("ordering", ordering);
-        params.append("page", String(currentPage));
-        params.append("page_size", String(pageSize));
+    const fetchSortedOrderDetail = useCallback(
+        (
+            key: string | null,
+            order: "asc" | "desc",
+            currentPage = 1,
+            append = false
+        ) => {
+            if (!movieOrderListId && !filterStartDate && !theaterId) {
+                setOrderDetail([]);
+                setTotalCount(0);
+                return;
+            }
 
-        AxiosGet(`order/?${params.toString()}`)
-            .then((res) => {
-                setOrderDetail(res.data.results);
-                setTotalCount(res.data.count);
-            })
-            .catch((error) => toast.error(handleBackendErrors(error)));
-    }, [selectedOrderList?.id, filterStartDate, searchClient.theater?.id, isFilterMode, sortKey, sortOrder, kobisLinked]);
+            const params = buildParams(key, order);
+            params.append("page", String(currentPage));
+            params.append("page_size", String(pageSize));
+
+            setIsLoading(true);
+            AxiosGet(`order/?${params.toString()}`)
+                .then((res) => {
+                    setOrderDetail((prev: any[]) =>
+                        append ? [...prev, ...res.data.results] : res.data.results
+                    );
+                    setTotalCount(res.data.count);
+                    setPage(currentPage);
+                })
+                .catch((error) => toast.error(handleBackendErrors(error)))
+                .finally(() => setIsLoading(false));
+        },
+        [movieOrderListId, filterStartDate, theaterId, buildParams, pageSize]
+    );
 
     /** ✅ 2. 검색 버튼 클릭 핸들러 **/
     const onClickSearch = () => {
-        if (!filterStartDate && !searchClient.theater?.id) {
-            toast.warning("기준일자 또는 극장명을 입력해주세요.");
+        if (!hasAnyFilter) {
+            toast.warning("영화를 선택하거나 기준일자·극장명을 입력해주세요.");
             return;
         }
-        setIsFilterMode(true); // 필터 모드 활성화 (영화 ID 무시 시작)
-        setPage(1);
-        fetchSortedOrderDetail(sortKey, sortOrder, 1, true);
+        fetchSortedOrderDetail(sortKey, sortOrder, 1);
     };
 
-    /** ✅ 3. 왼쪽에서 영화를 새로 선택했을 때 **/
+    /** ✅ 3. 왼쪽에서 영화를 새로 선택/해제했을 때 (극장 검색어는 그대로 유지) **/
     useEffect(() => {
-        if (selectedOrderList?.id) {
-            setIsFilterMode(false); // 필터 모드 해제 (해당 영화 상세 보기로 복귀)
-            setPage(1);
-            // 여기서 직접 호출할 때는 forceFilterMode를 false(기본값)로 둡니다.
-            const params = new URLSearchParams({
-                id: String(selectedOrderList.id),
-                page: "1",
-                page_size: String(pageSize),
-            });
-            if (kobisLinked) params.append("kobis_linked", kobisLinked);
-            AxiosGet(`order/?${params.toString()}`)
-                .then((res) => {
-                    setOrderDetail(res.data.results);
-                    setTotalCount(res.data.count);
-                });
-        }
+        fetchSortedOrderDetail(sortKey, sortOrder, 1);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedOrderList?.id, kobisLinked]);
-    const handlePageChange = (newPage: number) => {
-        if (newPage < 1 || newPage > Math.ceil(totalCount / pageSize)) return;
-        setPage(newPage);
-        fetchSortedOrderDetail(sortKey, sortOrder, newPage);
-    };
+    }, [movieOrderListId, kobisLinked]);
+
+    /** ✅ 4. 목록 하단 도달 시 다음 페이지를 이어붙인다 (O005 — 페이지 넘김 대신 스크롤) **/
+    const handleScrollEnd = useCallback(() => {
+        if (isLoading) return;
+        if (orderDetail.length >= totalCount) return;
+        fetchSortedOrderDetail(sortKey, sortOrder, page + 1, true);
+    }, [isLoading, orderDetail.length, totalCount, page, sortKey, sortOrder, fetchSortedOrderDetail]);
 
     const handleSortChange = (key: string) => {
         let newOrder: "asc" | "desc" = sortKey === key && sortOrder === "asc" ? "desc" : "asc";
@@ -179,24 +175,14 @@ export function OrderDetail({
     };
 
     const handleExcelDownload = useCallback(() => {
-        if (!filterStartDate && !selectedOrderList?.id) {
-            toast.warning("기준일자를 선택하거나 영화를 선택해주세요.");
+        // 극장명만으로 검색한 결과도 그대로 받을 수 있어야 한다 (O002)
+        if (!hasAnyFilter) {
+            toast.warning("영화를 선택하거나 기준일자·극장명을 입력해주세요.");
             return;
         }
         setIsExcelLoading(true);
-        const params = new URLSearchParams();
-
-        // 조회와 동일하게 모드별 파라미터 분리 (섞이면 화면 목록과 다른 결과가 다운로드됨)
-        if (!isFilterMode) {
-            if (selectedOrderList?.id) params.append("id", String(selectedOrderList.id));
-        } else {
-            if (filterStartDate) params.append("start_date", filterStartDate);
-            if (searchClient.theater?.id) params.append("client_id", String(searchClient.theater.id));
-        }
-
-        if (sortKey) {
-            params.append("ordering", sortOrder === "desc" ? `-${sortKey}` : sortKey);
-        }
+        // 화면 목록과 완전히 같은 조건으로 내려받는다
+        const params = buildParams(sortKey, sortOrder);
 
         AxiosGet(`order-excel-export/?${params.toString()}`, { responseType: "blob" })
             .then((res) => {
@@ -218,7 +204,7 @@ export function OrderDetail({
             .finally(() => {
                 setIsExcelLoading(false);
             });
-    }, [selectedOrderList?.id, filterStartDate, searchClient.theater?.id, isFilterMode, sortKey, sortOrder, toast]);
+    }, [hasAnyFilter, buildParams, sortKey, sortOrder, toast]);
 
     const headers = [
         { key: "format", label: "포맷" },
@@ -315,9 +301,18 @@ export function OrderDetail({
 
             <CommonSectionCard>
                 <CommonListHeader
-                    title="오더 상세 내역"
+                    title={
+                        totalCount > 0
+                            ? `오더 상세 내역 (${orderDetail.length.toLocaleString()}/${totalCount.toLocaleString()})`
+                            : "오더 상세 내역"
+                    }
                     actions={
                         <>
+                            {isLoading && (
+                                <span style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, marginRight: 4 }}>
+                                    불러오는 중…
+                                </span>
+                            )}
                             <ExcelIconButton onClick={handleExcelDownload} isLoading={isExcelLoading} />
                             <CustomIconButton color="blue" onClick={handleAddOrderDetail} title="상세 추가">
                                 <Plus weight="bold" />
@@ -332,6 +327,9 @@ export function OrderDetail({
                         </>
                     }
                 />
+                {/* O005: 페이지 전체가 늘어나면 내부 스크롤(onScrollEnd)이 발화하지 않으므로
+                    목록에 자체 높이를 줘 표 안에서 스크롤되게 한다 */}
+                <div style={{ height: "65vh", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <GenericTable
                     headers={headers}
                     data={orderDetail}
@@ -356,11 +354,10 @@ export function OrderDetail({
                     onSortChange={handleSortChange}
                     sortKey={sortKey}
                     sortOrder={sortOrder}
-                    page={page}
-                    pageSize={pageSize}
-                    totalCount={totalCount}
-                    onPageChange={handlePageChange}
+                    hidePagination
+                    onScrollEnd={handleScrollEnd}
                 />
+                </div>
             </CommonSectionCard>
         </>
     );

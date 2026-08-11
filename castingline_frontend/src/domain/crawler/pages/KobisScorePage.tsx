@@ -13,6 +13,7 @@ import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { ScoreExcelUploader } from "../../score/pages/ScoreExcelUploader";
+import { ScoreDeleteModal } from "../../score/components/ScoreDeleteModal";
 import { KobisAccountSettings } from "./KobisAccountSettings";
 import { KobisScoreVerifyModal } from "./KobisScoreVerifyModal";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
@@ -150,6 +151,18 @@ export const KobisScorePage = () => {
                 distributorName={acc.name}
             />,
             { title: `스코어 검증 — ${acc.name} / ${mv.movieNm}`, width: "1280px" }
+        );
+    };
+
+    // KOBIS 상세내역 업로드는 체인 4사를 뺀 일반극장이 대상이므로 삭제도 같은 범위로 (A001)
+    const openScoreDelete = () => {
+        openModal(
+            <ScoreDeleteModal
+                excludeMultis={["CGV", "메가박스", "롯데", "씨네큐"]}
+                scopeLabel="일반극장(CGV·메가박스·롯데·씨네큐 제외)"
+                sourceLabel="KOBIS 상세내역"
+            />,
+            { title: "스코어 삭제", width: "560px" }
         );
     };
 
@@ -304,6 +317,12 @@ export const KobisScorePage = () => {
                                                     >
                                                         <ListMagnifyingGlass size={14} />
                                                         스코어 검증
+                                                    </ActBtn>
+                                                    <ActBtn
+                                                        onClick={openScoreDelete}
+                                                        style={{ color: "#dc2626", borderColor: "#fecaca" }}
+                                                        title="상영일·영화를 지정해 이미 등록된 스코어를 일괄 삭제합니다.">
+                                                        스코어 삭제
                                                     </ActBtn>
                                                 </RowActions>
                                             )}

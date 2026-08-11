@@ -102,6 +102,9 @@ urlpatterns = [
     path('score/competitor/shows/', score_competitor_shows,
          name='score-competitor-shows'),
 
+    # 19-1. 스코어 일괄 삭제 (업로드 취소 / 기간·영화·멀티 지정 삭제 — A001)
+    path('score/delete/', delete_scores, name='score-delete'),
+
     # 20. 영진위(KOBIS 상세내역) 엑셀 ↔ CLMS 스코어 대사 API
     path('score/verify-kofic/', verify_kofic_score,
          name='score-verify-kofic'),

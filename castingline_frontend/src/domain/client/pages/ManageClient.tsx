@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
-import { AxiosGet, AxiosPost, AxiosPatch } from "../../../axios/Axios";
+import { AxiosGet, AxiosPost, AxiosPatch, AxiosDelete } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
+import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 
 // 공통 컴포넌트
 import { CustomInput } from "../../../components/common/CustomInput";
@@ -251,6 +252,61 @@ export function ManageClient() {
         });
     };
 
+    // 거래처 삭제 (C001) — 연결 데이터가 있으면 건수를 안내하고 한 번 더 확인받는다
+    const handleDeleteClient = () => {
+        if (!selectedClient) {
+            toast.warning("삭제할 거래처를 선택하세요.");
+            return;
+        }
+        const target = selectedClient;
+
+        const afterDelete = (message: string) => {
+            toast.success(message);
+            setClients((prev) => prev.filter((c) => c.id !== target.id));
+            setSelectedClient(null);
+            setFormData({});
+            setScreenData([]);
+            setFeeData([]);
+            setRefreshTrigger((prev) => prev + 1);
+        };
+
+        showAlert(
+            "거래처 삭제",
+            `'${target.client_name}' 거래처를 삭제하시겠습니까? 삭제된 정보는 복구할 수 없습니다.`,
+            "warning",
+            () => {
+                AxiosDelete("clients", target.id)
+                    .then((res) => afterDelete(res.data?.message || "삭제되었습니다."))
+                    .catch((err) => {
+                        const data = err?.response?.data;
+                        if (err?.response?.status === 409 && data?.detail) {
+                            showAlert2(data);
+                            return;
+                        }
+                        toast.error(handleBackendErrors(err));
+                    });
+            },
+            true,
+        );
+
+        // 연결 데이터 건수를 안내하는 2차 확인 모달 (409 응답 후)
+        function showAlert2(data: any) {
+            showAlert(
+                "연결된 데이터가 있습니다",
+                `'${target.client_name}'에 ${data.detail}이(가) 연결되어 있습니다. ` +
+                `그래도 삭제하면 부금·극장명 매핑은 함께 삭제되고, ` +
+                `스코어·오더·부율 등은 거래처 연결이 끊어집니다. 삭제하시겠습니까?`,
+                "warning",
+                () => {
+                    AxiosPost(`clients/${target.id}/force-delete`, {})
+                        .then((res) => afterDelete(res.data?.message || "삭제되었습니다."))
+                        .catch((e) => toast.error(handleBackendErrors(e)));
+                },
+                true,
+            );
+        }
+    };
+
     const handleBulkUpdateSettlement = () => {
         const dept = formData.settlement_department;
 
@@ -407,6 +463,7 @@ export function ManageClient() {
                             selectedClient={selectedClient}
                             handleSelectClient={handleSelectClient}
                             handleAddClient={handleAddClient}
+                            handleDeleteClient={handleDeleteClient}
                             filter={filter}
                             refreshTrigger={refreshTrigger}
                             searchTrigger={searchTrigger}

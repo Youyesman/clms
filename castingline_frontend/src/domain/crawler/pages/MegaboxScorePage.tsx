@@ -12,6 +12,7 @@ import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { ScoreExcelUploader } from "../../score/pages/ScoreExcelUploader";
+import { ScoreDeleteModal } from "../../score/components/ScoreDeleteModal";
 import { MegaboxAccountSettings } from "./MegaboxAccountSettings";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../components/common/CustomInput";
@@ -124,6 +125,13 @@ export const MegaboxScorePage = () => {
                 onUploadSuccess={() => { /* 저장 완료 */ }}
             />,
             { title: `스코어 업로드 — ${acc.name}`, width: "1600px" }
+        );
+    };
+
+    const openScoreDelete = () => {
+        openModal(
+            <ScoreDeleteModal multis={["메가박스"]} sourceLabel="메가박스 스코어" />,
+            { title: "스코어 삭제", width: "560px" }
         );
     };
 
@@ -262,6 +270,12 @@ export const MegaboxScorePage = () => {
                                                 >
                                                     <UploadSimple size={14} />
                                                     스코어 업로드
+                                                </ActBtn>
+                                                <ActBtn
+                                                    onClick={openScoreDelete}
+                                                    style={{ color: "#dc2626", borderColor: "#fecaca" }}
+                                                    title="상영일·영화를 지정해 이미 등록된 스코어를 일괄 삭제합니다.">
+                                                    스코어 삭제
                                                 </ActBtn>
                                             </RowActions>
                                         )}

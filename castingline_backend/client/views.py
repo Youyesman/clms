@@ -57,6 +57,86 @@ class ClientViewSet(viewsets.ModelViewSet):
 
     ordering = ["theater_kind", "classification", "region_code", "client_name"]
 
+    # ── 거래처 삭제 (C001) ──────────────────────────────────────────────
+    # 거래처는 스코어/오더/부율/부금 등 다수 테이블에서 참조된다.
+    # 참조가 있으면 무엇이 사라지는지 건수로 알려 주고, 사용자가 force=true 로
+    # 다시 요청했을 때만 실제로 삭제한다.
+    def _related_counts(self, client):
+        from django.db.models import Q
+
+        from fund.models import Fund, MonthlyFund
+        from movie.models import Movie
+        from order.models import Order
+        from rate.models import Rate
+        from score.models import Score
+
+        from .models import DistributorTheaterMap, Fare, Theater
+
+        counts = [
+            ("스코어", Score.objects.filter(client=client).count()),
+            ("오더", Order.objects.filter(client=client).count()),
+            ("부율", Rate.objects.filter(client=client).count()),
+            ("부금", Fund.objects.filter(client=client).count()),
+            ("월별 부금", MonthlyFund.objects.filter(client=client).count()),
+            ("상영관", Theater.objects.filter(client=client).count()),
+            ("요금", Fare.objects.filter(client=client).count()),
+            (
+                "극장명 매핑",
+                DistributorTheaterMap.objects.filter(
+                    Q(distributor=client) | Q(theater=client)
+                ).count(),
+            ),
+            (
+                "영화(배급사/제작사 지정)",
+                Movie.objects.filter(
+                    Q(distributor=client)
+                    | Q(distributor_2=client)
+                    | Q(distributor_3=client)
+                    | Q(production_company=client)
+                    | Q(production_company_2=client)
+                    | Q(production_company_3=client)
+                ).count(),
+            ),
+            ("사용자 계정", client.users.count()),
+        ]
+        return [(label, n) for label, n in counts if n]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        force = str(
+            request.query_params.get("force") or request.data.get("force") or ""
+        ).lower() in ("1", "true")
+
+        related = self._related_counts(instance)
+        if related and not force:
+            return Response(
+                {
+                    "error": "연결된 데이터가 있어 바로 삭제할 수 없습니다.",
+                    "client_name": instance.client_name,
+                    "related": [{"label": label, "count": n} for label, n in related],
+                    "detail": ", ".join(f"{label} {n:,}건" for label, n in related),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        name = instance.client_name
+        self.perform_destroy(instance)
+        return Response(
+            {"message": f"거래처 '{name}'을(를) 삭제했습니다."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="force-delete")
+    def force_delete(self, request, pk=None):
+        """연결 데이터가 있어도 삭제 (프론트에서 건수 안내 후 재확인한 경우)."""
+        instance = self.get_object()
+        name = instance.client_name
+        self.perform_destroy(instance)
+        return Response(
+            {"message": f"거래처 '{name}'을(를) 삭제했습니다."},
+            status=status.HTTP_200_OK,
+        )
+
     @action(detail=False, methods=["patch"])
     def bulk_update_settlement(self, request):
         target_dept = request.data.get("target_department")

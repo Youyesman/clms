@@ -47,8 +47,10 @@ export function ManageOrder() {
     const [kobisLinked, setKobisLinked] = useState<string>("");
 
     // 오더(메인) 선택 시 핸들러
+    // 이미 선택된 행을 다시 누르면 선택 해제 — 영화 지정 없이 극장명만으로
+    // 상세 내역을 조회할 수 있게 하기 위함 (O001)
     const handleSelectOrderList = (order: any) => {
-        setSelectedOrderList(order);
+        setSelectedOrderList((prev: any) => (prev?.id === order?.id ? null : order));
     };
 
     // 오더 상세(서브) 선택 시 핸들러

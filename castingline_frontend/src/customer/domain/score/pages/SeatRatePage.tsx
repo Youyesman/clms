@@ -447,7 +447,7 @@ export function SeatRatePage() {
                             value={searchParams.yyyy}
                             onChange={(v) => {
                                 setSearchParams((p) => ({ ...p, yyyy: v, movie_id: "" }));
-                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "" }));
+                                setScoreFilter((f) => ({ ...f, yyyy: v, movieId: "", movieTitle: "" }));
                                 setFormatOptions([]);
                                 setSelectedFormats([]);
                             }} variant="chip" />
@@ -464,7 +464,7 @@ export function SeatRatePage() {
                             value={searchParams.movie_id}
                             onChange={(val) => {
                                 setSearchParams((p) => ({ ...p, movie_id: val }));
-                                setScoreFilter((f) => ({ ...f, movieId: val }));
+                                setScoreFilter((f) => ({ ...f, movieId: val, movieTitle: moviesList.find((m) => m.id.toString() === val)?.title_ko || "" }));
                                 fetchMovieFormats(val);
                             }} variant="chip" />
                     </div>

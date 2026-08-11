@@ -274,8 +274,15 @@ export function GenericTable({
   onSelectionChange,
   hidePagination,
   sortable = true,
+  onScrollEnd, // 무한 스크롤: 목록 하단 근처에 도달하면 호출된다 (페이지 넘김 대체)
 }: any) {
   const tableRef = useRef<HTMLTableElement>(null);
+
+  const handleWrapperScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!onScrollEnd) return;
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) onScrollEnd();
+  };
 
   // 내부 정렬 상태 (onSortChange가 없을 때 자체 정렬)
   const [internalSortKey, setInternalSortKey] = useState<string | null>(null);
@@ -376,7 +383,7 @@ export function GenericTable({
         backgroundColor: ui.color.surface,
       }}
     >
-      <TableWrapper>
+      <TableWrapper onScroll={handleWrapperScroll}>
         <StyledTable ref={tableRef}>
           <THead>
             <tr>

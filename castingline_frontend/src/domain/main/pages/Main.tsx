@@ -18,6 +18,8 @@ import { FadeIn } from "../../../components/common/MotionWrapper";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "../../../atom/TabState";
 import SharedMemo from "../components/SharedMemo";
 import SharedCalendar from "../components/SharedCalendar";
+import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { DailyScorePanel } from "../../../customer/domain/dashboard/components/DailyScorePanel";
 
 /* 카드 헤더에 붙는 조회 조건 — 필터 칩과 같은 규격 */
 const HeaderSelect = styled.select`
@@ -155,6 +157,7 @@ export default function Main() {
         navigate(path);
     };
     
+    const { openModal } = useGlobalModal();
     const [recentMovies, setRecentMovies] = useState([]);
     const [, setLoading] = useState(true);
 
@@ -192,6 +195,21 @@ export default function Main() {
     useEffect(() => {
         fetchDailySummary();
     }, [fetchDailySummary]);
+
+    // 영화를 클릭하면 거래처 대시보드의 '전일 스코어' 화면을 팝업으로 보여준다 (D001).
+    // 모달이라 마우스를 옮겨도 닫히지 않고 표 안의 값도 그대로 복사할 수 있다.
+    const openDailyScorePopup = (row: DailySummaryRow) => {
+        if (!row?.movie_id) return;
+        // 모달 본문이 자체 스크롤을 가지므로 안쪽에 별도 스크롤을 만들지 않는다
+        openModal(
+            <DailyScorePanel
+                movieId={String(row.movie_id)}
+                date={summaryDate}
+                title={`${row.title} · ${summaryDate}`}
+            />,
+            { title: "전일 스코어", width: "560px" }
+        );
+    };
 
     const dailySummaryHeaders = [
         { key: "title", label: "영화명" },
@@ -250,6 +268,7 @@ export default function Main() {
                                     headers={dailySummaryHeaders}
                                     data={dailySummary}
                                     getRowKey={(item: any) => `daily-${item.movie_id}`}
+                                    onSelectItem={openDailyScorePopup}
                                     hidePagination
                                 />
                             ) : (

@@ -4,7 +4,6 @@ import { CloudArrowUp, WarningCircle, CheckCircle, FunnelIcon, MinusCircle } fro
 import { AxiosPost } from "../../../axios/Axios";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useToast } from "../../../components/common/CustomToast";
-import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { AutocompleteInputMovie } from "../../../components/common/AutocompleteInputMovie";
@@ -279,7 +278,6 @@ export function ScoreExcelUploader({
     perFileReplace?: boolean;
 }) {
     const toast = useToast();
-    const { closeModal } = useGlobalModal();
     const { showAlert } = useAppAlert();
     const [previewData, setPreviewData] = useState<any[]>([]);
     const [dragging, setDragging] = useState(false);
@@ -428,6 +426,40 @@ export function ScoreExcelUploader({
         return Array.from(set);
     }, [replaceScope]);
 
+    // A001: 방금 확정 저장한 결과 — 있으면 '업로드 취소' 버튼을 노출한다
+    const [savedResult, setSavedResult] = useState<{
+        saved: number;
+        scope: { movie_id: number; entry_date: string; multis: string[] }[];
+        sourceFile: string | null;
+    } | null>(null);
+
+    const handleCancelUpload = () => {
+        if (!savedResult) return;
+        showAlert(
+            "방금 업로드한 스코어를 취소할까요?",
+            `저장한 ${savedResult.saved.toLocaleString()}건이 삭제됩니다. ` +
+            `(교체하면서 지워진 이전 스코어는 복구되지 않습니다.)`,
+            "warning",
+            async () => {
+                setLoading(true);
+                try {
+                    const res = await AxiosPost("score/delete", {
+                        scope: savedResult.scope,
+                        ...(savedResult.sourceFile ? { source_file: savedResult.sourceFile } : {}),
+                    });
+                    toast.success(res.data?.message || "업로드를 취소했습니다.");
+                    setSavedResult(null);
+                    onUploadSuccess();
+                } catch (err) {
+                    toast.error(handleBackendErrors(err));
+                } finally {
+                    setLoading(false);
+                }
+            },
+            true
+        );
+    };
+
     const handleConfirmSave = () => {
         // 재업로드 교체 정책 안내: 이번 파일에 들어있는 멀티의 기존 스코어만 삭제·교체된다.
         // 메일함 CGV/롯데(M001)는 같은 파일명 분량만 교체되고, 다른 파일 스코어는 유지·누적된다.
@@ -456,8 +488,13 @@ export function ScoreExcelUploader({
                             `국가 미지정으로 부율이 생성되지 않은 영화: ${skippedMovies.join(", ")} — 영화관리에서 국가 입력 후 다시 확정 저장하면 생성됩니다.`
                         );
                     }
+                    // A001: 저장 후에도 박스를 닫지 않고 '업로드 취소'를 쓸 수 있게 남겨둔다.
+                    setSavedResult({
+                        saved: res.data?.saved ?? 0,
+                        scope: res.data?.saved_scope || [],
+                        sourceFile: res.data?.saved_source_file || null,
+                    });
                     onUploadSuccess();
-                    closeModal();
                 } catch (err) {
                     toast.error(handleBackendErrors(err));
                 } finally {
@@ -842,7 +879,22 @@ export function ScoreExcelUploader({
                             onClick={handleConfirmSave}>
                             {loading ? "저장 중..." : `${previewData.length}건 확정 저장`}
                         </StyledButton>
+                        {savedResult && (
+                            <StyledButton
+                                $disabled={loading}
+                                disabled={loading}
+                                onClick={handleCancelUpload}
+                                style={{ color: "#dc2626", borderColor: "#fecaca" }}
+                                title="방금 확정 저장한 스코어를 삭제합니다.">
+                                스코어 업로드 취소
+                            </StyledButton>
+                        )}
                     </ActionFooter>
+                    {savedResult && (
+                        <div style={{ color: "#16a34a", fontSize: "12px", textAlign: "right", fontWeight: 700 }}>
+                            ✔ {savedResult.saved.toLocaleString()}건 저장 완료 — 실수라면 [스코어 업로드 취소]를 누르세요.
+                        </div>
+                    )}
                     {hasMatchError && (
                         <div style={{ color: "#dc2626", fontSize: "12px", textAlign: "right" }}>
                             ※ 매칭되지 않은 데이터(빨간색 행)가 있으면 저장할 수 없습니다.

@@ -2180,6 +2180,22 @@ class SettlementEseroExportView(SettlementListView):
         # I001: 맨 끝 '영수(01), 청구(02)' 열은 필수값 — 항상 청구(02)
         receipt_col = 51 if is_over_100 else 59  # over100=AY, under100=BG
 
+        def _write_day_cell(row, column, date_str):
+            """'일자1' 칸 표기 규칙 (E001).
+
+            · 1~9일: 앞의 0을 살려야 하므로 텍스트로 쓰고 작은따옴표 접두(quotePrefix)를
+              붙인다 → 엑셀 수식 입력줄에 '07 로 보이고 셀에는 07 로 표시된다.
+            · 10일 이후: 작은따옴표 없이 숫자 그대로 (14)
+            """
+            day = (date_str or "")[-2:]
+            cell = ws.cell(row=row, column=column)
+            if day.isdigit() and int(day) < 10:
+                cell.value = day
+                cell.quotePrefix = True
+            else:
+                cell.value = int(day) if day.isdigit() else day
+            return cell
+
         def _esero_item_name(item):
             """품목1. 씨네큐 직영은 'YYYYMM '영화명' 부금정산(지점명)' 형식 (I004)."""
             if "씨네큐" in (item.get("멀티구분") or "") and item.get("classification") == "직영":
@@ -2241,7 +2257,7 @@ class SettlementEseroExportView(SettlementListView):
                 ws.cell(row=row_idx, column=22, value=_theater_display(item))
 
                 # W, X: 일자 및 품목명
-                ws.cell(row=row_idx, column=23, value=write_date[-2:])
+                _write_day_cell(row_idx, 23, write_date)
                 ws.cell(row=row_idx, column=24, value=item_name)
 
                 # AA~AC: 단가(합계), 공급가액, 세액
@@ -2266,7 +2282,7 @@ class SettlementEseroExportView(SettlementListView):
                 ws.cell(row=row_idx, column=14, value=_theater_display(item))
 
                 # O, P: 일자 및 품목명
-                ws.cell(row=row_idx, column=15, value=write_date[-2:])
+                _write_day_cell(row_idx, 15, write_date)
                 ws.cell(row=row_idx, column=16, value=item_name)
 
                 # T, U: 품목1 공급가액, 세액

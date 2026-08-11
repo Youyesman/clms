@@ -1,3 +1,5 @@
+from datetime import date
+
 from rest_framework import serializers
 from .models import Rate, DefaultRate, TheaterRate
 from client.serializers import ClientSerializer
@@ -15,6 +17,14 @@ class RateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Rate
         fields = "__all__"
+
+    def validate(self, attrs):
+        # 종료일을 비워두면 무기한(9999-12-31)으로 저장한다.
+        # NULL로 남으면 정산·조회의 기간 필터(end_date >= 기준일)에서 빠져
+        # 부율이 등록됐는데도 빈칸으로 보이는 문제가 생긴다. (P001)
+        if not attrs.get("end_date") and not self.partial:
+            attrs["end_date"] = date(9999, 12, 31)
+        return attrs
 
     def to_representation(self, instance):
         """

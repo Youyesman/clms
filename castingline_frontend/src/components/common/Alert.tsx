@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import styled, { keyframes } from "styled-components";
 import React from "react";
 import ReactDOM from "react-dom";
@@ -186,26 +186,41 @@ export function AlertConfirm({
     const [visible, setVisible] = useState(open);
     const [closing, setClosing] = useState(false);
     const resetGlobalAlertState = useResetRecoilState(GlobalAlertState);
+    // 닫힘 애니메이션 타이머 — 새 알럿이 열리면 취소해야 새 알럿이 지워지지 않는다
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useCloseOnEsc(() => startClose());
 
     useEffect(() => {
         if (open) {
+            // 이전 닫힘 애니메이션이 진행 중이면 취소하고 즉시 표시
+            // (확인 콜백에서 연달아 showAlert를 부르는 2단 확인 패턴 지원)
+            if (closeTimerRef.current) {
+                clearTimeout(closeTimerRef.current);
+                closeTimerRef.current = null;
+            }
             setVisible(true);
             setClosing(false);
         } else {
-            startClose();
+            // 전역 상태는 이미 닫힘 — 로컬 애니메이션만 수행
+            animateOut();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
-    const startClose = () => {
+    const animateOut = () => {
         setClosing(true);
-
-        setTimeout(() => {
+        closeTimerRef.current = setTimeout(() => {
             setClosing(false);
             setVisible(false);
-            resetGlobalAlertState(); // ⭐ 여기 딱 1번만!
+            closeTimerRef.current = null;
         }, 250);
+    };
+
+    const startClose = () => {
+        // 전역 상태를 즉시 리셋 — 지연 리셋이 이후에 열린 새 알럿을 지우는 버그 방지.
+        // open=false 로 바뀌면서 위 useEffect가 닫힘 애니메이션을 처리한다.
+        resetGlobalAlertState();
     };
 
     const handleConfirmBtn = () => {
