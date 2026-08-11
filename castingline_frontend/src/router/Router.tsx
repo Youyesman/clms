@@ -19,6 +19,7 @@ import { ScreenCountPage } from "../customer/domain/time_table/pages/ScreenCount
 import { ShowCountPage } from "../customer/domain/time_table/pages/ShowCountPage";
 import LandingPage from "../domain/landing/pages/LandingPage";
 import { CustomerDashboard } from "../customer/domain/dashboard/pages/CustomerDashboard";
+import { MyProfile } from "../domain/auth/pages/MyProfile";
 
 const router = createBrowserRouter([
     {
@@ -31,6 +32,8 @@ const router = createBrowserRouter([
 
             // ── 일반 유저용 페이지 ──
             { path: "dashboard", element: <CustomerDashboard /> },
+            // 고객 계정용 내 정보 수정 (관리자는 /manage/my_profile 사용)
+            { path: "my_profile", element: <MyProfile /> },
             { path: "score", element: <ScorePage /> },
             { path: "score/criteria", element: <CriteriaPage /> },
             { path: "score/daily", element: <DailyStatusPage /> },

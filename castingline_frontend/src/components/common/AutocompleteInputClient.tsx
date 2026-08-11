@@ -22,7 +22,7 @@ interface Client {
 }
 
 interface AutocompleteInputProps {
-    type: "distributor" | "distributor_2" | "distributor_3" | "production_company" | "production_company_2" | "production_company_3" | "client" | "theater";
+    type: "distributor" | "distributor_2" | "distributor_3" | "production_company" | "production_company_2" | "production_company_3" | "client" | "theater" | "client_company";
     formData: any;
     setFormData: React.Dispatch<React.SetStateAction<any>>;
     placeholder?: string;
@@ -217,6 +217,7 @@ const TYPE_MAP: Record<string, string> = {
     production_company_3: "제작사",
     client: "극장",
     theater: "극장",
+    client_company: "배급사,제작사", // 사용자 소속사 지정용 — 배급사·제작사 통합 검색 (백엔드가 콤마 다중값 지원)
 };
 
 // 뱃지 색상은 배급사/제작사 구분으로 표시
@@ -256,6 +257,14 @@ export function AutocompleteInputClient({
 
     const isChip = variant === "chip";
     const showInternalLabel = label && labelPlacement === "left";
+
+    // 통합 검색(client_company)은 항목마다 유형이 다르므로 실제 client_type 기준으로 뱃지 색 결정
+    const badgeTypeOf = (client?: Client | null) => {
+        if (type === "client_company") {
+            return client?.client_type === "배급사" ? "distributor" : "production_company";
+        }
+        return BADGE_TYPE_MAP[type] || type;
+    };
 
     // ✅ 드롭다운 위치 계산 로직 (Portal 사용 위함)
     useEffect(() => {
@@ -420,7 +429,7 @@ export function AutocompleteInputClient({
                     />
 
                     {/* 선택 완료 시 나타나는 유형 뱃지 (예: 배급사, 제작사) */}
-                    {isSelected && <TypeBadge $type={BADGE_TYPE_MAP[type] || type}>{formData[type]?.client_type}</TypeBadge>}
+                    {isSelected && <TypeBadge $type={badgeTypeOf(formData[type])}>{formData[type]?.client_type}</TypeBadge>}
 
                     <IconBox>
                         <MagnifyingGlass size={16} weight="bold" />
@@ -437,7 +446,7 @@ export function AutocompleteInputClient({
                                     onClick={() => handleSelectSuggestion(client)}
                                     $isSelected={index === selectedIndex}>
                                     <span>{client.client_name}</span>
-                                    <TypeBadge $type={BADGE_TYPE_MAP[type] || type}>{client.client_type}</TypeBadge>
+                                    <TypeBadge $type={badgeTypeOf(client)}>{client.client_type}</TypeBadge>
                                 </SuggestionItem>
                             ))}
                         </Dropdown>,

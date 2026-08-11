@@ -63,6 +63,10 @@ function UserInform({ }) {
 
     const resetAccount = useResetRecoilState(AccountState);
 
+    // 관리자는 /manage 하위(탭 시스템) 경로, 고객은 일반 경로 사용
+    // (/manage/*는 PrivateRouter가 superuser만 통과시키므로 고객은 진입 불가)
+    const profilePath = nowAccount?.is_superuser ? "/manage/my_profile" : "/my_profile";
+
     const logout = async () => {
         if (token) {
             resetAccount();
@@ -85,9 +89,9 @@ function UserInform({ }) {
                         weight="duotone" 
                         color="#2563eb"
                         style={{ cursor: "pointer" }}
-                        onClick={() => navigate("/manage/my_profile")} 
+                        onClick={() => navigate(profilePath)}
                     />
-                    <div className="user-inform" onClick={() => navigate("/manage/my_profile")}>
+                    <div className="user-inform" onClick={() => navigate(profilePath)}>
                         <h1>{nowAccount.username}</h1>
                         {nowAccount.team && <h6>{nowAccount.team}</h6>}
                     </div>

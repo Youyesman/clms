@@ -12,6 +12,7 @@ import { CustomInput } from "../../../components/common/CustomInput";
 import { CustomButton } from "../../../components/common/CustomButton";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
+import { AutocompleteInputClient } from "../../../components/common/AutocompleteInputClient";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
 
@@ -77,6 +78,7 @@ interface UserFormData {
     country: string;
     groups: number[];
     is_superuser: boolean;
+    client: number | null; // 소속사(배급사/제작사 Client) FK — 고객 계정 데이터 필터링 기준
 }
 
 interface UserRecord extends Omit<UserFormData, "password"> {
@@ -106,6 +108,9 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
         groups: [] as number[],
         is_superuser: false,
     });
+    // 소속사(배급사/제작사) 선택 상태 (AutocompleteInputClient가 { client_company: Client } 형태로 읽고 씀)
+    const [clientPick, setClientPick] = useState<any>({ client_company: null });
+    const [clientInput, setClientInput] = useState("");
 
     useEffect(() => {
         // 사용 가능한 그룹(권한) 목록 조회
@@ -118,6 +123,13 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
                 groups: user.groups || [],
                 is_superuser: user.is_superuser || false,
             });
+            // 수정 모드: 기존 소속사를 자동완성 입력에 채움
+            setClientPick({
+                client_company: user.client
+                    ? { id: user.client, client_name: user.client_name || "", client_type: user.client_type || "" }
+                    : null,
+            });
+            setClientInput(user.client_name || "");
         }
     }, [user]);
 
@@ -126,14 +138,20 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
     };
 
     const handleSubmit = async () => {
+        // 소속사명을 입력만 하고 목록에서 선택하지 않으면 id가 없음 → 저장 전 확인
+        if (clientPick.client_company?.client_name && !clientPick.client_company?.id) {
+            toast.warning("소속사를 검색 목록에서 선택해주세요.");
+            return;
+        }
+        const clientId = clientPick.client_company?.id ?? null;
         try {
             if (user) {
-                const payload: Partial<UserFormData> = { ...formData };
+                const payload: Partial<UserFormData> = { ...formData, client: clientId };
                 if (!payload.password) delete payload.password;
                 await AxiosPatch(`users`, payload, user.id);
                 toast.success("수정되었습니다.");
             } else {
-                await AxiosPost(`users`, formData);
+                await AxiosPost(`users`, { ...formData, client: clientId });
                 toast.success("생성되었습니다.");
             }
             onSuccess();
@@ -166,6 +184,16 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
                 options={[{ label: "고객", value: "false" }, { label: "관리자", value: "true" }]}
                 value={String(formData.is_superuser)}
                 onChange={(v) => handleChange("is_superuser", v === "true")}
+            />
+
+            <AutocompleteInputClient
+                type="client_company"
+                label="소속사"
+                placeholder="배급사/제작사명 검색 후 목록에서 선택"
+                formData={clientPick}
+                setFormData={setClientPick}
+                inputValue={clientInput}
+                setInputValue={setClientInput}
             />
 
             <CustomSelect
