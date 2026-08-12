@@ -5,9 +5,10 @@ import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete } from "../../../axios/Axi
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
-import { Play, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, DownloadSimple, FileXls, Spinner, FilmStrip } from "@phosphor-icons/react";
+import { Play, CircleNotch, CheckCircle, WarningCircle, StopCircleIcon, DownloadSimple, FileXls, FilePdf, Spinner, FilmStrip } from "@phosphor-icons/react";
 import { useAppAlert } from "../../../atom/alertUtils";
 import { ScheduleExportModal } from "./ScheduleExportModal";
+import { ReportModal } from "./ReportModal";
 
 // --- Types ---
 interface IChoiceCompany {
@@ -130,6 +131,14 @@ const GhostBtn = styled.button`
     }
 `;
 
+/** P001 보고서 생성 — PDF 관례색(빨강) */
+const ReportBtn = styled(PrimaryBtn)`
+    background: #dc2626;
+    &:hover:not(:disabled) {
+        background: #b91c1c;
+    }
+`;
+
 /** 엑셀 다운로드 — 엑셀은 초록이 관례라 색만 다르고 규격은 동일 */
 const ExcelBtn = styled(PrimaryBtn)`
     background: #16a34a;
@@ -181,6 +190,8 @@ export const CrawlerPage = () => {
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
 
     const [showExportModal, setShowExportModal] = useState(false);
+    // P001: 상영현황 보고서(PDF/엑셀) 생성 모달
+    const [showReportModal, setShowReportModal] = useState(false);
     const [showCrawlModal, setShowCrawlModal] = useState(false);
 
     // 실패 상세 모달
@@ -433,9 +444,9 @@ export const CrawlerPage = () => {
     };
 
     const handleExcelDownload = () => {
-        const mainMovies = targets.filter(t => t.movie_type === 'main' && t.is_active);
-        if (mainMovies.length === 0) {
-            toast.error("크롤 대상 영화에 주요작을 먼저 등록해주세요.");
+        // E006: 주요작이 없어도(경쟁작만 등록) 다운로드 모달을 연다
+        if (!targets.some(t => t.is_active)) {
+            toast.error("크롤 대상 영화를 먼저 등록해주세요.");
             return;
         }
         if (!config.crawlStartDate) {
@@ -572,13 +583,20 @@ export const CrawlerPage = () => {
                 <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>크롤러 관리</span>
                     <div style={{ display: 'flex', gap: 8 }}>
+                        {/* E006: 주요작 없이 경쟁작만 있어도 다운로드 가능 */}
                         <ExcelBtn onClick={handleExcelDownload}
-                            disabled={!targets.some(t => t.movie_type === 'main' && t.is_active)}
-                            
+                            disabled={!targets.some(t => t.is_active)}
                         >
                             <FileXls size={14} weight="fill" />
                             엑셀 다운로드
                         </ExcelBtn>
+                        {/* P001: 상영현황 보고서 (PDF/엑셀) */}
+                        <ReportBtn onClick={() => setShowReportModal(true)}
+                            disabled={!targets.some(t => t.is_active)}
+                        >
+                            <FilePdf size={14} weight="fill" />
+                            보고서 생성
+                        </ReportBtn>
                         <PrimaryBtn onClick={() => setShowCrawlModal(true)}
                             
                         >
@@ -918,6 +936,15 @@ export const CrawlerPage = () => {
             <ScheduleExportModal
                 isOpen={showExportModal}
                 onClose={() => setShowExportModal(false)}
+                startDate={config.crawlStartDate}
+                endDate={config.crawlEndDate || config.crawlStartDate}
+                mainMovies={targets.filter(t => t.movie_type === 'main' && t.is_active)}
+            />
+
+            {/* P001: 상영현황 보고서 생성 모달 */}
+            <ReportModal
+                isOpen={showReportModal}
+                onClose={() => setShowReportModal(false)}
                 startDate={config.crawlStartDate}
                 endDate={config.crawlEndDate || config.crawlStartDate}
                 mainMovies={targets.filter(t => t.movie_type === 'main' && t.is_active)}

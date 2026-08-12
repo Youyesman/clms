@@ -213,7 +213,8 @@ export const MegaboxScorePage = () => {
                                 <th>배급사</th>
                                 <th>영화</th>
                                 <th style={{ width: 70 }}>행수</th>
-                                <th style={{ width: 220 }}>작업</th>
+                                {/* B001: KOBIS 상세내역과 동일한 작업 박스 크기 */}
+                                <th style={{ width: 330 }}>작업</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -472,6 +473,7 @@ const ActBtn = styled.button<{ $variant?: "upload" }>`
     border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
     cursor: pointer;
     border: 1px solid
         ${({ $variant }) => ($variant === "upload" ? "#2563eb" : "#cbd5e1")};

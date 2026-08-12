@@ -117,11 +117,13 @@ const TableSection = styled.div`
     overflow: hidden;
 `;
 
-// R001: 지역별/멀티별 총괄은 집계값과 무관하게 아래 순서로 고정 표시한다.
+// R001: 지역별/멀티별/기간별 총괄은 집계값과 무관하게 아래 순서로 고정 표시한다.
 // (사용자가 표 헤더를 눌러 직접 정렬하면 그때만 값 정렬로 전환)
 const FIXED_SECTION_ORDER: Record<string, string[]> = {
     region: ["경강", "경남", "경북", "서울", "충청", "호남"],
     multi: ["CGV", "롯데", "메가박스", "씨네큐", "일반극장"],
+    // 기간별총괄도 지역 단위 행이므로 같은 순서로 고정 (R001 0812)
+    period: ["경강", "경남", "경북", "서울", "충청", "호남"],
 };
 
 export function ScorePage() {

@@ -166,6 +166,9 @@ const Button = styled.button<{ $variant?: "primary" | "secondary" }>`
     `}
 `;
 
+// E005: 특별 상영 포맷 빠른 선택 (백엔드 canonical 태그와 동일 표기)
+const SPECIAL_FORMATS = ["IMAX", "3D", "4DX", "SUPER-4D", "DOLBY", "ATMOS", "SCREENX", "MX4D"];
+
 export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
     isOpen,
     onClose,
@@ -175,6 +178,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
 }) => {
     const toast = useToast();
     const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
+    // E006: 주요작 없이(경쟁작만) 다운로드
+    const [noMain, setNoMain] = useState(false);
     const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true, normal: true });
     const [exportStartDate, setExportStartDate] = useState(startDate);
     const [exportEndDate, setExportEndDate] = useState(endDate || startDate);
@@ -198,12 +203,14 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
 
     if (!isOpen) return null;
 
-    const selectedMovie = mainMovies.find((m) => m.id === selectedMovieId) || (mainMovies.length === 1 ? mainMovies[0] : null);
+    const selectedMovie = noMain
+        ? null
+        : mainMovies.find((m) => m.id === selectedMovieId) || (mainMovies.length === 1 ? mainMovies[0] : null);
     const specialMovie = crawlTargets.find((m) => m.id === specialMovieId) || null;
 
     const handleExport = async () => {
-        if (!selectedMovie) {
-            toast.warning("영화를 선택해주세요.");
+        if (!selectedMovie && !noMain) {
+            toast.warning("영화를 선택하거나 '주요작 없이 다운로드'를 선택해주세요.");
             return;
         }
 
@@ -226,7 +233,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                 {
                     start_date: exportStartDate,
                     end_date: exportEndDate,
-                    movie_title: selectedMovie.clean_title || selectedMovie.title,
+                    // E006: 주요작 없이 다운로드 시 movie_title 미전송 → 경쟁작만 내보냄
+                    movie_title: selectedMovie ? selectedMovie.clean_title || selectedMovie.title : undefined,
                     brands: brands.length < 4 ? brands : undefined,
                 },
                 { responseType: "blob" }
@@ -240,7 +248,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
             link.href = url;
 
             const contentDisposition = response.headers?.["content-disposition"];
-            let filename = `${selectedMovie.title}_schedule.xlsx`;
+            let filename = `${selectedMovie ? selectedMovie.title : "경쟁작"}_schedule.xlsx`;
             if (contentDisposition) {
                 const match = contentDisposition.match(/filename="?([^"]+)"?/);
                 if (match?.[1]) filename = match[1];
@@ -354,11 +362,19 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                                 <MovieItem
                                     key={m.id}
                                     $selected={selectedMovie?.id === m.id}
-                                    onClick={() => setSelectedMovieId(m.id)}
+                                    onClick={() => { setSelectedMovieId(m.id); setNoMain(false); }}
                                 >
                                     {m.title}
                                 </MovieItem>
                             ))}
+                            {/* E006: 주요작 없이(경쟁작만) 다운로드 — 상영시간표 시트 없이 경쟁작·비교표만 생성 */}
+                            <MovieItem
+                                $selected={noMain}
+                                onClick={() => { setNoMain(true); setSelectedMovieId(null); }}
+                                style={{ borderStyle: "dashed" }}
+                            >
+                                주요작 없이 다운로드 (경쟁작만 — 상영시간표 시트 제외)
+                            </MovieItem>
                         </MovieList>
                     </div>
 
@@ -375,7 +391,38 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
                         <SectionLabel>특수상영 다운로드</SectionLabel>
                         <div style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 8px" }}>
-                            <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV 등)가 든 스케줄만 위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
+                            <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV·IMAX 등)가 든 스케줄만 위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
+                            특별 상영 포맷은 아래 버튼으로 추가할 수 있습니다.
+                        </div>
+                        {/* E005: 특별 상영 포맷 빠른 선택 — 클릭 시 키워드에 추가/제거 */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                            {SPECIAL_FORMATS.map((f) => {
+                                const kws = specialKeyword.split(",").map((k) => k.trim()).filter(Boolean);
+                                const active = kws.includes(f);
+                                return (
+                                    <button
+                                        key={f}
+                                        type="button"
+                                        onClick={() => {
+                                            const next = active ? kws.filter((k) => k !== f) : [...kws, f];
+                                            setSpecialKeyword(next.join(", "));
+                                        }}
+                                        style={{
+                                            padding: "3px 10px",
+                                            borderRadius: 999,
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            fontFamily: "SUIT, sans-serif",
+                                            cursor: "pointer",
+                                            border: `1px solid ${active ? "#16a34a" : "#cbd5e1"}`,
+                                            background: active ? "#f0fdf4" : "#ffffff",
+                                            color: active ? "#15803d" : "#64748b",
+                                        }}
+                                    >
+                                        {f}
+                                    </button>
+                                );
+                            })}
                         </div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                             <select
@@ -408,7 +455,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                 </Body>
                 <Footer>
                     <Button onClick={onClose}>취소</Button>
-                    <Button $variant="primary" onClick={handleExport} disabled={isExporting || !selectedMovie}>
+                    <Button $variant="primary" onClick={handleExport} disabled={isExporting || (!selectedMovie && !noMain)}>
                         {isExporting ? <Spinner className="spin" size={16} /> : <DownloadSimple size={16} weight="bold" />}
                         다운로드
                     </Button>

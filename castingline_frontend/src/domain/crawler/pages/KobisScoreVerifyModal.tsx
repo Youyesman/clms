@@ -9,6 +9,7 @@ import {
 import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { AutocompleteInputMovie } from "../../../components/common/AutocompleteInputMovie";
+import { ClientMappingQuickEdit } from "../../score/pages/ClientMappingQuickEdit";
 
 /* ───── types ───── */
 interface IMovieBrief {
@@ -100,6 +101,9 @@ export const KobisScoreVerifyModal = ({
     }>({ movie: { id: undefined, title_ko: "" } });
     const [movieInput, setMovieInput] = useState("");
 
+    // S001: 미매핑 극장 행에서 '극장 매핑' 클릭 시 영진위 극장명 등록 패널 대상
+    const [editingClient, setEditingClient] = useState<{ rawClientName: string } | null>(null);
+
     const verify = useCallback(
         async (movieId?: string) => {
             setLoading(true);
@@ -153,6 +157,15 @@ export const KobisScoreVerifyModal = ({
         if (movieForm.movie?.id) verify(String(movieForm.movie.id));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieForm.movie?.id]);
+
+    // S001: 극장 매핑 패널 닫기 — 영진위 극장명이 등록됐으면 같은 영화로 다시 검증
+    const handleClientEditClose = (changed: boolean) => {
+        setEditingClient(null);
+        if (changed) {
+            toast.info("극장 매핑이 등록되어 다시 검증합니다.");
+            verify(result ? String(result.movie.id) : undefined);
+        }
+    };
 
     const copyDiffs = () => {
         if (!result?.diffs.length) return;
@@ -283,15 +296,17 @@ export const KobisScoreVerifyModal = ({
                         </Stat>
                     </Stats>
 
+                    {/* S001: 스코어 업로드와 동일하게 미매핑 극장을 에러 데이터로 표기하고
+                        바로 극장 매핑(영진위 극장명 등록)할 수 있게 한다 */}
                     {result.unmatched.length > 0 && (
                         <Section>
                             <SecTitle $warn>
                                 <Warning size={16} weight="fill" />
-                                CLMS에 매핑되지 않은 극장 {n(result.unmatched.length)}곳 — 비교 대상에서
-                                제외됨
+                                매핑되지 않은 극장 {n(result.unmatched.length)}곳
                             </SecTitle>
                             <Hint>
-                                거래처관리에서 해당 극장의 <b>영진위 극장명</b>을 등록하면 비교됩니다.
+                                [극장 매핑]을 누르면 [거래처 관리] 극장 기본 정보의{" "}
+                                <b>영진위 극장명</b>에 저장되어 바로 다시 검증합니다.
                             </Hint>
                             <Table>
                                 <thead>
@@ -304,11 +319,20 @@ export const KobisScoreVerifyModal = ({
                                 </thead>
                                 <tbody>
                                     {result.unmatched.map((u) => (
-                                        <tr key={u.theater_name}>
+                                        <tr key={u.theater_name} className="errorRow">
                                             <td>{u.theater_name}</td>
                                             <td className="num">{n(u.visitor)}</td>
                                             <td className="num">{n(u.rows)}</td>
-                                            <td className="dim">{u.error}</td>
+                                            <td>
+                                                <span className="err">{u.error}</span>
+                                                <MapBtn
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setEditingClient({ rawClientName: u.theater_name })
+                                                    }>
+                                                    극장 매핑
+                                                </MapBtn>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -386,6 +410,14 @@ export const KobisScoreVerifyModal = ({
                     )}
                 </>
             )}
+
+            {/* S001: 미매핑 극장 행에서 '극장 매핑' 클릭 시 인라인 매핑 패널 (스코어 업로드와 동일) */}
+            {editingClient && (
+                <ClientMappingQuickEdit
+                    rawClientName={editingClient.rawClientName}
+                    onClose={handleClientEditClose}
+                />
+            )}
         </Wrap>
     );
 };
@@ -395,6 +427,8 @@ const Wrap = styled.div`
     font-family: "SUIT", sans-serif;
     font-size: 13px;
     color: #1e293b;
+    /* S001: 극장 매핑 패널(Overlay, absolute)이 모달 전체를 덮도록 기준 컨테이너로 지정 */
+    position: relative;
 `;
 const TopInfo = styled.div`
     display: flex;
@@ -604,6 +638,28 @@ const Table = styled.table`
         color: #94a3b8;
         font-size: 11.5px;
     }
+    /* S001: 미매핑 극장 = 에러 데이터 표기 (스코어 업로드와 동일한 붉은 행) */
+    tr.errorRow {
+        background: #fef2f2;
+    }
+    .err {
+        color: #dc2626;
+        font-size: 11.5px;
+        font-weight: 700;
+    }
+`;
+/* S001: 행 안의 '극장 매핑' 버튼 — 스코어 업로드의 FixButton과 동일한 모양 */
+const MapBtn = styled.button`
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ffffff;
+    background: #dc2626;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
 `;
 const Tag = styled.span<{ $kind: IDiff["kind"] }>`
     display: inline-block;

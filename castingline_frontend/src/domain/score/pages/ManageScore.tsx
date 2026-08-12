@@ -12,7 +12,6 @@ import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
 import { useAppAlert } from "../../../atom/alertUtils";
-import { GlobalSkeleton } from "../../../components/common/GlobalSkeleton";
 import { ScoreExcelUploader } from "./ScoreExcelUploader";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
@@ -341,7 +340,8 @@ export function ManageScore() {
                     />
                     <TableWrapper>
                         {loading ? (
-                            <GlobalSkeleton />
+                            /* L001: 전역 GlobalSkeleton이 오버레이를 띄우므로 테이블 영역엔 문구만 */
+                            <EmptyState>데이터 조회 중...</EmptyState>
                         ) : groupedScores.length === 0 ? (
                             <EmptyState>조회된 스코어 데이터가 없습니다.</EmptyState>
                         ) : (

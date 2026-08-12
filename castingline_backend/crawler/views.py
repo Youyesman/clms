@@ -761,11 +761,12 @@ class CrawlerScheduleExportView(APIView):
     def post(self, request):
         start_date_str = request.data.get('start_date') or request.data.get('date')
         end_date_str = request.data.get('end_date') or start_date_str
+        # E006: movie_title(주요작) 없이도 경쟁작만으로 다운로드 가능
         movie_title = request.data.get('movie_title')
         brands = request.data.get('brands')  # ["CGV", "LOTTE", "MEGABOX"] 형태
 
-        if not start_date_str or not movie_title:
-            return Response({"error": "start_date/date and movie_title are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not start_date_str:
+            return Response({"error": "start_date/date is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Support both YYYYMMDD and YYYY-MM-DD formats
@@ -799,7 +800,8 @@ class CrawlerScheduleExportView(APIView):
                         matched_ids.append(schedule.id)
                 return base_qs.filter(id__in=matched_ids)
 
-            main_qs = filter_by_title(qs, movie_title) if movie_title else qs
+            # E006: 주요작 미지정 시 상영시간표 시트 없이 경쟁작만 내보낸다
+            main_qs = filter_by_title(qs, movie_title) if movie_title else MovieSchedule.objects.none()
 
             # --- Competitor Data ---
             from crawler.models import CrawlTargetMovie
@@ -893,6 +895,75 @@ class CrawlerSpecialExportView(APIView):
             return Response({"error": "날짜 형식 오류"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Special Export Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerReportView(APIView):
+    """
+    P001: 영화 상영현황 보고서 생성 (PDF/엑셀).
+    Body: start_date, end_date, format('pdf'|'excel'),
+          mode('main'|'none'), main_title(mode='main'일 때 필수)
+    [시간표 수집] DB에서 기준기간·전주(-7일) 데이터를 집계해 A4 가로 3페이지
+    보고서를 만든다. (개발요청서 '시간표_보고서_최종개발요청서' 기준)
+    """
+    def post(self, request):
+        import re as _re
+        from django.conf import settings as dj_settings
+        from crawler.report.aggregation import build_report_data
+        from crawler.report.pdf_renderer import build_pdf
+        from crawler.report.excel_renderer import build_excel
+
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date') or start_date_str
+        fmt = (request.data.get('format') or 'pdf').lower()
+        mode = request.data.get('mode') or 'main'
+        main_title = (request.data.get('main_title') or '').strip()
+
+        if not start_date_str:
+            return Response({"error": "start_date는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        if mode == 'main' and not main_title:
+            return Response({"error": "주요작 있음 보고서는 main_title이 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+        if fmt not in ('pdf', 'excel'):
+            return Response({"error": "format은 pdf 또는 excel이어야 합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            def parse_date(s):
+                s = s.strip()
+                return datetime.strptime(s, "%Y-%m-%d").date() if '-' in s else datetime.strptime(s, "%Y%m%d").date()
+
+            start_date = parse_date(start_date_str)
+            end_date = parse_date(end_date_str)
+            if end_date < start_date:
+                return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+            data = build_report_data(start_date, end_date,
+                                     main_title=main_title if mode == 'main' else None)
+
+            save_dir = os.path.join(dj_settings.BASE_DIR, 'media', 'crawler_exports')
+            os.makedirs(save_dir, exist_ok=True)
+            if mode == 'main':
+                safe = _re.sub(r'[\\/*?:"<>|]', "", main_title).replace(" ", "")
+            else:
+                safe = "주요작X"
+            ext = 'pdf' if fmt == 'pdf' else 'xlsx'
+            filename = f"상영현황보고서_{safe}_{start_date}~{end_date}.{ext}"
+            file_path = os.path.join(save_dir, filename)
+
+            if fmt == 'pdf':
+                build_pdf(data, file_path)
+            else:
+                build_excel(data, file_path)
+
+            if data.get("warnings"):
+                logger.warning(f"Report validation warnings: {data['warnings']}")
+
+            return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
+
+        except ValueError as e:
+            # 날짜 형식 오류 또는 집계 단계의 사용자용 안내 메시지
+            return Response({"error": str(e) or "날짜 형식 오류"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception(f"Report Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

@@ -256,16 +256,24 @@ def _resolve_normal_theater(theater_name, screen_name, normal_index):
     return {'region': region, 'seat': _safe_int(seat), 'client_name': c.client_name}
 
 
+# E004: 특별 상영 포맷 canonical 태그 표시 순서 (MovieSchedule.extract_format_tags 가 저장)
+SPECIAL_FORMAT_ORDER = ["IMAX", "4DX", "SUPER-4D", "MX4D", "SCREENX", "DOLBY", "ATMOS", "3D"]
+
+
 def _extract_format_and_type(tags):
     """Extract format (2D/IMAX/DOLBY...) and sub_type (일반/자막/더빙) from tags."""
-    fmt = "2D"
+    tag_uppers = [str(t).upper() for t in (tags or [])]
+    tag_set = set(tag_uppers)
+    # canonical 포맷 태그(E004) 우선 — 복합 포맷은 'IMAX 3D'처럼 이어 붙인다
+    fmt_parts = [f for f in SPECIAL_FORMAT_ORDER if f in tag_set]
+    if not fmt_parts:
+        # 구버전 태그(제목 괄호에서 추출된 원문 등) 호환: 키워드 포함 검사
+        for t in tag_uppers:
+            if any(f in t for f in ("IMAX", "4DX", "SCREENX", "DOLBY", "ATMOS")):
+                fmt_parts = [t]
+                break
+    fmt = " ".join(fmt_parts) if fmt_parts else "2D"
     sub_type = "일반"
-    special_formats = ["IMAX", "4DX", "SCREENX", "DOLBY", "ATMOS"]
-    for t in (tags or []):
-        t_upper = str(t).upper()
-        if any(f in t_upper for f in special_formats):
-            fmt = t_upper
-            break
     if "자막" in (tags or []):
         sub_type = "자막"
     elif "더빙" in (tags or []):
@@ -614,257 +622,10 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
     _auto_width(ws, min_row=4)
 
 
-def _write_brand_summary(ws, all_data):
-    """Write 계열사별 summary sheet."""
-    headers = ['상영일자', '계열사', '극장수', '상영회차', '상영관수', '총 좌석수', '평균회차', '평균좌석수', '평균좌판율']
-
-    for ci, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=ci, value=h)
-        cell.fill = BLUE_FILL
-        cell.font = HEADER_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = CENTER
-
-    row_idx = 2
-
-    for proc_date, rows in all_data.items():
-        date_str = proc_date.strftime("%Y-%m-%d")
-        date_start_row = row_idx
-
-        for brand in BRAND_ORDER:
-            brand_rows = [r for r in rows if r['brand'] == brand]
-            if not brand_rows:
-                continue
-
-            s = _calc_summary(brand_rows)
-            vals = [
-                date_str if row_idx == date_start_row else '',
-                _brand_display(brand),
-                _fmt_number(s['theater_count']),
-                _fmt_number(s['show_count']),
-                _fmt_number(s['screen_count']),
-                _fmt_number(s['total_seats']),
-                str(s['avg_shows']),
-                str(s['avg_seats']),
-                str(s['avg_sold_rate'])
-            ]
-
-            for ci, v in enumerate(vals, 1):
-                cell = ws.cell(row=row_idx, column=ci, value=v)
-                cell.border = THIN_BORDER
-                cell.alignment = CENTER
-                if ci == 1 and v:
-                    cell.fill = BLUE_FILL
-                    cell.font = BOLD_FONT
-                elif ci == 2:
-                    cell.font = BOLD_FONT
-                else:
-                    cell.font = DATA_FONT
-
-            row_idx += 1
-
-        # 합 row
-        s = _calc_summary(rows)
-        vals = [
-            '', '합',
-            _fmt_number(s['theater_count']),
-            _fmt_number(s['show_count']),
-            _fmt_number(s['screen_count']),
-            _fmt_number(s['total_seats']),
-            str(s['avg_shows']),
-            str(s['avg_seats']),
-            str(s['avg_sold_rate'])
-        ]
-
-        for ci, v in enumerate(vals, 1):
-            cell = ws.cell(row=row_idx, column=ci, value=v)
-            cell.border = THIN_BORDER
-            cell.alignment = CENTER
-            cell.fill = YELLOW_LIGHT
-            cell.font = BOLD_FONT
-
-        # Merge date column
-        if row_idx > date_start_row:
-            ws.merge_cells(start_row=date_start_row, start_column=1, end_row=row_idx, end_column=1)
-
-        row_idx += 1
-
-    ws.sheet_view.showGridLines = False
-    _auto_width(ws)
-
-
-def _write_region_summary(ws, all_data):
-    """Write 지역별 summary sheet."""
-    headers = ['상영일자', '지역', '극장수', '상영회차', '상영관수', '총 좌석수', '평균회차', '평균좌석수', '평균좌판율']
-
-    for ci, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=ci, value=h)
-        cell.fill = BLUE_FILL
-        cell.font = HEADER_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = CENTER
-
-    row_idx = 2
-
-    for proc_date, rows in all_data.items():
-        date_str = proc_date.strftime("%Y-%m-%d")
-        date_start_row = row_idx
-
-        regions = sorted(set(r['region'] for r in rows))
-
-        for region in regions:
-            region_rows = [r for r in rows if r['region'] == region]
-            s = _calc_summary(region_rows)
-
-            vals = [
-                date_str if row_idx == date_start_row else '',
-                region,
-                _fmt_number(s['theater_count']),
-                _fmt_number(s['show_count']),
-                _fmt_number(s['screen_count']),
-                _fmt_number(s['total_seats']),
-                str(s['avg_shows']),
-                str(s['avg_seats']),
-                str(s['avg_sold_rate'])
-            ]
-
-            for ci, v in enumerate(vals, 1):
-                cell = ws.cell(row=row_idx, column=ci, value=v)
-                cell.border = THIN_BORDER
-                cell.alignment = CENTER
-                if ci == 1 and v:
-                    cell.fill = BLUE_FILL
-                    cell.font = BOLD_FONT
-                else:
-                    cell.font = DATA_FONT
-
-            row_idx += 1
-
-        # 합 row
-        s = _calc_summary(rows)
-        vals = [
-            '', '합',
-            _fmt_number(s['theater_count']),
-            _fmt_number(s['show_count']),
-            _fmt_number(s['screen_count']),
-            _fmt_number(s['total_seats']),
-            str(s['avg_shows']),
-            str(s['avg_seats']),
-            str(s['avg_sold_rate'])
-        ]
-
-        for ci, v in enumerate(vals, 1):
-            cell = ws.cell(row=row_idx, column=ci, value=v)
-            cell.border = THIN_BORDER
-            cell.alignment = CENTER
-            cell.fill = YELLOW_LIGHT
-            cell.font = BOLD_FONT
-
-        if row_idx > date_start_row:
-            ws.merge_cells(start_row=date_start_row, start_column=1, end_row=row_idx, end_column=1)
-
-        row_idx += 1
-
-    ws.sheet_view.showGridLines = False
-    _auto_width(ws)
-
-
-def _write_format_summary(ws, all_data, gen_info):
-    """Write 포맷별 요약표 sheet."""
-    # Row 2: Generation info
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=9)
-    ws.cell(row=2, column=1, value=gen_info).font = INFO_FONT
-
-    # Row 3: Headers
-    headers = ['상영일자', '포맷별', '계열사', '극장수', '상영회차', '평균회차', '상영관수', '좌석수', '평균좌석수']
-
-    for ci, h in enumerate(headers, 1):
-        cell = ws.cell(row=3, column=ci, value=h)
-        cell.fill = BLUE_FILL
-        cell.font = HEADER_FONT
-        cell.border = THIN_BORDER
-        cell.alignment = CENTER
-
-    row_idx = 4
-
-    for proc_date, rows in all_data.items():
-        date_str = proc_date.strftime("%Y-%m-%d")
-        date_start_row = row_idx
-
-        # Group by format, sorted
-        formats = sorted(set(r['format'] for r in rows))
-
-        for fmt in formats:
-            fmt_start_row = row_idx
-            fmt_rows = [r for r in rows if r['format'] == fmt]
-
-            for brand in BRAND_ORDER:
-                brand_fmt_rows = [r for r in fmt_rows if r['brand'] == brand]
-                if not brand_fmt_rows:
-                    continue
-
-                s = _calc_summary(brand_fmt_rows)
-                brand_label = brand.replace('MEGABOX', 'MEGA')
-
-                vals = [
-                    date_str if row_idx == date_start_row else '',
-                    fmt if row_idx == fmt_start_row else '',
-                    brand_label,
-                    _fmt_number(s['theater_count']),
-                    _fmt_number(s['show_count']),
-                    str(s['avg_shows']),
-                    _fmt_number(s['screen_count']),
-                    _fmt_number(s['total_seats']),
-                    str(s['avg_seats'])
-                ]
-
-                for ci, v in enumerate(vals, 1):
-                    cell = ws.cell(row=row_idx, column=ci, value=v)
-                    cell.border = THIN_BORDER
-                    cell.alignment = CENTER
-                    cell.font = DATA_FONT
-
-                row_idx += 1
-
-            # 합 row for this format
-            s = _calc_summary(fmt_rows)
-            vals = [
-                '',
-                '',
-                '합',
-                _fmt_number(s['theater_count']),
-                _fmt_number(s['show_count']),
-                str(s['avg_shows']),
-                _fmt_number(s['screen_count']),
-                _fmt_number(s['total_seats']),
-                str(s['avg_seats'])
-            ]
-
-            for ci, v in enumerate(vals, 1):
-                cell = ws.cell(row=row_idx, column=ci, value=v)
-                cell.border = THIN_BORDER
-                cell.alignment = CENTER
-                cell.fill = YELLOW_LIGHT
-                cell.font = BOLD_FONT
-
-            # Merge format column (B)
-            if row_idx > fmt_start_row:
-                ws.merge_cells(start_row=fmt_start_row, start_column=2, end_row=row_idx, end_column=2)
-
-            row_idx += 1
-
-        # Merge date column (A)
-        if row_idx - 1 > date_start_row:
-            ws.merge_cells(start_row=date_start_row, start_column=1, end_row=row_idx - 1, end_column=1)
-
-    ws.sheet_view.showGridLines = False
-    _auto_width(ws, min_row=3)
-
-
 def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info):
-    """Write 집계작 및 경쟁작 멀티별 비교 sheet."""
-    # Movie order: main first, then competitors
-    movie_titles = [movie_title] + list(competitor_data_dict.keys())
+    """Write 비교표(집계작 및 경쟁작 멀티별 비교) sheet."""
+    # Movie order: main first, then competitors (E006: 주요작 없으면 경쟁작만)
+    movie_titles = ([movie_title] if main_data else []) + list(competitor_data_dict.keys())
     cols_per_movie = 4  # 상영관, 회차, 총좌석수, 평균좌판율
     fixed_cols = 2  # 상영일자, 영화명(계열사)
 
@@ -911,12 +672,14 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
             cell.alignment = CENTER
 
     # Build data: all_movie_data[movie_title] -> {date -> rows}
-    all_movie_data = {movie_title: main_data}
+    all_movie_data = {}
+    if main_data:
+        all_movie_data[movie_title] = main_data
     for ct, c_data in competitor_data_dict.items():
         all_movie_data[ct] = c_data
 
-    # Get all dates from main data
-    dates = list(main_data.keys())
+    # 날짜: 주요작·경쟁작 전체의 날짜 합집합 (E006: 주요작 없어도 동작)
+    dates = sorted(set(d for m_data in all_movie_data.values() for d in m_data.keys()))
 
     row_idx = 3
     for proc_date in dates:
@@ -1012,11 +775,14 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
 
 def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info):
     """Write 경쟁작 detail sheet - per-screen data for all movies side by side."""
-    movie_titles = [movie_title] + list(competitor_data_dict.keys())
+    # E006: 주요작 없으면 경쟁작만 나열
+    movie_titles = ([movie_title] if main_data else []) + list(competitor_data_dict.keys())
     cols_per_movie = 6  # 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
     fixed_cols = 2  # 상영일자, 극장명
 
-    all_movie_data = {movie_title: main_data}
+    all_movie_data = {}
+    if main_data:
+        all_movie_data[movie_title] = main_data
     for ct, c_data in competitor_data_dict.items():
         all_movie_data[ct] = c_data
 
@@ -1121,15 +887,17 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                 a['total'] += r['total_seats']
                 a['sold'] += r['sold_seats']
 
-    def _write_total_row(rr, label, agg, fill, font, date_str=None):
+    def _write_total_row(rr, label, agg, fill, font, theater_count=None):
         for ci in range(1, total_cols + 1):
             cell = ws.cell(row=rr, column=ci)
             cell.border = THIN_BORDER
             cell.alignment = CENTER
             cell.fill = fill
             cell.font = font
-        if date_str:
-            ws.cell(row=rr, column=1, value=date_str)
+        # E002: 상영시간표 소계처럼 첫 칸에 극장수(동일 극장 1개) 합계를 기록
+        if theater_count is not None:
+            tc_cell = ws.cell(row=rr, column=1, value=int(theater_count))
+            tc_cell.number_format = NUM_FMT
         ws.cell(row=rr, column=2, value=label)
         for mi, mt in enumerate(movie_titles):
             base_col = fixed_cols + 1 + mi * cols_per_movie
@@ -1145,11 +913,27 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                                 value=(a['sold'] / a['total']) if a['total'] > 0 else 0)
             rate_cell.number_format = PCT_FMT
 
-    # Write data rows (with per-brand subtotals and a grand total)
+    # Write data rows — 브랜드(멀티)별 소계(분홍) + 날짜별 총계(파랑, E003)
     row_idx = 5
-    grand_agg = _new_agg()
     brand_agg = None
+    brand_theaters = set()   # E002: 브랜드 소계 극장수 (동일 극장 1개)
+    date_agg = None
+    date_theaters = set()    # E003: 날짜 총계 극장수
     current_group = None  # (날짜, 브랜드) — 날짜가 바뀌면 같은 브랜드라도 소계를 끊는다
+
+    def _flush_brand(rr):
+        g_date, g_brand = current_group
+        _write_total_row(rr, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
+                         brand_agg, PINK_FILL, BOLD_FONT,
+                         theater_count=len(brand_theaters))
+        return rr + 1
+
+    def _flush_date(rr):
+        # E003: 날짜별 세 멀티 합계 — 기존 최하단 총계와 같은 파란색
+        _write_total_row(rr, f"{current_group[0].strftime('%Y-%m-%d')} 총계",
+                         date_agg, TOTAL_BLUE_FILL, WHITE_FONT,
+                         theater_count=len(date_theaters))
+        return rr + 1
 
     for key in sorted_keys:
         (proc_date, theater) = key
@@ -1157,20 +941,24 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         group = (proc_date, kb)
 
         if current_group is None:
+            brand_agg, date_agg = _new_agg(), _new_agg()
             current_group = group
-            brand_agg = _new_agg()
         elif group != current_group:
-            g_date, g_brand = current_group
-            _write_total_row(row_idx, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
-                             brand_agg, PINK_FILL, BOLD_FONT,
-                             date_str=g_date.strftime("%Y-%m-%d"))
-            row_idx += 1
-            current_group = group
+            row_idx = _flush_brand(row_idx)
             brand_agg = _new_agg()
+            brand_theaters = set()
+            if proc_date != current_group[0]:
+                # 날짜가 바뀌면 이전 날짜의 총계를 쓴다 (E003)
+                row_idx = _flush_date(row_idx)
+                date_agg = _new_agg()
+                date_theaters = set()
+            current_group = group
 
         movie_rows = theater_movie_index[key]
         _accumulate(brand_agg, movie_rows)
-        _accumulate(grand_agg, movie_rows)
+        _accumulate(date_agg, movie_rows)
+        brand_theaters.add(theater)
+        date_theaters.add(theater)
 
         # Find max screens for this theater across all movies
         max_screens = max(len(rows) for rows in movie_rows.values())
@@ -1218,17 +1006,11 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
 
             row_idx += 1
 
-    # flush 마지막 (날짜, 브랜드) 소계
+    # flush 마지막 (날짜, 브랜드) 소계 + 마지막 날짜 총계
+    # (E003: 시트 전체 총계 대신 날짜별 총계로 마무리한다)
     if current_group is not None:
-        g_date, g_brand = current_group
-        _write_total_row(row_idx, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
-                         brand_agg, PINK_FILL, BOLD_FONT,
-                         date_str=g_date.strftime("%Y-%m-%d"))
-        row_idx += 1
-
-    # 최하단: 전체 총계
-    _write_total_row(row_idx, "총 계", grand_agg, TOTAL_BLUE_FILL, WHITE_FONT)
-    row_idx += 1
+        row_idx = _flush_brand(row_idx)
+        row_idx = _flush_date(row_idx)
 
     ws.sheet_view.showGridLines = False
     _auto_width(ws, min_row=4)
@@ -1238,15 +1020,14 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     """
     Exports MovieSchedule QuerySet to Excel matching the standard schedule format.
 
-    Sheets:
-    1. 상영시간표_YYYY-MM-DD (per date schedule)
-    2. 계열사별 (brand summary)
-    3. 지역별 (region summary)
-    4. 포맷별 요약표 (format summary)
-    5. 집계작 및 경쟁작 멀티별 비교 (comparison)
-    6. 경쟁작 (competitor detail)
+    Sheets (E001 순서):
+    1. 상영시간표_YYYY-MM-DD (per date schedule) — 주요작이 있을 때만 (E006)
+    2. 경쟁작 (competitor detail)
+    3. 비교표 (집계작 및 경쟁작 멀티별 비교)
     """
-    if not queryset.exists():
+    # E006: 주요작 없이 경쟁작만으로도 다운로드 가능
+    has_main = queryset is not None and queryset.exists()
+    if not has_main and not competitor_querysets:
         return None
 
     # ========== Region Mapping ==========
@@ -1254,10 +1035,20 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     normal_index = _build_normal_theater_index()  # 일반극장 지역·좌석수 보강용
 
     # ========== Collect Main Data Per Date ==========
-    available_dates = list(
-        queryset.filter(play_date__isnull=False)
-        .values_list('play_date', flat=True).distinct().order_by('play_date')
-    )
+    # 날짜 목록: 주요작 기준, 주요작이 없으면(E006) 경쟁작 전체 날짜
+    if has_main:
+        available_dates = list(
+            queryset.filter(play_date__isnull=False)
+            .values_list('play_date', flat=True).distinct().order_by('play_date')
+        )
+    else:
+        date_set = set()
+        for comp_qs in (competitor_querysets or {}).values():
+            date_set.update(
+                comp_qs.filter(play_date__isnull=False)
+                .values_list('play_date', flat=True).distinct()
+            )
+        available_dates = sorted(date_set)
 
     if not available_dates:
         return None
@@ -1265,15 +1056,16 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     all_data = {}
     global_max_shows = 0
 
-    for d in available_dates:
-        sub_qs = queryset.filter(play_date=d)
-        rows, max_shows = _process_to_rows(sub_qs, region_map, normal_index)
-        if rows:
-            all_data[d] = rows
-            global_max_shows = max(global_max_shows, max_shows)
+    if has_main:
+        for d in available_dates:
+            sub_qs = queryset.filter(play_date=d)
+            rows, max_shows = _process_to_rows(sub_qs, region_map, normal_index)
+            if rows:
+                all_data[d] = rows
+                global_max_shows = max(global_max_shows, max_shows)
 
-    if not all_data:
-        return None
+        if not all_data:
+            return None
 
     display_max_shows = max(12, global_max_shows)
 
@@ -1311,7 +1103,8 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     gen_info = f"({gen_date} [{gen_time}])({day_of_week})"
 
     if not movie_title:
-        movie_title = "Overall"
+        # E006: 주요작 없이 경쟁작만 내보내는 경우의 파일명 표기
+        movie_title = "경쟁작" if not has_main else "Overall"
     safe_title = re.sub(r'[\\/*?:"<>|]', "", movie_title).replace(" ", "")
 
     if not start_date:
@@ -1328,36 +1121,29 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
     file_path = os.path.join(save_dir, filename)
 
     # ========== Write Excel ==========
+    # E001: 계열사별·지역별·포맷별 요약표 시트는 제거.
+    # 시트 순서는 상영시간표 → 경쟁작 → 비교표.
     wb = Workbook()
     wb.remove(wb.active)
 
-    # 1. Schedule Sheets (상영시간표)
+    # 1. Schedule Sheets (상영시간표) — 주요작이 있을 때만 (E006)
     for proc_date, rows in all_data.items():
         sheet_name = f"상영시간표_{proc_date.strftime('%Y-%m-%d')}"
         ws = wb.create_sheet(sheet_name)
         _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, gen_info)
 
-    # 2. 계열사별 (Brand Summary)
-    ws = wb.create_sheet("계열사별")
-    _write_brand_summary(ws, all_data)
-
-    # 3. 지역별 (Region Summary)
-    ws = wb.create_sheet("지역별")
-    _write_region_summary(ws, all_data)
-
-    # 4. 집계작 및 경쟁작 멀티별 비교
-    if competitor_all_data:
-        ws = wb.create_sheet("집계작 및 경쟁작 멀티별 비교")
-        _write_comparison_sheet(ws, all_data, competitor_all_data, movie_title, gen_info)
-
-    # 5. 경쟁작
+    # 2. 경쟁작
     if competitor_all_data:
         ws = wb.create_sheet("경쟁작")
         _write_competitor_detail_sheet(ws, all_data, competitor_all_data, movie_title, gen_info)
 
-    # 6. 포맷별 요약표 (Format Summary)
-    ws = wb.create_sheet("포맷별 요약표")
-    _write_format_summary(ws, all_data, gen_info)
+    # 3. 비교표 (구 '집계작 및 경쟁작 멀티별 비교' — E001에서 시트명 변경)
+    if competitor_all_data:
+        ws = wb.create_sheet("비교표")
+        _write_comparison_sheet(ws, all_data, competitor_all_data, movie_title, gen_info)
+
+    if not wb.sheetnames:
+        return None
 
     wb.save(file_path)
     logger.info(f"Schedule Excel exported: {file_path}")
@@ -1371,6 +1157,8 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 _SPECIAL_FORMAT_KEYWORDS = [
     "2D", "3D", "4D", "디지털", "DIGITAL", "자막", "더빙", "IMAX", "4DX", "SCREENX",
     "SCREEN-X", "DOLBY", "ATMOS", "LASER", "SPHEREX", "리클라이너",
+    # E004 canonical 포맷 태그 — 구분1 컬럼에서 제외 (포맷1 컬럼에 표기됨)
+    "SUPER-4D", "MX4D", "아이맥스", "돌비", "애트모스", "수퍼4D", "슈퍼4D",
 ]
 
 

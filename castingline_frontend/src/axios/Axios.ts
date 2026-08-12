@@ -19,17 +19,25 @@ export const WEBSOCKET_URL = process.env.NODE_ENV === 'development'
 // export const BASE_URL = "http://192.168.0.7:8000/Api";
 
 //401에러처리 intercepter
-// 로딩 상태 관리를 위한 전역 변수 및 콜백
+// 로딩 상태 관리를 위한 전역 변수 및 구독자 목록
 let activeRequests = 0;
-let updateLoadingCallback: (isLoading: boolean) => void = () => { };
+// L001: 콜백을 하나만 저장하면 GlobalSkeleton이 여러 곳(PrivateRouter 등)에서
+// 마운트/언마운트될 때 나중 인스턴스가 콜백을 덮어쓴 채 사라져
+// 전역 로딩 표시가 영영 멈춘다 — 구독자 Set으로 관리한다.
+const loadingCallbacks = new Set<(isLoading: boolean) => void>();
 
+/** 로딩 상태 구독 등록. 반환된 함수를 호출하면 구독 해제된다. */
 export const setUpdateLoadingCallback = (callback: (isLoading: boolean) => void) => {
-    updateLoadingCallback = callback;
+    loadingCallbacks.add(callback);
+    callback(activeRequests > 0); // 구독 시점의 현재 상태를 즉시 반영
+    return () => {
+        loadingCallbacks.delete(callback);
+    };
 };
 
 const updateLoadingState = (delta: number) => {
-    activeRequests += delta;
-    updateLoadingCallback(activeRequests > 0);
+    activeRequests = Math.max(0, activeRequests + delta);
+    loadingCallbacks.forEach((cb) => cb(activeRequests > 0));
 };
 
 let isUnauthorized = false;

@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadView, CrawlerStopView,
                     CrawlerTransformView, CrawlerScheduleOptionsView, CrawlerScheduleExportView,
-                    CrawlerSpecialExportView,
+                    CrawlerSpecialExportView, CrawlerReportView,
                     CrawlerScheduleListView, CrawlTargetMovieView, CrawlTargetMovieDetailView,
                     CrawlTargetMovieBulkDeleteView, MegaboxScoreCrawlView,
                     MegaboxScoreAllView, MegaboxAccountView, MegaboxAccountDetailView,
@@ -17,6 +17,7 @@ urlpatterns = [
     path('schedules/options/', CrawlerScheduleOptionsView.as_view(), name='schedule_options'),
     path('schedules/export/', CrawlerScheduleExportView.as_view(), name='schedule_export'),
     path('schedules/special_export/', CrawlerSpecialExportView.as_view(), name='schedule_special_export'),
+    path('schedules/report/', CrawlerReportView.as_view(), name='schedule_report'),
     path('schedules/list/', CrawlerScheduleListView.as_view(), name='schedule_list'),
     path('targets/', CrawlTargetMovieView.as_view(), name='crawl_targets'),
     path('targets/bulk_delete/', CrawlTargetMovieBulkDeleteView.as_view(), name='crawl_target_bulk_delete'),

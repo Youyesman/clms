@@ -318,6 +318,34 @@ class MovieSchedule(models.Model):
                     tags.append(s)
         return tags
 
+    # E004: 특별 상영 포맷 검출 패턴 — 각 사이트의 포맷/관 표기에서 찾아 canonical 태그로 저장한다.
+    # (CGV: movkndDsplNm·scnsNm / 메가박스: playKindNm·theabExpoNm / 롯데: FilmNameKR·ScreenDivisionNameKR·SoundTypeNameKR)
+    # ATMOS의 MX 패턴: 메가박스 MX관(돌비 애트모스 사운드관). IMAX(A+MX)·MX4D(MX+4D)와 겹치지 않게 앞뒤 영숫자를 배제한다.
+    SPECIAL_FORMAT_PATTERNS = [
+        ("IMAX", (r"IMAX", r"아이맥스")),
+        ("4DX", (r"4DX",)),
+        ("SUPER-4D", (r"수퍼\s*-?\s*4D", r"슈퍼\s*-?\s*4D", r"SUPER\s*-?\s*4D")),
+        ("MX4D", (r"MX4D",)),
+        ("SCREENX", (r"SCREEN\s*-?X", r"스크린\s*X")),
+        ("DOLBY", (r"돌비\s*시네마", r"DOLBY\s*CINEMA")),
+        ("ATMOS", (r"ATMOS", r"애트모스", r"(?<![A-Z0-9])MX(?![A-Z0-9])")),
+        ("3D", (r"(?<!\d)3D",)),
+    ]
+
+    @classmethod
+    def extract_format_tags(cls, *texts):
+        """사이트 표기 텍스트들에서 특별 상영 포맷(IMAX·3D·4DX·SUPER-4D·DOLBY·ATMOS 등)을 검출해 반환."""
+        import re
+        joined = " ".join(str(t) for t in texts if t)
+        if not joined:
+            return []
+        upper = cls.decode_html_entities(joined).upper()
+        tags = []
+        for canonical, patterns in cls.SPECIAL_FORMAT_PATTERNS:
+            if any(re.search(p, upper) for p in patterns):
+                tags.append(canonical)
+        return tags
+
     @classmethod
     def create_from_cgv_log(cls, log, target_titles=None, title_map=None):
         """
@@ -416,6 +444,10 @@ class MovieSchedule(models.Model):
                 # CGV 특수상영 이벤트(무대인사 등)를 태그에 추가 → 키워드 검색/내보내기 가능
                 if special_event_tags:
                     extracted_tags = list(extracted_tags) + [t for t in special_event_tags if t not in extracted_tags]
+                # E004: 특별 상영 포맷(IMAX·4DX·SCREENX 등) — CGV는 movkndDsplNm(포맷 표기)·상영관명에서 검출
+                format_tags = cls.extract_format_tags(item.get("movkndDsplNm"), item.get("scnsNm"))
+                if format_tags:
+                    extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
 
                 final_title = clean_title
                 if title_map is not None:
@@ -779,7 +811,11 @@ class MovieSchedule(models.Model):
                     
                     # Title Consistency Logic
                     clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
-                    
+                    # E004: 특별 상영 포맷 — 메가박스는 상영종류(playKindNm)·상영관 표기(theabExpoNm)에서 검출
+                    format_tags = cls.extract_format_tags(item.get("playKindNm"), item.get("theabExpoNm"))
+                    if format_tags:
+                        extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
+
                     final_title = clean_title
                     if title_map is not None:
                         norm_title = cls.normalize_title(clean_title)
@@ -787,7 +823,7 @@ class MovieSchedule(models.Model):
                             final_title = title_map[norm_title]
                         else:
                             title_map[norm_title] = clean_title
-                    
+
                     parsed_items.append({
                         'brand': 'MEGABOX',
                         'theater_name': log_theater_name,
@@ -833,18 +869,23 @@ class MovieSchedule(models.Model):
                 obj.is_booking_available = item['is_booking_available']
                 obj.end_time = item['end_time']
                 obj.movie_title = item['movie_title']
+                # 재변환 시 태그(E004 포맷 포함)·좌석·상영일자도 최신값으로 갱신
+                obj.tags = item['tags']
+                obj.total_seats = item['total_seats']
+                obj.remaining_seats = item['remaining_seats']
+                obj.play_date = item['play_date']
                 to_update.append(obj)
             else:
                 to_create.append(cls(**item))
-                
+
         if to_create:
             # ignore_conflicts=True를 사용하여 중복 키 오류(Duplicate Key Error) 방지
             # 이미 존재하는 스케줄이면 무시하고 넘어감
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
-            
+
         if to_update:
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
-            
+
         return len(to_create) + len(to_update), errors
 
     @classmethod
@@ -1010,6 +1051,13 @@ class MovieSchedule(models.Model):
                 # 롯데 특수상영 이벤트(무대인사 등)를 태그에 추가
                 if special_event_tags:
                     extracted_tags = list(extracted_tags) + [t for t in special_event_tags if t not in extracted_tags]
+                # E004: 특별 상영 포맷 — 롯데는 필름(FilmNameKR)·관구분(ScreenDivisionNameKR)·사운드(SoundTypeNameKR)·관브랜드에서 검출
+                format_tags = cls.extract_format_tags(
+                    item.get("FilmNameKR"), item.get("ScreenDivisionNameKR"),
+                    item.get("SoundTypeNameKR"), item.get("BrandNm_KR"),
+                )
+                if format_tags:
+                    extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
 
                 final_title = clean_title
                 if title_map is not None:
@@ -1063,15 +1111,20 @@ class MovieSchedule(models.Model):
                 obj.is_booking_available = item['is_booking_available']
                 obj.end_time = item['end_time']
                 obj.movie_title = item['movie_title']
+                # 재변환 시 태그(E004 포맷 포함)·좌석·상영일자도 최신값으로 갱신
+                obj.tags = item['tags']
+                obj.total_seats = item['total_seats']
+                obj.remaining_seats = item['remaining_seats']
+                obj.play_date = item['play_date']
                 to_update.append(obj)
             else:
                 to_create.append(cls(**item))
-                
+
         if to_create:
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
         if to_update:
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
-            
+
         return len(to_create) + len(to_update), errors
 
 

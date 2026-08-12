@@ -69,8 +69,8 @@ export const GlobalSkeleton = () => {
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
-        // Axios 인터셉터로부터 로딩 상태 업데이트 받기
-        setUpdateLoadingCallback((loading) => {
+        // Axios 인터셉터로부터 로딩 상태 업데이트 받기 (언마운트 시 구독 해제 — L001)
+        return setUpdateLoadingCallback((loading) => {
             setIsLoading(loading);
         });
     }, []);
