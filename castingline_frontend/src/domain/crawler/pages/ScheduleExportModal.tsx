@@ -185,6 +185,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
     const [exportEndDate, setExportEndDate] = useState(endDate || startDate);
     const [isExporting, setIsExporting] = useState(false);
     const [specialKeyword, setSpecialKeyword] = useState(""); // 특수상영 키워드 (쉼표 구분)
+    // U002: 특별 상영 포맷 필터 — 선택 시 일반 엑셀 다운로드에도 해당 포맷만 담긴다.
+    const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
     // 특수상영용 영화 선택 (크롤 대상 영화 전체에서)
     const [crawlTargets, setCrawlTargets] = useState<CrawlTarget[]>([]);
     const [specialMovieId, setSpecialMovieId] = useState<number | null>(null);
@@ -236,6 +238,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     // E006: 주요작 없이 다운로드 시 movie_title 미전송 → 경쟁작만 내보냄
                     movie_title: selectedMovie ? selectedMovie.clean_title || selectedMovie.title : undefined,
                     brands: brands.length < 4 ? brands : undefined,
+                    // U002: 특별 포맷을 고르면 주요작 유무와 관계없이 그 포맷만 내보낸다
+                    formats: selectedFormats.length > 0 ? selectedFormats : undefined,
                 },
                 { responseType: "blob" }
             );
@@ -276,9 +280,13 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
             toast.warning("크롤 대상 영화를 선택해주세요.");
             return;
         }
-        const keyword = specialKeyword.trim();
+        // 위에서 고른 특별 포맷 + 직접 입력한 키워드를 합쳐서 조회한다
+        const keyword = [
+            ...selectedFormats,
+            ...specialKeyword.split(",").map((k) => k.trim()).filter(Boolean),
+        ].join(", ");
         if (!keyword) {
-            toast.warning("특수상영 키워드를 입력해주세요. (예: 무대인사, GV)");
+            toast.warning("특별 포맷을 선택하거나 특수상영 키워드를 입력해주세요. (예: 무대인사, GV)");
             return;
         }
         const brands: string[] = [];
@@ -388,25 +396,24 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                         </BrandRow>
                     </div>
 
-                    <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
-                        <SectionLabel>특수상영 다운로드</SectionLabel>
+                    {/* U002: 특별 상영 포맷 필터 — 위 '다운로드'(일반 엑셀)와 아래 '특수상영'에 모두 적용된다 */}
+                    <div>
+                        <SectionLabel>특별 상영 포맷</SectionLabel>
                         <div style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 8px" }}>
-                            <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV·IMAX 등)가 든 스케줄만 위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
-                            특별 상영 포맷은 아래 버튼으로 추가할 수 있습니다.
+                            선택하면 <b>선택한 포맷의 회차만</b> 담아 내보냅니다. (주요작 있는 엑셀·주요작 없이 받는 엑셀 모두 동일 적용 / 미선택 시 전체 포맷)
                         </div>
-                        {/* E005: 특별 상영 포맷 빠른 선택 — 클릭 시 키워드에 추가/제거 */}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {SPECIAL_FORMATS.map((f) => {
-                                const kws = specialKeyword.split(",").map((k) => k.trim()).filter(Boolean);
-                                const active = kws.includes(f);
+                                const active = selectedFormats.includes(f);
                                 return (
                                     <button
                                         key={f}
                                         type="button"
-                                        onClick={() => {
-                                            const next = active ? kws.filter((k) => k !== f) : [...kws, f];
-                                            setSpecialKeyword(next.join(", "));
-                                        }}
+                                        onClick={() =>
+                                            setSelectedFormats((prev) =>
+                                                prev.includes(f) ? prev.filter((k) => k !== f) : [...prev, f]
+                                            )
+                                        }
                                         style={{
                                             padding: "3px 10px",
                                             borderRadius: 999,
@@ -423,6 +430,14 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                                     </button>
                                 );
                             })}
+                        </div>
+                    </div>
+
+                    <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
+                        <SectionLabel>특수상영 다운로드</SectionLabel>
+                        <div style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 8px" }}>
+                            <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV 등)와 위에서 고른 특별 포맷이 든 스케줄만
+                            위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
                         </div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                             <select
@@ -446,7 +461,11 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                                 onChange={(e) => setSpecialKeyword(e.target.value)}
                                 placeholder="예: 무대인사, GV"
                             />
-                            <Button $variant="primary" onClick={handleSpecialExport} disabled={isExporting || !specialKeyword.trim() || !specialMovie}>
+                            <Button
+                                $variant="primary"
+                                onClick={handleSpecialExport}
+                                disabled={isExporting || (!specialKeyword.trim() && selectedFormats.length === 0) || !specialMovie}
+                            >
                                 {isExporting ? <Spinner className="spin" size={16} /> : <DownloadSimple size={16} weight="bold" />}
                                 특수상영
                             </Button>

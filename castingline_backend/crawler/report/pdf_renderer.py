@@ -91,20 +91,56 @@ def _page_header(story, S, title, subtitle):
 
 
 def _kpi_table(cols):
-    """cols: [(라벨, 큰값, cmp_dict|None(='-'))]"""
+    """cols: [(라벨, 큰값, cmp_dict|None(='-'))]
+
+    W001: 칸을 균등 분할하면 '총 좌석수'처럼 자릿수가 큰 값(5,129,505석)이 줄바꿈되고,
+    행 높이가 고정이라 아래 증감 문구와 글자가 겹쳤다. 칸 폭을 내용 비례로 나누고,
+    그래도 모자라면 값 글씨를 줄여 한 줄에 맞춘 뒤 행 높이는 자동으로 둔다.
+    """
     n = len(cols)
-    w = CONTENT_W / n
+    VALUE_SIZE = 17.0
+    PAD = 5  # 셀 좌우 여백
+
+    delta_texts = []
+    for c in cols:
+        delta_texts.append("-" if c[2] is None else fmt_cmp(c[2])[0])
+
+    # 칸별 필요 폭 — 값은 한 줄, 증감 문구는 두 줄까지 허용
+    need = []
+    for (label, value, _), dtxt in zip(cols, delta_texts):
+        need.append(max(
+            pdfmetrics.stringWidth(str(value), _FONT_B, VALUE_SIZE),
+            pdfmetrics.stringWidth(str(label), _FONT_B, 9),
+            pdfmetrics.stringWidth(dtxt, _FONT, 9) * 0.6,
+        ) + PAD * 2)
+
+    total_need = sum(need)
+    if total_need <= CONTENT_W:
+        extra = (CONTENT_W - total_need) / n
+        widths = [w + extra for w in need]
+    else:
+        widths = [CONTENT_W * w / total_need for w in need]
+
+    value_size = VALUE_SIZE
+    while value_size > 9.0 and any(
+        pdfmetrics.stringWidth(str(c[1]), _FONT_B, value_size) > w - PAD * 2
+        for c, w in zip(cols, widths)
+    ):
+        value_size -= 0.5
+
     label_row = [_p(c[0], size=9, bold=True) for c in cols]
-    value_row = [_p(c[1], size=17, bold=True) for c in cols]
+    value_row = [_p(c[1], size=value_size, bold=True) for c in cols]
     delta_row = []
     for c in cols:
-        if c[2] is None:
-            delta_row.append(_p("-", size=9))
-        else:
-            delta_row.append(_cmp_cell(c[2], size=9))
-    t = Table([label_row, value_row, delta_row], colWidths=[w] * n,
-              rowHeights=[19, 27, 18])
-    t.setStyle(TableStyle(_base_table_style(header_rows=1)))
+        delta_row.append(_p("-", size=9) if c[2] is None else _cmp_cell(c[2], size=9))
+
+    # 행 높이는 지정하지 않는다 — 증감 문구가 두 줄이 돼도 칸이 늘어나 겹치지 않는다
+    t = Table([label_row, value_row, delta_row], colWidths=widths)
+    t.setStyle(TableStyle(_base_table_style(header_rows=1) + [
+        ("TOPPADDING", (0, 0), (-1, 0), 5), ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+        ("TOPPADDING", (0, 1), (-1, 1), 6), ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
+        ("TOPPADDING", (0, 2), (-1, 2), 4), ("BOTTOMPADDING", (0, 2), (-1, 2), 4),
+    ]))
     return t
 
 
@@ -174,16 +210,39 @@ def _period_str(p):
 
 
 # ---------- 로고 ----------
+_logo_cache = None
+
+
+def _logo_image():
+    """로고를 흰 배경에 합성하고 투명한 가장자리를 잘라낸 ImageReader.
+
+    W001: 원본 PNG 맨 윗줄이 '완전 투명한 검정'이라, 이미지를 부드럽게 축소하는
+    PDF 뷰어에서 그 줄이 번져 로고 위에 회색 선처럼 보였다. 알파를 없애면 사라진다.
+    """
+    global _logo_cache
+    if _logo_cache is None:
+        from PIL import Image
+        from reportlab.lib.utils import ImageReader
+        src = Image.open(LOGO_PATH).convert("RGBA")
+        alpha = src.split()[3]
+        bbox = alpha.getbbox()          # 완전 투명한 가장자리 제거
+        if bbox:
+            src = src.crop(bbox)
+        flat = Image.new("RGB", src.size, (255, 255, 255))
+        flat.paste(src, mask=src.split()[3])
+        _logo_cache = ImageReader(flat)
+    return _logo_cache
+
+
 def _draw_logo(canvas, doc):
     try:
-        from reportlab.lib.utils import ImageReader
-        img = ImageReader(LOGO_PATH)
+        img = _logo_image()
         iw, ih = img.getSize()
         h = 38.0
         w = iw * h / ih
         x = PAGE_SIZE[0] - M_RIGHT - w
         y = PAGE_SIZE[1] - M_TOP - h + 14
-        canvas.drawImage(img, x, y, width=w, height=h, mask="auto",
+        canvas.drawImage(img, x, y, width=w, height=h,
                          preserveAspectRatio=True)
     except Exception:
         pass  # 로고가 없어도 보고서 생성은 계속

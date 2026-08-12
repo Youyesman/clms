@@ -764,6 +764,8 @@ class CrawlerScheduleExportView(APIView):
         # E006: movie_title(주요작) 없이도 경쟁작만으로 다운로드 가능
         movie_title = request.data.get('movie_title')
         brands = request.data.get('brands')  # ["CGV", "LOTTE", "MEGABOX"] 형태
+        # U002: 특별 상영 포맷 필터 (["IMAX", "4DX", ...]). 지정 시 해당 포맷 회차만 내보낸다.
+        formats = request.data.get('formats')
 
         if not start_date_str:
             return Response({"error": "start_date/date is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -791,6 +793,16 @@ class CrawlerScheduleExportView(APIView):
             # 멀티(계열사)별 필터링
             if brands and isinstance(brands, list):
                 qs = qs.filter(brand__in=brands)
+
+            # U002: 특별 상영 포맷 필터 — 주요작/경쟁작 모두 이 qs 에서 파생되므로
+            # 여기서 한 번만 걸면 상영시간표·경쟁작·비교표 전 시트에 동일하게 적용된다.
+            if formats and isinstance(formats, list):
+                from crawler.utils.excel_exporter import schedule_matches_formats
+                wanted = {str(f).strip().upper() for f in formats if str(f).strip()}
+                if wanted:
+                    matched_ids = [s.id for s in qs.only('id', 'tags')
+                                   if schedule_matches_formats(s.tags, wanted)]
+                    qs = qs.filter(id__in=matched_ids)
 
             # --- Flexible Title Filtering (토큰 매칭 지원) ---
             def filter_by_title(base_qs, title):
@@ -918,6 +930,10 @@ class CrawlerReportView(APIView):
         fmt = (request.data.get('format') or 'pdf').lower()
         mode = request.data.get('mode') or 'main'
         main_title = (request.data.get('main_title') or '').strip()
+        # W002: 엑셀 다운로드와 같은 계열사 범위로 집계해야 숫자가 일치한다
+        brands = request.data.get('brands')
+        if not (brands and isinstance(brands, list)):
+            brands = None
 
         if not start_date_str:
             return Response({"error": "start_date는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
@@ -937,7 +953,8 @@ class CrawlerReportView(APIView):
                 return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=status.HTTP_400_BAD_REQUEST)
 
             data = build_report_data(start_date, end_date,
-                                     main_title=main_title if mode == 'main' else None)
+                                     main_title=main_title if mode == 'main' else None,
+                                     brands=brands)
 
             save_dir = os.path.join(dj_settings.BASE_DIR, 'media', 'crawler_exports')
             os.makedirs(save_dir, exist_ok=True)

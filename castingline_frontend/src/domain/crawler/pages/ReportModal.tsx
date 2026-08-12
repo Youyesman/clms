@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, FilePdf, FileXls, Spinner } from "@phosphor-icons/react";
+import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 
 /* P001: 영화 상영현황 보고서(PDF/엑셀) 생성 모달
    [시간표 수집] DB의 기준기간 + 전주(-7일) 데이터를 집계해
@@ -150,6 +151,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({
     const [reportEnd, setReportEnd] = useState(endDate || startDate);
     const [mode, setMode] = useState<"main" | "none">("main");
     const [mainMovieId, setMainMovieId] = useState<number | null>(null);
+    // W002: 엑셀 다운로드와 같은 계열사 범위로 집계해야 두 파일의 숫자가 일치한다
+    const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true, normal: true });
     const [isBusy, setIsBusy] = useState(false);
 
     React.useEffect(() => {
@@ -174,6 +177,15 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             toast.warning("주요작을 선택해주세요.");
             return;
         }
+        const brands: string[] = [];
+        if (brandFilter.cgv) brands.push("CGV");
+        if (brandFilter.lotte) brands.push("LOTTE");
+        if (brandFilter.mega) brands.push("MEGABOX");
+        if (brandFilter.normal) brands.push("일반극장");
+        if (brands.length === 0) {
+            toast.warning("계열사를 하나 이상 선택해주세요.");
+            return;
+        }
         setIsBusy(true);
         try {
             toast.success("보고서 생성 중... 잠시만 기다려주세요.");
@@ -184,6 +196,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     end_date: reportEnd || reportStart,
                     mode,
                     main_title: mode === "main" && mainMovie ? mainMovie.clean_title || mainMovie.title : undefined,
+                    brands: brands.length < 4 ? brands : undefined,
                     format,
                 },
                 { responseType: "blob" }
@@ -246,6 +259,16 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     <ModeItem $selected={mode === "none"} onClick={() => setMode("none")}>
                         주요작 없음 — 경쟁작 전체 요약 / 경쟁 현황 / 전체 경쟁작
                     </ModeItem>
+                </div>
+
+                <div>
+                    <SectionLabel>계열사 선택 (엑셀 다운로드와 같은 범위로 맞춰야 숫자가 일치합니다)</SectionLabel>
+                    <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                        <CustomCheckbox label="CGV" checked={brandFilter.cgv} onChange={() => setBrandFilter((p) => ({ ...p, cgv: !p.cgv }))} />
+                        <CustomCheckbox label="Lotte" checked={brandFilter.lotte} onChange={() => setBrandFilter((p) => ({ ...p, lotte: !p.lotte }))} />
+                        <CustomCheckbox label="Megabox" checked={brandFilter.mega} onChange={() => setBrandFilter((p) => ({ ...p, mega: !p.mega }))} />
+                        <CustomCheckbox label="일반극장" checked={brandFilter.normal} onChange={() => setBrandFilter((p) => ({ ...p, normal: !p.normal }))} />
+                    </div>
                 </div>
 
                 {mode === "main" && (

@@ -13,6 +13,12 @@
 - 판매좌석수는 보고서에서 '예매좌석수'로 표기 (표시명만 변경)
 - 전주 = 기준기간에서 정확히 7일 전의 동일 구간
 - 순위 동률은 RANK(competition ranking: 1,2,2,4) 방식
+
+W002: 숫자의 출처는 [크롤러 관리]의 엑셀 다운로드와 **완전히 동일**해야 한다.
+그래서 원본 MovieSchedule 행을 직접 세지 않고, 엑셀과 같은 전처리
+(excel_exporter._process_to_rows — 씨네드쉐프 중복 정리, 일반극장 극장/좌석 매칭,
+좌석 정보 없는 회차의 정원 보정)를 거친 행으로 집계한다. 계열사(brands) 선택도
+엑셀 다운로드와 같은 범위로 받는다.
 """
 from collections import defaultdict
 from datetime import timedelta
@@ -40,16 +46,13 @@ class _Agg:
         self.theaters = set()   # (brand, theater) — 고유 극장
         self.day_screens = set()  # (date, brand, theater, screen) — 일자별 스크린
 
-    def add(self, row):
-        total = row["total_seats"] or 0
-        remain = row["remaining_seats"] or 0
-        self.total += total
-        if total > 0:
-            self.sold += max(0, total - remain)
-        self.shows += 1
-        key_t = (row["brand"], row["theater_name"])
-        self.theaters.add(key_t)
-        self.day_screens.add((row["play_date"], row["brand"], row["theater_name"], row["screen_name"]))
+    def add(self, row, play_date):
+        """엑셀(_process_to_rows)이 만든 (극장+관+일자) 단위 행 하나를 누적."""
+        self.total += row["total_seats"]
+        self.sold += row["sold_seats"]
+        self.shows += row["show_count"]
+        self.theaters.add((row["brand"], row["theater"]))
+        self.day_screens.add((play_date, row["brand"], row["theater"], row["screen"]))
 
     # ---- 산출 KPI ----
     @property
@@ -95,19 +98,25 @@ def _movie_units(main_title=None):
     return units, main_key
 
 
-def _collect(start_date, end_date, units):
+def _collect(start_date, end_date, units, brands=None, maps=None):
     """기간 내 MovieSchedule 을 작품 단위로 배정해 집계한다.
+
+    엑셀 다운로드와 같은 숫자가 나오도록, 원본 행을 직접 세지 않고
+    excel_exporter._process_to_rows 로 (일자·극장·관) 단위 행을 만든 뒤 누적한다.
 
     반환:
       by_movie:  key -> _Agg
       by_multi:  (movie_key, multi) -> _Agg
-      by_theater: (movie_key, (brand, theater)) -> _Agg
+      by_theater: (movie_key, (brand, 표시극장명)) -> _Agg
       grand_theaters / grand_day_screens: 전체(작품 무관) 고유 극장·스크린 (§B-2)
     """
-    rows = MovieSchedule.objects.filter(
-        play_date__gte=start_date, play_date__lte=end_date
-    ).values("brand", "theater_name", "screen_name", "movie_title",
-             "total_seats", "remaining_seats", "play_date")
+    from crawler.utils.excel_exporter import _process_to_rows
+
+    region_map, normal_index = maps
+
+    qs = MovieSchedule.objects.filter(play_date__gte=start_date, play_date__lte=end_date)
+    if brands:
+        qs = qs.filter(brand__in=brands)
 
     by_movie = defaultdict(_Agg)
     by_multi = defaultdict(_Agg)
@@ -129,16 +138,30 @@ def _collect(start_date, end_date, units):
         title_cache[raw_title] = matched
         return matched
 
-    for row in rows.iterator():
-        key = match_unit(row["movie_title"])
-        if key is None:
-            continue  # 크롤 대상 외(타 영화 특수상영 등)는 보고서 제외
-        by_movie[key].add(row)
-        multi = _brand_to_multi(row["brand"])
-        by_multi[(key, multi)].add(row)
-        by_theater[(key, (row["brand"], row["theater_name"]))].add(row)
-        grand_theaters.add((row["brand"], row["theater_name"]))
-        grand_day_screens.add((row["play_date"], row["brand"], row["theater_name"], row["screen_name"]))
+    dates = sorted(qs.values_list("play_date", flat=True).distinct())
+
+    # 날짜별로 나눠 처리한다 — 엑셀도 시트(=일자) 단위로 같은 전처리를 하며,
+    # 기간 전체를 한 번에 메모리에 올리지 않아도 된다.
+    for play_date in dates:
+        day_qs = qs.filter(play_date=play_date).only(
+            "brand", "theater_name", "screen_name", "movie_title",
+            "total_seats", "remaining_seats", "play_date", "start_time", "tags",
+        )
+        buckets = defaultdict(list)
+        for sch in day_qs:
+            key = match_unit(sch.movie_title)
+            if key is None:
+                continue  # 크롤 대상 외(타 영화 특수상영 등)는 보고서 제외
+            buckets[key].append(sch)
+
+        for key, schedules in buckets.items():
+            rows, _ = _process_to_rows(schedules, region_map, normal_index)
+            for r in rows:
+                by_movie[key].add(r, play_date)
+                by_multi[(key, _brand_to_multi(r["brand"]))].add(r, play_date)
+                by_theater[(key, (r["brand"], r["theater"]))].add(r, play_date)
+                grand_theaters.add((r["brand"], r["theater"]))
+                grand_day_screens.add((play_date, r["brand"], r["theater"], r["screen"]))
 
     return {
         "by_movie": by_movie,
@@ -203,8 +226,14 @@ def _movie_summary(key, title, agg, is_main=False):
     }
 
 
-def build_report_data(start_date, end_date, main_title=None):
-    """보고서 ViewModel 생성. main_title이 없으면 '주요작 없음' 모드."""
+def build_report_data(start_date, end_date, main_title=None, brands=None):
+    """보고서 ViewModel 생성. main_title이 없으면 '주요작 없음' 모드.
+
+    brands: 엑셀 다운로드와 같은 계열사 필터(["CGV","LOTTE","MEGABOX","일반극장"]).
+            None이면 전체.
+    """
+    from crawler.utils.excel_exporter import _build_region_map, _build_normal_theater_index
+
     prev_start = start_date - timedelta(days=7)
     prev_end = end_date - timedelta(days=7)
 
@@ -212,8 +241,11 @@ def build_report_data(start_date, end_date, main_title=None):
     if not units:
         raise ValueError("크롤 대상 영화가 없습니다. [크롤러 관리]에서 먼저 등록하세요.")
 
-    cur = _collect(start_date, end_date, units)
-    prev = _collect(prev_start, prev_end, units)
+    # 지역/일반극장 인덱스는 비싸므로 기준기간·전주에서 한 번만 만들어 공유한다
+    maps = (_build_region_map(), _build_normal_theater_index())
+
+    cur = _collect(start_date, end_date, units, brands=brands, maps=maps)
+    prev = _collect(prev_start, prev_end, units, brands=brands, maps=maps)
 
     by_movie = cur["by_movie"]
     if not by_movie:
@@ -294,13 +326,13 @@ def build_report_data(start_date, end_date, main_title=None):
         ]
         theaters.sort(key=lambda kv: -kv[1].total)
         top10 = []
-        from crawler.utils.excel_exporter import _format_theater_name
         for tkey, a in theaters[:10]:
             pa = prev["by_theater"].get((main_key, tkey))
-            brand, raw_name = tkey
+            # 극장명은 엑셀과 같은 표시명(_process_to_rows 가 이미 정리해 둔 값)
+            brand, display_name = tkey
             top10.append({
                 "multi": _brand_to_multi(brand),
-                "name": _format_theater_name(brand, raw_name) if brand != "일반극장" else raw_name,
+                "name": display_name,
                 "total_seats": a.total,
                 "seats_cmp": _cmp(a.total, pa.total if pa else None, has_prev, "석"),
                 "reserved": a.sold,
