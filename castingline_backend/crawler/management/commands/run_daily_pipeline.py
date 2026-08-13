@@ -140,15 +140,7 @@ def _collect_and_transform(site, history, target_dates, target_titles):
                 errors.append({'error': str(e)})
 
     elif site == 'kobis':
-        # C001: 3사(CGV/롯데/메가박스)는 사이트가 노출하는 예매 스케줄을 날짜와
-        # 무관하게 전부 저장하므로 D+4 이후 데이터도 미리 쌓이지만, KOBIS는
-        # 조회한 날짜만 수집된다. 이 시차 때문에 다일자 엑셀에서 마지막 날짜의
-        # 일반극장만 비어 보이는 문제가 있어 KOBIS는 하루(D+4) 더 조회한다.
-        kobis_dates = list(target_dates or [])
-        if kobis_dates:
-            last_day = datetime.strptime(kobis_dates[-1], "%Y%m%d")
-            kobis_dates.append((last_day + timedelta(days=1)).strftime("%Y%m%d"))
-        logs, theaters, failures = KobisPipelineService.collect_schedule_logs(dates=kobis_dates or None, crawler_run=history)
+        logs, theaters, failures = KobisPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
         print(f"   ↳ Generating Schedules from {len(logs)} KOBIS logs ({theaters} theaters)...")
         created, errors = KobisPipelineService.transform_logs_to_schedule(
             log_ids=[c['log_id'] for c in logs],
