@@ -42,6 +42,28 @@ class OrderSerializer(serializers.ModelSerializer):
         else:
             representation["client"] = None
 
+        # 부율관리 등록 여부/부율 값 (오더 상세 내역 '부율' 컬럼 — O001)
+        # 목록 조회 시에는 뷰의 annotate 값을 쓰고, 단건 생성/수정 응답처럼
+        # annotate가 없는 경우에만 개별 조회로 보충한다.
+        has_rate = getattr(instance, "has_rate", None)
+        rate_value = getattr(instance, "rate_value", None)
+        if has_rate is None and instance.client_id and instance.movie_id:
+            from rate.models import Rate
+
+            rate_row = (
+                Rate.objects.filter(
+                    client_id=instance.client_id, movie_id=instance.movie_id
+                )
+                .order_by("-start_date")
+                .first()
+            )
+            has_rate = rate_row is not None
+            rate_value = rate_row.share_rate if rate_row else None
+        representation["has_rate"] = bool(has_rate)
+        representation["share_rate"] = (
+            float(rate_value) if rate_value is not None else None
+        )
+
         return representation
 
 

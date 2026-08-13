@@ -405,15 +405,18 @@ export function TheaterCountPage() {
                     <SectionCard onClick={e => e.stopPropagation()}>
                         <SectionTitle>전주 대비 총상영관수 비교</SectionTitle>
                         <div style={{ padding: "16px 8px 8px" }}>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 50 }}>
+                            <ResponsiveContainer width="100%" height={330}>
+                                <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 10 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    {/* V001: 회전된 영화명 라벨 공간을 축에 명시적으로 확보해
+                                        하단 범례와 겹치지 않게 한다 */}
                                     <XAxis
                                         dataKey="title"
                                         tick={{ fontSize: 11, fill: "#64748b" }}
                                         tickLine={false}
                                         angle={-20}
                                         textAnchor="end"
+                                        height={58}
                                     />
                                     <YAxis
                                         tick={{ fontSize: 11, fill: "#64748b" }}
@@ -465,7 +468,7 @@ export function TheaterCountPage() {
                                             });
                                         }}
                                     />
-                                    <Legend />
+                                    <Legend wrapperStyle={{ paddingTop: 4 }} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>

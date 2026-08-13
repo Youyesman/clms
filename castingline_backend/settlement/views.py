@@ -345,6 +345,7 @@ class SettlementListView(APIView):
                         "공급받는자 성명": c.representative_name,
                         "사업장 소재": c.business_address, "업태": c.business_category,
                         "업종": c.business_industry,
+                        "부금담당자": c.settlement_contact,
                         "수신자이메일": c.invoice_email_address,
                         "수신자이메일2": c.invoice_email_address2,
                         "수신자 전화번호": c.settlement_phone_number,
@@ -436,6 +437,8 @@ class SettlementListView(APIView):
             "사업자 등록번호": client.business_registration_number, "종사업장번호": client.business_operator,
             "공급받는자 상호": client.business_name, "공급받는자 성명": client.representative_name,
             "사업장 소재": client.business_address, "업태": client.business_category, "업종": client.business_industry,
+            # 거래처 관리 - 부금 정보의 담당자명 (F001)
+            "부금담당자": client.settlement_contact,
             "수신자이메일": client.invoice_email_address,
             "수신자이메일2": client.invoice_email_address2,
             "수신자 전화번호": client.settlement_phone_number,
@@ -587,7 +590,7 @@ class SettlementListView(APIView):
             "기금제외금액": sums["기금제외금액"], "부가세제외금액": sums["부가세제외금액"],
             "공급가액": sums["공급가액"], "부가세": sums["부가세"], "영화사 지급금": sums["영화사 지급금"],
             "지역": "", "멀티구분": "", "거래처코드": "", "거래처코드(바이포엠만 해당)": "", "사업자 등록번호": "", "종사업장번호": "", "공급받는자 상호": "",
-            "공급받는자 성명": "", "사업장 소재": "", "업태": "", "업종": "", "수신자이메일": "", "수신자이메일2": "", "수신자 전화번호": "",
+            "공급받는자 성명": "", "사업장 소재": "", "업태": "", "업종": "", "부금담당자": "", "수신자이메일": "", "수신자이메일2": "", "수신자 전화번호": "",
             "날짜(From)": "", "날짜(To)": "", "상영타입": "", "부율": "",
             "classification": "",
         }
@@ -1767,7 +1770,7 @@ class SettlementExcelExportView(SettlementListView):
         header_labels = [
             "지역", "멀티", "구분", "거래처코드", "극장명",
             "사업자 등록번호", "종사업장번호", "공급받는자 상호", "공급받는자 성명",
-            "사업장 소재", "업태", "업종", "수신자이메일", "수신자 전화번호",
+            "사업장 소재", "업태", "업종", "부금담당자", "수신자이메일", "수신자 전화번호",
             "날짜(From)", "날짜(To)", "상영타입", "인원", "금액(입장료)",
             "기금제외금액", "부가세제외금액", "부율", "공급가액", "부가세", "영화사 지급금"
         ]
@@ -1800,6 +1803,7 @@ class SettlementExcelExportView(SettlementListView):
                 item.get("사업자 등록번호", ""), item.get("종사업장번호", ""),
                 item.get("공급받는자 상호", ""), item.get("공급받는자 성명", ""),
                 item.get("사업장 소재", ""), item.get("업태", ""), item.get("업종", ""),
+                item.get("부금담당자", ""),
                 item.get("수신자이메일", ""), item.get("수신자 전화번호", ""),
                 _as_date(item.get("날짜(From)")), _as_date(item.get("날짜(To)")),
                 item.get("상영타입", "") or "-",
@@ -1821,8 +1825,9 @@ class SettlementExcelExportView(SettlementListView):
         excel.add_rows(data_rows)
 
         # ── 양식(E002) 서식 적용 ───────────────────────────────────────────
-        SUM_COLS = [18, 19, 20, 21, 23, 24, 25]  # 인원·금액·기금제외·부가세제외·공급가액·부가세·지급금 (부율 제외)
-        DATE_COLS = [15, 16]  # O=날짜(From), P=날짜(To)
+        # F001: '부금담당자' 열(13번째, M) 삽입으로 이후 열이 한 칸씩 밀림
+        SUM_COLS = [19, 20, 21, 22, 24, 25, 26]  # 인원·금액·기금제외·부가세제외·공급가액·부가세·지급금 (부율 제외)
+        DATE_COLS = [16, 17]  # P=날짜(From), Q=날짜(To)
         BODY_FONT = Font(name="맑은 고딕", size=9, color="FF000000")
         BOLD_FONT = Font(name="맑은 고딕", size=9, bold=True, color="FF000000")
         HEAD_FONT = Font(name="맑은 고딕", size=9, bold=True, color="FFFFFFFF")
@@ -1831,9 +1836,9 @@ class SettlementExcelExportView(SettlementListView):
         TOTAL_FILL = PatternFill("solid", start_color="FFD9AAD4", end_color="FFD9AAD4")
         WIDTHS = {
             'A': 4.5, 'B': 7.5, 'C': 4.5, 'D': 9.0, 'E': 29.4, 'F': 12.8, 'G': 10.5,
-            'H': 40.0, 'I': 25.2, 'J': 76.5, 'K': 28.6, 'L': 30.4, 'M': 33.8, 'N': 12.8,
-            'O': 9.8, 'P': 13.0, 'Q': 19.5, 'R': 6.9, 'S': 11.4, 'T': 13.0, 'U': 12.4,
-            'V': 4.6, 'W': 11.4, 'X': 10.2, 'Y': 11.4,
+            'H': 40.0, 'I': 25.2, 'J': 76.5, 'K': 28.6, 'L': 30.4, 'M': 10.5, 'N': 33.8,
+            'O': 12.8, 'P': 9.8, 'Q': 13.0, 'R': 19.5, 'S': 6.9, 'T': 11.4, 'U': 13.0,
+            'V': 12.4, 'W': 4.6, 'X': 11.4, 'Y': 10.2, 'Z': 11.4,
         }
         for letter, width in WIDTHS.items():
             ws.column_dimensions[letter].width = width
@@ -1845,7 +1850,7 @@ class SettlementExcelExportView(SettlementListView):
 
         last_data_row = ws.max_row
         for r in range(2, last_data_row + 1):
-            for c in range(1, 26):
+            for c in range(1, 27):
                 cell = ws.cell(row=r, column=c)
                 cell.font = BODY_FONT
                 if c in SUM_COLS:
@@ -1881,7 +1886,7 @@ class SettlementExcelExportView(SettlementListView):
             else:  # 확인여부 필터 등으로 소계 행이 빠진 경우엔 데이터 전체를 합산
                 ref = f"{letter}2:{letter}{last_data_row}"
             ws.cell(row=total_row, column=c, value=f"=SUM({ref})").number_format = '#,##0'
-        for c in range(1, 26):
+        for c in range(1, 27):
             cell = ws.cell(row=total_row, column=c)
             cell.font = BOLD_FONT
             cell.fill = TOTAL_FILL

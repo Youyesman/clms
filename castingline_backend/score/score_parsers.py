@@ -125,9 +125,12 @@ class BulkMatcher:
                     self.theater_by_num[key] = t
 
         # 영화 로드 (전체 속성 필드 반영). title_norm 은 공백+특수문자 제거 정규화.
+        # title_pure_norm 은 포맷 괄호((디지털 2D) 등)를 뗀 순수 제목의 정규화 —
+        # 엑셀 제목에 행사명 접두/접미가 붙었을 때 역방향 포함 매칭에 쓴다 (S001).
         self.movie_list = list(Movie.objects.all())
         for _m in self.movie_list:
             _m.title_norm = _norm_title(_m.title_ko)
+            _m.title_pure_norm = _norm_title(re.sub(r"\(.*?\)", "", _m.title_ko or ""))
 
     @staticmethod
     def _extract_aud_num(s):
@@ -270,6 +273,24 @@ class BulkMatcher:
             return None
 
         candidates = [m for m in self.movie_list if norm_raw in m.title_norm]
+
+        # 역방향 폴백 (S001): 정방향(엑셀 제목 ⊂ DB 제목) 후보가 없으면,
+        # CLMS 등록 영화명이 엑셀 제목 안에 포함되는 영화를 찾는다.
+        # 예) "[2026독립예술영화상영] 지느러미 (디지털 2D)" → 등록영화 "지느러미(디지털2D)".
+        # 제목 앞뒤에 괄호·대괄호 등으로 행사명이 어떻게 붙어도 매칭된다.
+        # 짧은 제목의 오인식을 줄이기 위해 포함되는 등록 제목이 가장 긴 것만 남긴다.
+        if not candidates and norm_raw:
+            reverse = [
+                m
+                for m in self.movie_list
+                if m.title_pure_norm and m.title_pure_norm in norm_raw
+            ]
+            if reverse:
+                longest = max(len(m.title_pure_norm) for m in reverse)
+                candidates = [
+                    m for m in reverse if len(m.title_pure_norm) == longest
+                ]
+
         matched = match_logic(candidates)
         if not matched:
             primary = next((m for m in candidates if m.is_primary_movie), None)

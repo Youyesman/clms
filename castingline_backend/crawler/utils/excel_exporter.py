@@ -635,8 +635,13 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
     _auto_width(ws, min_row=4)
 
 
-def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info):
-    """Write 비교표(집계작 및 경쟁작 멀티별 비교) sheet."""
+def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info, brand_presence=None):
+    """Write 비교표(집계작 및 경쟁작 멀티별 비교) sheet.
+
+    brand_presence: {(date, brand): bool} — 해당 날짜×계열사에 크롤 데이터가
+    한 건이라도 존재하는지. 없으면(수집 시차) '미수집'으로 표기해
+    '상영 없음'과 구분한다 (C001).
+    """
     # Movie order: main first, then competitors (E006: 주요작 없으면 경쟁작만)
     movie_titles = ([movie_title] if main_data else []) + list(competitor_data_dict.keys())
     # U001: 모든 작품(주요작·경쟁작)에 극장수 칸을 두고, '상영관'은 '스크린수'로 표기한다.
@@ -730,6 +735,9 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
                         (s['total_seats'], NUM_FMT),
                         (s['sold_seats'] / s['total_seats'] if s['total_seats'] else 0, PCT_FMT),
                     ]
+                elif brand_presence is not None and not brand_presence.get((proc_date, brand), True):
+                    # 크롤 데이터 자체가 없는 날짜×계열사 — 상영 없음(공백)과 구분 (C001)
+                    vals = [('미수집', None)] + [('', None)] * (cols_per_movie - 1)
                 else:
                     vals = [('', None)] * cols_per_movie
 
@@ -1165,8 +1173,22 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 
     # 3. 비교표 (구 '집계작 및 경쟁작 멀티별 비교' — E001에서 시트명 변경)
     if competitor_all_data:
+        # C001: 날짜×계열사에 크롤 데이터가 아예 없는 경우(수집 시차)를
+        # '상영 없음'과 구분해 표기하기 위한 존재 여부 맵 (영화 필터와 무관하게 전체 조회)
+        presence_dates = sorted(
+            set(all_data.keys())
+            | {d for c_data in competitor_all_data.values() for d in c_data.keys()}
+        )
+        brand_presence = {
+            (d, b): MovieSchedule.objects.filter(play_date=d, brand=b).exists()
+            for d in presence_dates
+            for b in BRAND_ORDER
+        }
         ws = wb.create_sheet("비교표")
-        _write_comparison_sheet(ws, all_data, competitor_all_data, movie_title, gen_info)
+        _write_comparison_sheet(
+            ws, all_data, competitor_all_data, movie_title, gen_info,
+            brand_presence=brand_presence,
+        )
 
     if not wb.sheetnames:
         return None

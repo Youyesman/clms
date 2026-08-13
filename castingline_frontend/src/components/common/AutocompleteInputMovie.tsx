@@ -165,7 +165,11 @@ const Dropdown = styled.ul`
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    right: 0;
+    /* 칩은 폭이 좁아 드롭다운까지 좁아지면 영화명이 잘립니다
+       → 최소폭만 입력창에 맞추고 실제 폭은 내용(영화명)에 맞춥니다 */
+    min-width: 100%;
+    width: max-content;
+    max-width: 480px;
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
@@ -193,6 +197,8 @@ const SuggestionItem = styled.li<{ $isSelected: boolean }>`
     display: flex;
     align-items: center;
     justify-content: space-between; /* 제목과 뱃지 양끝 배치 */
+    gap: 8px;
+    white-space: nowrap;
     font-size: 13px;
     font-family: SUIT;
     color: #1e293b;
@@ -202,6 +208,12 @@ const SuggestionItem = styled.li<{ $isSelected: boolean }>`
 
     &:hover {
         background: #f8fafc;
+    }
+
+    /* max-width(480px)를 넘는 초장문 제목만 말줄임 처리 */
+    span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 `;
 

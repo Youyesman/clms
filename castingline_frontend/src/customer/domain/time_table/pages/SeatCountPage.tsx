@@ -10,6 +10,7 @@ import {
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
+import { useGlobalModal } from "../../../../hooks/useGlobalModal";
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -280,6 +281,11 @@ function renderPieLabel({ cx = 0, cy = 0, midAngle = 0, outerRadius = 0, name = 
 const DarkSectionCard = styled(SectionCard)`
     background: #1a2236;
     border-color: #334155;
+    /* V002: 클릭하면 확대 모달이 열린다 */
+    cursor: pointer;
+    &:hover {
+        border-color: #475569;
+    }
 `;
 
 const DarkSectionTitle = styled(SectionTitle)`
@@ -288,9 +294,73 @@ const DarkSectionTitle = styled(SectionTitle)`
     color: #e2e8f0;
 `;
 
+/* V002: 확대 모달용 파이 라벨 — 반경·글자를 키우고 작은 조각도 표시한다 */
+function renderPieLabelLarge({ cx = 0, cy = 0, midAngle = 0, outerRadius = 0, name = "", value = 0 }: PieLabelProps) {
+    if (value < 0.05) return null;
+    const radius = outerRadius + 44;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+    return (
+        <text
+            x={x}
+            y={y}
+            fill="#e2e8f0"
+            textAnchor={x > cx ? "start" : "end"}
+            dominantBaseline="central"
+            fontSize={12}
+            fontWeight={500}
+        >
+            {name} {value.toFixed(2)}%
+        </text>
+    );
+}
+
+/* V002: 도넛 그래프 확대 모달 내용 — 영화가 많아 작게 보일 때 크게 본다 */
+function EnlargedPieChart({
+    data,
+    unitLabel,
+}: {
+    data: { name: string; value: number; color: string }[];
+    unitLabel: string;
+}) {
+    return (
+        <div style={{ background: "#1a2236", borderRadius: 8, padding: "12px 8px" }}>
+            <ResponsiveContainer width="100%" height={600}>
+                <PieChart>
+                    <Pie
+                        data={data}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="46%"
+                        innerRadius={115}
+                        outerRadius={180}
+                        label={renderPieLabelLarge}
+                        labelLine={{ stroke: "#475569", strokeWidth: 1 }}
+                    >
+                        {data.map((entry, index) => (
+                            <Cell key={index} fill={entry.color} />
+                        ))}
+                    </Pie>
+                    <Tooltip
+                        contentStyle={{ background: "#1e293b", border: "1px solid #475569", color: "#e2e8f0", fontSize: 13 }}
+                        formatter={(value) => [`${Number(value ?? 0).toFixed(2)}%`, unitLabel]}
+                    />
+                    <Legend
+                        iconSize={10}
+                        wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 8 }}
+                        formatter={(value) => <span style={{ color: "#94a3b8" }}>{value}</span>}
+                    />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
+    );
+}
+
 /* ── 메인 컴포넌트 ── */
 export function SeatCountPage() {
     const toast = useToast();
+    const { openModal } = useGlobalModal(); // V002: 도넛 그래프 확대 모달
     const [filter, setFilter] = useRecoilState(TimeTableFilterState);
     const { dateFrom, dateTo, selectedBrands, selectedRegions, selectedMovies } = filter;
     const setDateFrom = (v: string) => setFilter(f => ({ ...f, dateFrom: v }));
@@ -377,9 +447,10 @@ export function SeatCountPage() {
         lw_period_total: m.lw_period_total,
     })) ?? [];
 
-    /* 파이 차트 데이터 */
+    /* 파이 차트 데이터 (fullName은 확대 모달에서 전체 영화명 표시용 — V002) */
     const rateData = data?.movies.map((m, i) => ({
         name: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
+        fullName: m.title,
         value: data.grand.period_sold > 0
             ? Math.round(m.period_sold / data.grand.period_sold * 10000) / 100
             : 0,
@@ -388,11 +459,23 @@ export function SeatCountPage() {
 
     const seatData = data?.movies.map((m, i) => ({
         name: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
+        fullName: m.title,
         value: data.grand.period_total > 0
             ? Math.round(m.period_total / data.grand.period_total * 10000) / 100
             : 0,
         color: PIE_COLORS[i % PIE_COLORS.length],
     })) ?? [];
+
+    /* V002: 도넛 카드 클릭 → 확대 모달 (전체 영화명으로 표시) */
+    const openPieModal = (title: string, pieData: typeof rateData, unitLabel: string) => {
+        openModal(
+            <EnlargedPieChart
+                data={pieData.map(d => ({ ...d, name: d.fullName }))}
+                unitLabel={unitLabel}
+            />,
+            { title, width: "780px" }
+        );
+    };
 
     const BRAND_OPTIONS = ["CGV", "롯데", "메가박스"];
     const REGION_OPTIONS = ["서울", "경강", "경남", "경북", "충청", "호남"];
@@ -504,15 +587,18 @@ export function SeatCountPage() {
                         <SectionCard>
                             <SectionTitle>전주 대비 총좌석수 비교</SectionTitle>
                             <div style={{ padding: "16px 8px 8px" }}>
-                                <ResponsiveContainer width="100%" height={280}>
-                                    <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 40 }}>
+                                <ResponsiveContainer width="100%" height={330}>
+                                    <BarChart data={barData} margin={{ top: 5, right: 10, left: 10, bottom: 10 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        {/* V001: 회전된 영화명 라벨 공간을 축에 명시적으로 확보해
+                                            하단 범례와 겹치지 않게 한다 */}
                                         <XAxis
                                             dataKey="title"
                                             tick={{ fontSize: 11, fill: "#64748b" }}
                                             tickLine={false}
                                             angle={-20}
                                             textAnchor="end"
+                                            height={58}
                                         />
                                         <YAxis
                                             tick={{ fontSize: 11, fill: "#64748b" }}
@@ -564,7 +650,7 @@ export function SeatCountPage() {
                                                 });
                                             }}
                                         />
-                                        <Legend />
+                                        <Legend wrapperStyle={{ paddingTop: 4 }} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -572,8 +658,15 @@ export function SeatCountPage() {
 
                         {/* 파이 차트 2개 */}
                         <PieStack>
-                            <DarkSectionCard>
-                                <DarkSectionTitle>실시간 예매율</DarkSectionTitle>
+                            <DarkSectionCard
+                                onClick={() => openPieModal("실시간 예매율", rateData, "예매율")}
+                                title="클릭하면 크게 볼 수 있습니다">
+                                <DarkSectionTitle>
+                                    실시간 예매율
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: "#64748b", marginLeft: 6 }}>
+                                        (클릭 시 확대)
+                                    </span>
+                                </DarkSectionTitle>
                                 <div style={{ padding: "8px 4px" }}>
                                     <ResponsiveContainer width="100%" height={280}>
                                         <PieChart>
@@ -609,8 +702,15 @@ export function SeatCountPage() {
                                 </div>
                             </DarkSectionCard>
 
-                            <DarkSectionCard>
-                                <DarkSectionTitle>좌점율</DarkSectionTitle>
+                            <DarkSectionCard
+                                onClick={() => openPieModal("좌점율", seatData, "좌점율")}
+                                title="클릭하면 크게 볼 수 있습니다">
+                                <DarkSectionTitle>
+                                    좌점율
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: "#64748b", marginLeft: 6 }}>
+                                        (클릭 시 확대)
+                                    </span>
+                                </DarkSectionTitle>
                                 <div style={{ padding: "8px 4px" }}>
                                     <ResponsiveContainer width="100%" height={280}>
                                         <PieChart>

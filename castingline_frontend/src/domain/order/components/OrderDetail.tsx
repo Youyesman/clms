@@ -224,6 +224,23 @@ export function OrderDetail({
                 </span>
             ),
         },
+        {
+            key: "rate",
+            label: "부율",
+            // 부율관리에 등록된 영화×극장 부율. 미등록 극장은 빨간색으로 표시하고
+            // 백엔드에서 목록 맨 위로 정렬된다 (O001)
+            renderCell: (_value: any, item: any) =>
+                item.has_rate && item.share_rate != null ? (
+                    <span>
+                        {Number(item.share_rate) % 1 === 0
+                            ? Number(item.share_rate).toFixed(0)
+                            : Number(item.share_rate)}
+                        %
+                    </span>
+                ) : (
+                    <span style={{ color: "#dc2626", fontWeight: 700 }}>미등록</span>
+                ),
+        },
         { key: "release_date", label: "개봉일", editable: true },
         { key: "end_date", label: "종영일", editable: true }, // 업데이트될 대상
         {

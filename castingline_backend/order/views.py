@@ -4,7 +4,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from datetime import datetime
 from castingline_backend.utils.ordering import KoreanOrderingFilter
@@ -63,11 +63,24 @@ class OrderViewSet(viewsets.ModelViewSet):
         'region_code': 'client__region_code',
         'classification': 'client__classification',
         'theater_kind': 'client__theater_kind',
+        'rate': 'rate_value',
     }
 
     def get_queryset(self):
+        from rate.models import Rate
+
         # 1. 기본 쿼리셋 가져오기
         queryset = super().get_queryset()
+
+        # 1-1. 부율관리에 등록된 영화×극장 부율을 함께 조회한다 (O001).
+        #      기간 이력이 여러 건이면 가장 최근 시작 구간의 부율을 보여준다.
+        rate_qs = Rate.objects.filter(client=OuterRef("client"), movie=OuterRef("movie"))
+        queryset = queryset.annotate(
+            has_rate=Exists(rate_qs),
+            rate_value=Subquery(
+                rate_qs.order_by("-start_date").values("share_rate")[:1]
+            ),
+        )
 
         # 2. URL 파라미터들 가져오기
         ol_id = self.request.query_params.get("id")  # OrderList ID
@@ -108,7 +121,23 @@ class OrderViewSet(viewsets.ModelViewSet):
                 F("release_date").desc(nulls_last=True), "-id"
             )
 
+        # 8. 부율 미등록 극장이 항상 맨 위로 오도록 최우선 정렬 (O001).
+        #    사용자가 컬럼 정렬을 골라도 filter_queryset()에서 같은 우선순위를 다시 얹는다.
+        return self._pin_missing_rate_first(queryset)
+
+    @staticmethod
+    def _pin_missing_rate_first(queryset):
+        """부율 미등록(has_rate=False) 오더를 목록 최상단에 고정한다 (O001)."""
+        current_order = tuple(queryset.query.order_by or ("-id",))
+        if current_order[:1] != ("has_rate",):
+            queryset = queryset.order_by("has_rate", *current_order)
         return queryset
+
+    def filter_queryset(self, queryset):
+        # KoreanOrderingFilter가 ordering 파라미터로 order_by를 통째로 덮어쓰므로,
+        # 어떤 정렬을 골라도 부율 미등록 우선(O001)은 유지한다.
+        queryset = super().filter_queryset(queryset)
+        return self._pin_missing_rate_first(queryset)
 
     def destroy(self, request, *args, **kwargs):
         # 1. 삭제하려는 대상(Order) 객체 가져오기
@@ -297,9 +326,9 @@ class OrderExcelExportView(APIView):
         
         excel = ExcelGenerator(sheet_name='오더관리')
         
-        # 요청하신 헤더 순서
+        # 요청하신 헤더 순서 (부율: 극장명과 개봉일 사이 — O001)
         headers = [
-            "영화", "포맷", "극장명", "개봉일", "종영일", "마지막상영", "비고", "지역", "직위", "멀티", "생성일자"
+            "영화", "포맷", "극장명", "부율", "개봉일", "종영일", "마지막상영", "비고", "지역", "직위", "멀티", "생성일자"
         ]
         excel.add_header(headers)
         
@@ -316,10 +345,17 @@ class OrderExcelExportView(APIView):
             ] if movie else []
             format_str = " ".join([p for p in format_parts if p]).strip()
             
+            # 부율 표기 (O001) — 화면 목록과 동일하게 미등록은 '미등록'
+            if getattr(order, "has_rate", False) and order.rate_value is not None:
+                rate_str = f"{order.rate_value:.2f}".rstrip("0").rstrip(".") + "%"
+            else:
+                rate_str = "미등록"
+
             row = [
                 movie.title_ko if movie else "",
                 format_str,
                 client.client_name if client else "",
+                rate_str,
                 order.release_date.strftime('%Y-%m-%d') if order.release_date else "",
                 order.end_date.strftime('%Y-%m-%d') if order.end_date else "",
                 order.last_screening_date.strftime('%Y-%m-%d') if order.last_screening_date else "",

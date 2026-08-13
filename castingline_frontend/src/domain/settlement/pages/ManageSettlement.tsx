@@ -1348,6 +1348,8 @@ export function ManageSettlement() {
         { key: "사업장 소재", label: "사업장 소재지" },
         { key: "업태", label: "업태" },
         { key: "업종", label: "업종" },
+        // F001: 거래처 관리 - 부금 정보의 담당자명
+        { key: "부금담당자", label: "부금 담당자" },
         { key: "수신자이메일", label: "공급받는자 이메일1" },
         { key: "수신자이메일2", label: "공급받는자 이메일2" },
         { key: "수신자 전화번호", label: "수신자 전화번호" },
