@@ -30,6 +30,9 @@ class Client(TimeStampedModel):
     kofic_theater_name = models.CharField(
         max_length=255, null=True, blank=True
     )  # 영진위극장명 (영진위 일반극장 업로드 매칭용)
+    kofic_theater_name2 = models.CharField(
+        max_length=255, null=True, blank=True
+    )  # 영진위극장명2 (영진위 추가 매칭용 별칭 — N001)
     region_code = models.CharField(max_length=255, null=True, blank=True)  # 지역
     theater_kind = models.CharField(max_length=255, null=True, blank=True)  # 멀티
     business_operator = models.CharField(

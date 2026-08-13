@@ -138,6 +138,8 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                             <CustomInput label="엑셀 극장명" value={formData.excel_theater_name || ""} setValue={(v) => updateField("excel_theater_name", v)} />
                             <CustomInput label="엑셀 극장명2" value={formData.excel_theater_name2 || ""} setValue={(v) => updateField("excel_theater_name2", v)} />
                             <CustomInput label="영진위 극장명" value={formData.kofic_theater_name || ""} setValue={(v) => updateField("kofic_theater_name", v)} />
+                            {/* N001: 영진위 추가 매칭용 별칭 — 두 이름 모두 영진위 매칭에 쓰인다 */}
+                            <CustomInput label="영진위 극장명2" value={formData.kofic_theater_name2 || ""} setValue={(v) => updateField("kofic_theater_name2", v)} />
                             <CustomInput label="전화번호(대표)" value={formData.representative_phone_number || ""} setValue={(v) => updateField("representative_phone_number", v)} />
                             <CustomInput label="팩스번호" value={formData.fax_number || ""} setValue={(v) => updateField("fax_number", v)} />
                         </FormGrid>

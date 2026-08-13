@@ -564,30 +564,106 @@ class MovieSchedule(models.Model):
     def __str__(self):
         return f"[{self.brand}] {self.theater_name} - {self.movie_title} ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
 
-    @staticmethod
-    def map_kobis_theater_name(crawled_name):
-        """크롤된 KOBIS 극장명을 기존 DB 극장(Client)과 매핑. 매칭되면 client_name, 아니면 원본 반환."""
+    @classmethod
+    def _kobis_client_candidates(cls, crawled_name):
+        """크롤된 KOBIS 극장명과 이름이 일치하는 Client 후보 목록.
+
+        같은 영진위 극장명이 여러 거래처에 등록될 수 있으므로(예: '영화의 전당' →
+        부산영화의전당 / 부산영화의전당(발전기금면제관)) 첫 건만 남기지 않고
+        전부 보관한다 (K001).
+        """
         import re, html
         from client.models import Client
         # KOBIS는 '&'를 이중 인코딩(&amp;amp;)하는 경우가 있어 두 번 unescape
         crawled_name = html.unescape(html.unescape(str(crawled_name or "")))
         norm = re.sub(r'\s+', '', crawled_name).lower()
         if not norm:
-            return crawled_name, None
-        # 캐시 (이름정규화 -> client) : 첫 호출 시 1회 구축
+            return []
+        # 캐시 (이름정규화 -> [client 후보 목록]) : 첫 호출 시 1회 구축
         cache = getattr(MovieSchedule, '_kobis_client_cache', None)
         if cache is None:
             cache = {}
-            for c in Client.objects.all().only('id', 'client_name', 'excel_theater_name', 'kofic_theater_name'):
-                for nm in (c.kofic_theater_name, c.excel_theater_name, c.client_name):
+            for c in Client.objects.all().only(
+                'id', 'client_name', 'excel_theater_name',
+                'kofic_theater_name', 'kofic_theater_name2',
+            ):
+                for nm in (c.kofic_theater_name, c.kofic_theater_name2,
+                           c.excel_theater_name, c.client_name):
                     if nm:
                         k = re.sub(r'\s+', '', nm).lower()
-                        cache.setdefault(k, c)
+                        bucket = cache.setdefault(k, [])
+                        if all(x.id != c.id for x in bucket):
+                            bucket.append(c)
             MovieSchedule._kobis_client_cache = cache
-        c = cache.get(norm)
-        if c:
+        return cache.get(norm) or []
+
+    @staticmethod
+    def _pick_client_by_screen(candidates, screen_name):
+        """동명 거래처 후보 중 해당 관명이 극장관 정보에 등록된 거래처를 고른다 (K001).
+
+        정규화 후 정확 일치 → 포함 일치(예: KOBIS '인디플러스 영화의 전당' ⊃
+        등록 관 '인디플러스') 순으로 비교하고, 유일하게 좁혀지지 않으면 None.
+        """
+        import re
+        from client.models import Theater
+
+        def _norm(s):
+            s = MovieSchedule.normalize_screen_name(s)
+            return re.sub(r'\s+', '', s).lower()
+
+        target = _norm(screen_name)
+        if not target:
+            return None
+
+        # client_id -> 정규화된 관명 집합 캐시
+        screen_cache = getattr(MovieSchedule, '_kobis_screen_cache', None)
+        if screen_cache is None:
+            screen_cache = {}
+            MovieSchedule._kobis_screen_cache = screen_cache
+        for c in candidates:
+            if c.id not in screen_cache:
+                names = set()
+                theaters = Theater.objects.filter(client_id=c.id).only(
+                    'auditorium_name', 'kofic_auditorium_name'
+                )
+                for t in theaters:
+                    for nm in (t.kofic_auditorium_name, t.auditorium_name):
+                        n = _norm(nm) if nm else ''
+                        if n:
+                            names.add(n)
+                screen_cache[c.id] = names
+
+        exact = [c for c in candidates if target in screen_cache[c.id]]
+        if len(exact) == 1:
+            return exact[0]
+        partial = [
+            c for c in candidates
+            if any(
+                (n in target or target in n)
+                for n in screen_cache[c.id] if len(n) >= 2
+            )
+        ]
+        if len(partial) == 1:
+            return partial[0]
+        return None
+
+    @classmethod
+    def map_kobis_theater_name(cls, crawled_name, screen_name=None):
+        """크롤된 KOBIS 극장명을 기존 DB 극장(Client)과 매핑. 매칭되면 client_name, 아니면 원본 반환.
+
+        같은 영진위 극장명을 여러 거래처가 공유하면 관명(screen_name)으로
+        올바른 거래처를 판별한다 (K001).
+        """
+        candidates = cls._kobis_client_candidates(crawled_name)
+        if len(candidates) > 1 and screen_name:
+            picked = cls._pick_client_by_screen(candidates, screen_name)
+            if picked is not None:
+                return picked.client_name, picked.id
+        if candidates:
+            c = candidates[0]
             return c.client_name, c.id
-        return crawled_name, None
+        import html
+        return html.unescape(html.unescape(str(crawled_name or ""))), None
 
     @classmethod
     def create_from_kobis_log(cls, log, target_titles=None, title_map=None):
@@ -612,9 +688,6 @@ class MovieSchedule(models.Model):
         theater_info = json_data.get("theater") or [{}]
         homepg = theater_info[0].get("homepgUrl") if theater_info else None
 
-        # 극장명: 기존 DB 극장과 매핑
-        mapped_theater_name, _client_id = cls.map_kobis_theater_name(log.theater_name)
-
         parsed_items = []
         errors = []
         for item in schedule_list:
@@ -628,6 +701,11 @@ class MovieSchedule(models.Model):
                         continue
 
                 screen_name = cls.normalize_screen_name(item.get("scrnNm"))
+                # 극장명: 기존 DB 극장과 매핑 — 같은 영진위 극장명이 여러 거래처로
+                # 나뉜 경우(예: 영화의 전당) 관명으로 판별해야 하므로 관 단위로 매핑 (K001)
+                mapped_theater_name, _client_id = cls.map_kobis_theater_name(
+                    log.theater_name, screen_name=screen_name
+                )
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
                 final_title = clean_title
                 if title_map is not None:
@@ -665,15 +743,37 @@ class MovieSchedule(models.Model):
         if not parsed_items:
             return 0, errors
 
-        # 기존 스케줄 조회 (brand+theater 범위)
+        # 기존 스케줄 조회 (brand+theater 범위).
+        # 같은 영진위 극장을 공유하는 모든 후보 거래처명과 원본 극장명까지 포함해
+        # 과거에 다른 거래처명으로 저장된 행도 찾는다 (K001 — 중복 생성 방지)
         all_start = [i['start_time'] for i in parsed_items]
+        lookup_names = {i['theater_name'] for i in parsed_items}
+        lookup_names.add(str(log.theater_name or ""))
+        lookup_names.update(
+            c.client_name for c in cls._kobis_client_candidates(log.theater_name)
+            if c.client_name
+        )
         existing_qs = cls.objects.filter(
             brand='일반극장',
-            theater_name=mapped_theater_name,
+            theater_name__in=[n for n in lookup_names if n],
             start_time__gte=min(all_start),
             start_time__lte=max(all_start) + timedelta(hours=1),
         )
-        existing_map = {(o.screen_name, o.start_time): o for o in existing_qs}
+        # 같은 (관, 시각)이 별칭 거래처명으로 중복 저장돼 있으면 새 매핑명 행을
+        # 우선 채택하고 나머지는 삭제 대상으로 모은다 (unique 제약 충돌 방지 — K001)
+        mapped_names = {i['theater_name'] for i in parsed_items}
+        existing_map = {}
+        stale_ids = []
+        for o in existing_qs:
+            key = (o.screen_name, o.start_time)
+            cur = existing_map.get(key)
+            if cur is None:
+                existing_map[key] = o
+            elif o.theater_name in mapped_names and cur.theater_name not in mapped_names:
+                stale_ids.append(cur.id)
+                existing_map[key] = o
+            else:
+                stale_ids.append(o.id)
 
         to_create, to_update = [], []
         seen = set()
@@ -687,16 +787,20 @@ class MovieSchedule(models.Model):
                 obj.movie_title = item['movie_title']
                 obj.tags = item['tags']
                 obj.booking_url = item['booking_url']
+                # 과거에 잘못 매핑된 거래처명도 함께 교정한다 (K001)
+                obj.theater_name = item['theater_name']
                 to_update.append(obj)
             else:
                 to_create.append(cls(**item))
 
         created_count = updated_count = 0
+        if stale_ids:
+            cls.objects.filter(id__in=stale_ids).delete()
         if to_create:
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
             created_count = len(to_create)
         if to_update:
-            cls.objects.bulk_update(to_update, ['movie_title', 'tags', 'booking_url', 'updated_at'])
+            cls.objects.bulk_update(to_update, ['movie_title', 'tags', 'booking_url', 'theater_name', 'updated_at'])
             updated_count = len(to_update)
 
         return created_count + updated_count, errors

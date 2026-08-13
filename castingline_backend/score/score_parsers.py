@@ -89,6 +89,8 @@ class BulkMatcher:
             # 영진위극장명: 영진위 업로드(relaxed) 전용 명시적 매핑 키
             if self.relaxed_aud and c.kofic_theater_name:
                 names.add(c.kofic_theater_name.replace(" ", "").lower())
+            if self.relaxed_aud and c.kofic_theater_name2:
+                names.add(c.kofic_theater_name2.replace(" ", "").lower())
 
             for name in names:
                 if name not in self.name_to_clients:

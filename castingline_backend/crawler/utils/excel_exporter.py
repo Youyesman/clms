@@ -204,13 +204,14 @@ def _build_normal_theater_index():
     from client.models import Client, Theater
 
     qs = Client.objects.exclude(theater_kind__in=['CGV', '메가박스', '롯데']).only(
-        'id', 'client_name', 'kofic_theater_name', 'region_code'
+        'id', 'client_name', 'kofic_theater_name', 'kofic_theater_name2', 'region_code'
     )
     name_to_client = {}
-    # 1) 영진위극장명 우선
+    # 1) 영진위극장명(1·2) 우선
     for c in qs:
-        if c.kofic_theater_name:
-            name_to_client.setdefault(re.sub(r'\s+', '', c.kofic_theater_name).lower(), c)
+        for nm in (c.kofic_theater_name, c.kofic_theater_name2):
+            if nm:
+                name_to_client.setdefault(re.sub(r'\s+', '', nm).lower(), c)
     # 2) 그 다음 극장명
     for c in qs:
         if c.client_name:
