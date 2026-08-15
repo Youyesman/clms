@@ -138,7 +138,15 @@ const InputField = styled.input<{ $hasLeft?: boolean; $chip?: boolean; $applied?
         color: #94a3b8;
     }
     /* 칩 모드: 부모 폭이 내용에 맞춰지므로 스스로 폭을 가져야 합니다 */
-    ${({ $chip }) => $chip && filterChipInput}
+    ${({ $chip }) =>
+        $chip &&
+        css`
+            ${filterChipInput}
+            /* B001: 영화명은 제목이 길어 기본 칩 폭(112px)이면 글자가 잘리고,
+               재검색할 때 기존 제목을 여러 번에 나눠 지우게 됩니다.
+               제목 대부분이 한 번에 보이도록 넉넉하게 잡습니다. */
+            width: 340px;
+        `}
 `;
 
 /** ✅ 배급사 뱃지 스타일 **/

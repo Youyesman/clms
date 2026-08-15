@@ -19,7 +19,7 @@ from rest_framework import viewsets, filters
 from rest_framework.permissions import AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Score
-from .serializers import ScoreSerializer
+from .serializers import ScoreSerializer, build_theater_display_map
 
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import api_view
@@ -372,10 +372,15 @@ class ScoreViewSet(viewsets.ModelViewSet):
 
         # 3. 데이터 매핑 준비
         # {(client_id, movie_id): [score_objects]} 구조로 저장
+        # S001: 관이름/좌석수 매핑은 한 번만 만들어 넘긴다 (스코어 건당 조회 방지)
+        score_client_ids = {s.client_id for s in scores_queryset if s.client_id}
+        ser_context = {
+            "theater_map": build_theater_display_map(score_client_ids)
+        }
         score_map = defaultdict(list)
         for s in scores_queryset:
             score_map[(s.client_id, s.movie_id)].append(
-                ScoreSerializer(s).data)
+                ScoreSerializer(s, context=ser_context).data)
 
         # 4. 오더 기준으로 결과 생성
         final_items = []
@@ -404,6 +409,7 @@ class ScoreViewSet(viewsets.ModelViewSet):
                     "entry_date": entry_date_str,
                     "auditorium": None,
                     "auditorium_name": "미입력",
+                    "seat_count": None,
                     "fare": None,
                     "visitor": 0,
                     "is_order_only": True  # 오더 목록에서 온 것임을 표시 (선택 사항)

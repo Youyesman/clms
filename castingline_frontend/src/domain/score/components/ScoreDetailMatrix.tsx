@@ -12,6 +12,7 @@ import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
 import { EmptyState } from "../../../components/common/EmptyState";
+import { dedupeLatestAuditoriums, formatAuditoriumLabel } from "../../../utils/auditoriumLabel";
 
 /* ---------------- Styled Components ---------------- */
 
@@ -169,6 +170,7 @@ interface ScoreItem {
     movie: MovieInfo;
     auditorium: string;
     auditorium_name: string;
+    seat_count?: number | null; // S001: 극장관 정보의 좌석수
     entry_date: string;
     is_order_only?: boolean;
     ids?: number[];
@@ -179,6 +181,7 @@ interface TheaterItem {
     auditorium: string;
     auditorium_name: string;
     seat_count: number;
+    created_date?: string | null;
 }
 
 interface Props {
@@ -311,6 +314,9 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         fetchTheatersAndFares();
     }, [fetchTheatersAndFares]);
 
+    // S001 2-1: 같은 관이 중복 등록돼 있으면 가장 최근에 추가된 관 정보만 쓴다
+    const auditoriumOptions = useMemo(() => dedupeLatestAuditoriums(theaterList), [theaterList]);
+
     // Matrix 행 = 등록된 요금 ∪ 스코어에 실제 존재하는 요금.
     // 요금 목록에서 빠진 요금(예: 요금 삭제 후 남은 스코어)도 행으로 보여야 값이 숨지 않는다 (S001)
     const fareRows = useMemo(() => {
@@ -323,13 +329,14 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
     const handleAuditoriumSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         if (!code || !selectedScore) return;
-        const theater = theaterList.find((t) => t.auditorium === code);
+        const theater = auditoriumOptions.find((t) => t.auditorium === code);
         if (!theater) return;
 
         setSelectedScore({
             ...selectedScore,
             auditorium: theater.auditorium,
             auditorium_name: theater.auditorium_name,
+            seat_count: theater.seat_count,
         });
 
         if (selectedScore.id) {
@@ -560,9 +567,9 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                             <option value="" disabled>
                                 관을 선택하세요
                             </option>
-                            {theaterList.map((t) => (
+                            {auditoriumOptions.map((t) => (
                                 <option key={t.id} value={t.auditorium}>
-                                    {t.auditorium_name}
+                                    {formatAuditoriumLabel(t.auditorium_name, t.seat_count)}
                                 </option>
                             ))}
                         </AuditoriumSelect>
@@ -577,6 +584,18 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
                 <InfoBadge $type="movie">
                     <strong>영화</strong> {selectedScore.movie?.title_ko}
                 </InfoBadge>
+                {selectedScore.auditorium && (
+                    /* S001: 관 표기는 항상 좌석수를 함께 (예: 1관(144석)) */
+                    <InfoBadge $type="room">
+                        <strong>관</strong>{" "}
+                        {formatAuditoriumLabel(
+                            selectedScore.auditorium_name || selectedScore.auditorium,
+                            selectedScore.seat_count ??
+                                auditoriumOptions.find((t) => t.auditorium === selectedScore.auditorium)
+                                    ?.seat_count,
+                        )}
+                    </InfoBadge>
+                )}
             </InfoSection>
 
             <TableContainer ref={tableContainerRef} tabIndex={0}>

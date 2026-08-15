@@ -15,6 +15,7 @@ import { useAppAlert } from "../../../atom/alertUtils";
 import { ScoreExcelUploader } from "./ScoreExcelUploader";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { formatAuditoriumLabel } from "../../../utils/auditoriumLabel";
 
 // 도메인 컴포넌트
 import { ScoreDetailMatrix } from "../components/ScoreDetailMatrix";
@@ -41,6 +42,7 @@ interface ScoreItem {
     entry_date: string;
     auditorium: string;
     auditorium_name: string;
+    seat_count?: number | null; // S001: 극장관 정보의 좌석수
     fare: number | string | null;
     visitor: number | string;
     show_count?: string;
@@ -382,12 +384,13 @@ export function ManageScore() {
                                                 const clientData = clientGroups[cId];
 
                                                 // 관별 그룹화
-                                                const audiGroups: Record<string, { name: string; items: ScoreItem[]; total: number; ids: number[] }> = {};
+                                                const audiGroups: Record<string, { name: string; seatCount?: number | null; items: ScoreItem[]; total: number; ids: number[] }> = {};
                                                 clientData.items.forEach((item) => {
                                                     const aKey = item.auditorium || "none";
                                                     if (!audiGroups[aKey]) {
                                                         audiGroups[aKey] = {
                                                             name: item.auditorium_name,
+                                                            seatCount: item.seat_count,
                                                             items: [],
                                                             total: 0,
                                                             ids: [],
@@ -493,8 +496,11 @@ export function ManageScore() {
                                                                                 <td>{clientData.name}</td>
                                                                                 <td>{movieGroup.movie_name}</td>
                                                                                 <td>
-                                                                                    {item.auditorium_name ||
-                                                                                        item.auditorium}
+                                                                                    {formatAuditoriumLabel(
+                                                                                        item.auditorium_name ||
+                                                                                            item.auditorium,
+                                                                                        item.seat_count,
+                                                                                    )}
                                                                                 </td>
                                                                                 <td style={{ textAlign: "right" }}>
                                                                                     {item.fare
@@ -527,7 +533,7 @@ export function ManageScore() {
                                                                                 ))}
                                                                         </td>
                                                                         <td colSpan={4} style={{ textAlign: "right" }}>
-                                                                            [{audi.name || aKey}] 관 소계 :
+                                                                            [{formatAuditoriumLabel(audi.name || aKey, audi.seatCount)}] 관 소계 :
                                                                         </td>
                                                                         <td style={{ textAlign: "right" }}>
                                                                             {audi.total.toLocaleString()} 명

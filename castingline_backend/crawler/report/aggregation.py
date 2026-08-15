@@ -19,6 +19,11 @@ W002: 숫자의 출처는 [크롤러 관리]의 엑셀 다운로드와 **완전�
 (excel_exporter._process_to_rows — 씨네드쉐프 중복 정리, 일반극장 극장/좌석 매칭,
 좌석 정보 없는 회차의 정원 보정)를 거친 행으로 집계한다. 계열사(brands) 선택도
 엑셀 다운로드와 같은 범위로 받는다.
+
+C001: 작품 배정도 엑셀과 같은 '작품별 독립 매칭'이다. 한 회차가 두 작품에
+걸리는 동시상영(예: '오디세이 + 스파이더맨: 브랜드 뉴 데이')은 엑셀에서 두 작품
+모두에 잡히므로 보고서도 동일하게 집계한다. 그래서 주요작 지정 여부(보고서 유형)와
+무관하게 같은 작품은 항상 같은 숫자가 나온다.
 """
 from collections import defaultdict
 from datetime import timedelta
@@ -124,17 +129,22 @@ def _collect(start_date, end_date, units, brands=None, maps=None):
     grand_theaters = set()
     grand_day_screens = set()
 
-    # 같은 제목 문자열은 매번 다시 매칭하지 않도록 캐시 (§5: 한 행은 한 작품에만 배정)
+    # 같은 제목 문자열은 매번 다시 매칭하지 않도록 캐시
     title_cache = {}
 
-    def match_unit(raw_title):
+    def match_units(raw_title):
+        """C001: 엑셀 다운로드와 동일하게 '작품별 독립 매칭'.
+
+        엑셀은 작품마다 따로 title_matches 로 필터링하므로, 동시상영처럼
+        한 회차 제목이 두 작품에 걸리면(예: '오디세이 + 스파이더맨: 브랜드 뉴 데이')
+        양쪽 작품 모두에 집계된다. 보고서도 같은 규칙을 써야 숫자가 어긋나지 않는다.
+        (예전처럼 첫 매칭 작품 하나에만 배정하면, 주요작 지정 여부에 따라
+        매칭 순서가 달라져 같은 작품의 수치가 보고서 유형별로 달라졌다.)
+        """
         if raw_title in title_cache:
             return title_cache[raw_title]
-        matched = None
-        for u in units:
-            if MovieSchedule.title_matches(u["title"], raw_title):
-                matched = u["key"]
-                break
+        matched = [u["key"] for u in units
+                   if MovieSchedule.title_matches(u["title"], raw_title)]
         title_cache[raw_title] = matched
         return matched
 
@@ -149,10 +159,9 @@ def _collect(start_date, end_date, units, brands=None, maps=None):
         )
         buckets = defaultdict(list)
         for sch in day_qs:
-            key = match_unit(sch.movie_title)
-            if key is None:
-                continue  # 크롤 대상 외(타 영화 특수상영 등)는 보고서 제외
-            buckets[key].append(sch)
+            # 크롤 대상 외(타 영화 특수상영 등)는 보고서 제외
+            for key in match_units(sch.movie_title):
+                buckets[key].append(sch)
 
         for key, schedules in buckets.items():
             rows, _ = _process_to_rows(schedules, region_map, normal_index)
