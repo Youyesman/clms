@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { useToast } from "../../../components/common/CustomToast";
-import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete } from "../../../axios/Axios";
+import { AxiosPost, AxiosGet, AxiosPatch, AxiosDelete, AxiosPut } from "../../../axios/Axios";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { GenericTable } from "../../../components/GenericTable";
@@ -190,12 +190,48 @@ export const CrawlerPage = () => {
     const { showAlert } = useAppAlert();
 
     const [config, setConfig] = useState<ICrawlerConfig>(INITIAL_CONFIG);
+    // C006: 특정 날짜(비연속 다중 선택) 크롤링
+    const [useSpecificDates, setUseSpecificDates] = useState(false);
+    const [specificDates, setSpecificDates] = useState<string[]>([]);
+    const [specificDateInput, setSpecificDateInput] = useState("");
     const [history, setHistory] = useState<ICrawlerHistory[]>([]);
 
     const [showExportModal, setShowExportModal] = useState(false);
     // P001: 상영현황 보고서(PDF/엑셀) 생성 모달
     const [showReportModal, setShowReportModal] = useState(false);
     const [showCrawlModal, setShowCrawlModal] = useState(false);
+    // C007: 자동 크롤링 스케줄 설정 모달
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [scheduleConfig, setScheduleConfig] = useState<{ enabled: boolean; run_times: string[]; crawl_days: number }>({
+        enabled: true, run_times: ["13:00"], crawl_days: 3,
+    });
+    const [scheduleTimeInput, setScheduleTimeInput] = useState("");
+    const [isScheduleSaving, setIsScheduleSaving] = useState(false);
+
+    const openScheduleModal = () => {
+        AxiosGet("crawler/schedule-config")
+            .then((res: any) => setScheduleConfig(res.data))
+            .catch(() => { })
+            .finally(() => setShowScheduleModal(true));
+    };
+
+    const handleSaveSchedule = async () => {
+        if (scheduleConfig.run_times.length === 0) {
+            toast.error("실행 시간을 하나 이상 추가해주세요.");
+            return;
+        }
+        setIsScheduleSaving(true);
+        try {
+            const res: any = await AxiosPut("crawler/schedule-config", scheduleConfig);
+            setScheduleConfig(res.data);
+            toast.success("자동 크롤링 설정이 저장되었습니다.");
+            setShowScheduleModal(false);
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || "설정 저장에 실패했습니다.");
+        } finally {
+            setIsScheduleSaving(false);
+        }
+    };
 
     // 실패 상세 모달
     const [failureModalItem, setFailureModalItem] = useState<ICrawlerHistory | null>(null);
@@ -381,11 +417,19 @@ export const CrawlerPage = () => {
 
     const handleRun = async () => {
         try {
-            if (!config.crawlStartDate || !config.crawlEndDate) {
+            // C006: 특정 날짜 모드면 날짜 목록으로, 아니면 기존 기간으로 실행
+            if (useSpecificDates) {
+                if (specificDates.length === 0) {
+                    toast.error("크롤링할 날짜를 하나 이상 추가해주세요.");
+                    return;
+                }
+            } else if (!config.crawlStartDate || !config.crawlEndDate) {
                 toast.error("날짜를 선택해주세요.");
                 return;
             }
-            await AxiosPost("crawler/run", config);
+            const payload: any = { ...config };
+            if (useSpecificDates) payload.crawlDates = specificDates;
+            await AxiosPost("crawler/run", payload);
             setShowCrawlModal(false);
             toast.success("크롤러가 실행되었습니다.");
             fetchHistory();
@@ -600,8 +644,12 @@ export const CrawlerPage = () => {
                             <FilePdf size={14} weight="fill" />
                             보고서 생성
                         </ReportBtn>
+                        {/* C007: 자동 크롤링 실행 시간·수집 일수·On/Off 설정 */}
+                        <PrimaryBtn onClick={openScheduleModal} style={{ background: '#475569' }}>
+                            자동 크롤링 설정
+                        </PrimaryBtn>
                         <PrimaryBtn onClick={() => setShowCrawlModal(true)}
-                            
+
                         >
                             <Play size={14} weight="fill" />
                             수동 크롤링
@@ -953,6 +1001,101 @@ export const CrawlerPage = () => {
                 mainMovies={targets.filter(t => t.movie_type === 'main' && t.is_active)}
             />
 
+            {/* ===== C007: 자동 크롤링 설정 모달 ===== */}
+            {showScheduleModal && (
+                <div
+                    style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(15, 23, 42, 0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setShowScheduleModal(false)}
+                >
+                    <div
+                        style={{ background: '#ffffff', borderRadius: 6, width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 4px 20px rgba(15, 23, 42, 0.15)' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>자동 크롤링 설정</span>
+                            <button onClick={() => setShowScheduleModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 16 }}>&times;</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* On/Off */}
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>자동 크롤링 On/Off</div>
+                                <CustomCheckbox
+                                    label={scheduleConfig.enabled ? "On — 설정한 시간에 자동 실행" : "Off — 자동 크롤링 일시정지 (다시 켜면 다음 예정 시각부터 실행)"}
+                                    checked={scheduleConfig.enabled}
+                                    onChange={() => setScheduleConfig(p => ({ ...p, enabled: !p.enabled }))}
+                                />
+                            </div>
+
+                            {/* 실행 시간 (다중) */}
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>자동 크롤링 실행 시간 (다중 선택 가능)</div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <input
+                                        type="time"
+                                        value={scheduleTimeInput}
+                                        onChange={(e) => setScheduleTimeInput(e.target.value)}
+                                        style={{ flex: 1, height: 30, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }}
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (!scheduleTimeInput) return;
+                                            setScheduleConfig(p => ({
+                                                ...p,
+                                                run_times: p.run_times.includes(scheduleTimeInput)
+                                                    ? p.run_times
+                                                    : [...p.run_times, scheduleTimeInput].sort(),
+                                            }));
+                                            setScheduleTimeInput("");
+                                        }}
+                                        style={{ height: 30, padding: '0 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                        추가
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                                    {scheduleConfig.run_times.map(t => (
+                                        <span key={t}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+                                            {t}
+                                            <span
+                                                onClick={() => setScheduleConfig(p => ({ ...p, run_times: p.run_times.filter(x => x !== t) }))}
+                                                style={{ cursor: 'pointer', fontWeight: 700 }}>×</span>
+                                        </span>
+                                    ))}
+                                    {scheduleConfig.run_times.length === 0 && (
+                                        <span style={{ fontSize: 11, color: '#94a3b8' }}>시간을 추가하세요 (예: 08:30, 13:30, 17:30)</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 수집 일수 */}
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>수집 일수 (내일부터 D+N일)</div>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={14}
+                                    value={scheduleConfig.crawl_days}
+                                    onChange={(e) => setScheduleConfig(p => ({ ...p, crawl_days: Number(e.target.value) }))}
+                                    style={{ width: 100, height: 30, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }}
+                                />
+                                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>일 (1~14)</span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                            <button onClick={() => setShowScheduleModal(false)}
+                                style={{ height: 32, padding: '0 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                취소
+                            </button>
+                            <PrimaryBtn onClick={handleSaveSchedule} disabled={isScheduleSaving}>
+                                {isScheduleSaving ? "저장 중..." : "저장"}
+                            </PrimaryBtn>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ===== 수동 크롤링 모달 ===== */}
             {showCrawlModal && (
                 <div
@@ -971,12 +1114,57 @@ export const CrawlerPage = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input type="date" value={config.crawlStartDate} onChange={(e) => handleConfigChange('crawlStartDate', e.target.value)}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: useSpecificDates ? 0.4 : 1 }}>
+                                    <input type="date" value={config.crawlStartDate} disabled={useSpecificDates} onChange={(e) => handleConfigChange('crawlStartDate', e.target.value)}
                                         style={{ flex: 1, height: 32, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }} />
                                     <span style={{ color: '#94a3b8', fontSize: 13 }}>~</span>
-                                    <input type="date" value={config.crawlEndDate} onChange={(e) => handleConfigChange('crawlEndDate', e.target.value)}
+                                    <input type="date" value={config.crawlEndDate} disabled={useSpecificDates} onChange={(e) => handleConfigChange('crawlEndDate', e.target.value)}
                                         style={{ flex: 1, height: 32, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }} />
+                                </div>
+
+                                {/* C006: 특정 날짜(비연속) 다중 선택 크롤링 */}
+                                <div style={{ marginTop: 8 }}>
+                                    <CustomCheckbox
+                                        label="특정 날짜만 골라서 크롤링 (비연속 다중 선택)"
+                                        checked={useSpecificDates}
+                                        onChange={() => setUseSpecificDates(v => !v)}
+                                    />
+                                    {useSpecificDates && (
+                                        <div style={{ marginTop: 6 }}>
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                <input
+                                                    type="date"
+                                                    value={specificDateInput}
+                                                    onChange={(e) => setSpecificDateInput(e.target.value)}
+                                                    style={{ flex: 1, height: 30, padding: '0 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, color: '#475569', outline: 'none' }}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        if (!specificDateInput) return;
+                                                        setSpecificDates(prev =>
+                                                            prev.includes(specificDateInput) ? prev : [...prev, specificDateInput].sort());
+                                                        setSpecificDateInput("");
+                                                    }}
+                                                    style={{ height: 30, padding: '0 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                                                    추가
+                                                </button>
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                                                {specificDates.map(d => (
+                                                    <span key={d}
+                                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+                                                        {d}
+                                                        <span
+                                                            onClick={() => setSpecificDates(prev => prev.filter(x => x !== d))}
+                                                            style={{ cursor: 'pointer', fontWeight: 700 }}>×</span>
+                                                    </span>
+                                                ))}
+                                                {specificDates.length === 0 && (
+                                                    <span style={{ fontSize: 11, color: '#94a3b8' }}>날짜를 추가하세요 (예: 8/29, 8/30, 9/5, 9/6)</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

@@ -474,12 +474,15 @@ def _is_excluded_kofic_theater(theater_name):
     )
 
 
-def preview_kofic_format(file, movie_id, include_chains=False):
+def preview_kofic_format(file, movie_id, include_chains=False, use_total=False):
     """
     영진위 '회원용통계(영화사별)상세' 양식 파서.
     - 파일에 영화명 컬럼이 없으므로 사용자가 선택한 movie_id로 전체 행을 매칭한다.
     - CGV/메가박스/롯데/씨네큐 체인 행은 제외하고 나머지 일반극장 데이터만 추출한다.
       단 include_chains=True(스코어 검증 대사용)면 체인도 포함해 전 극장을 매칭한다.
+    - use_total=True(K001, 스코어 검증 대사용)면 회차별 컬럼 대신 '전체' 관객수
+      컬럼을 읽는다. 0회차 스코어는 회차별 컬럼(1회~)에는 없고 '전체'에만 포함되므로,
+      회차별 합산으로 대사하면 0회차만큼 차이가 났다.
     - 여러 시트(날짜별 분할)를 모두 합산 처리한다.
 
     레이아웃(0-indexed):
@@ -534,20 +537,10 @@ def preview_kofic_format(file, movie_id, include_chains=False):
                     theater_name, raw_aud
                 )
 
-                # 회차 1~8: 관객수 컬럼 = 7 + 2*h
-                for h in range(1, 9):
-                    vis_col = 7 + 2 * h
-                    if vis_col >= len(row):
-                        break
-                    vis = pd.to_numeric(row.iloc[vis_col], errors="coerce")
-                    # 빈 셀(NaN)/0 은 건너뛴다. NaN은 truthy 이므로 반드시 isna 로 먼저 판별.
-                    if pd.isna(vis) or vis == 0:
-                        continue
-
+                def _append_row(show_count, vis):
                     match_errs = []
                     if err_msg:
                         match_errs.append(err_msg)
-
                     preview_data.append(
                         {
                             "entry_date": entry_date,
@@ -563,13 +556,32 @@ def preview_kofic_format(file, movie_id, include_chains=False):
                                 else raw_aud
                             ),
                             "auditorium": theater.auditorium if theater else raw_aud,
-                            "show_count": str(h).zfill(2),
+                            "show_count": show_count,
                             "fare": fare,
                             "visitor": int(vis),
                             "is_matched": not match_errs,
                             "match_error": " / ".join(match_errs),
                         }
                     )
+
+                if use_total:
+                    # K001: '전체' 관객수(col7) 기준 — 0회차 포함 총 합계로 읽는다
+                    vis = pd.to_numeric(row.iloc[7], errors="coerce") if len(row) > 7 else None
+                    if vis is not None and not pd.isna(vis) and vis != 0:
+                        _append_row("전체", vis)
+                    continue
+
+                # 회차 1~8: 관객수 컬럼 = 7 + 2*h
+                for h in range(1, 9):
+                    vis_col = 7 + 2 * h
+                    if vis_col >= len(row):
+                        break
+                    vis = pd.to_numeric(row.iloc[vis_col], errors="coerce")
+                    # 빈 셀(NaN)/0 은 건너뛴다. NaN은 truthy 이므로 반드시 isna 로 먼저 판별.
+                    if pd.isna(vis) or vis == 0:
+                        continue
+
+                    _append_row(str(h).zfill(2), vis)
         return {"data": preview_data}
     except Exception as e:
         return {"error": f"영진위 분석 오류: {str(e)}"}

@@ -137,6 +137,12 @@ export function OrderDetail({
         // ✅ 빈 문자열("")인 경우 null로 변환하여 전송 (날짜 필드 에러 방지)
         const processedValue = value === "" ? null : value;
 
+        // O001: 개봉일 공란 저장 차단 (백엔드에서도 거부한다)
+        if (key === "release_date" && !processedValue) {
+            toast.error("개봉일은 필수 입력값입니다.");
+            return;
+        }
+
         // ✅ 이미 같은 값이면 API 호출 안 함
         if (item[key] === processedValue) return;
 
@@ -144,7 +150,14 @@ export function OrderDetail({
             .then((res) => {
                 setOrderDetail((prev: any[]) =>
                     prev.map((order) =>
-                        (order.id === item.id ? { ...order, [key]: processedValue } : order)
+                        (order.id === item.id
+                            ? {
+                                ...order,
+                                [key]: processedValue,
+                                // O002: 종영일을 직접 저장하면 자동 연장 강조 해제
+                                ...(key === "end_date" ? { end_date_auto_updated: false } : {}),
+                            }
+                            : order)
                     )
                 );
                 toast.success("저장되었습니다.");
@@ -242,7 +255,20 @@ export function OrderDetail({
                 ),
         },
         { key: "release_date", label: "개봉일", editable: true },
-        { key: "end_date", label: "종영일", editable: true }, // 업데이트될 대상
+        {
+            key: "end_date",
+            label: "종영일",
+            editable: true, // 업데이트될 대상
+            // O002: 종영일이 마지막 상영일로 자동 연장된 상태는 빨간색 강조.
+            // 사용자가 직접 저장(수정 또는 '종영일로 복사')하면 해제된다.
+            renderCell: (value: any, item: any) => (
+                <span style={item.end_date_auto_updated
+                    ? { color: "#dc2626", fontWeight: 700 }
+                    : undefined}>
+                    {value ?? ""}
+                </span>
+            ),
+        },
         {
             key: "last_screening_date",
             label: "마지막상영",

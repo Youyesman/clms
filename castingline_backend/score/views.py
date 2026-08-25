@@ -121,6 +121,11 @@ class ScoreViewSet(viewsets.ModelViewSet):
             ):
                 order.last_screening_date = score.entry_date
                 changed = True
+            # O002: 등록된 종영일 이후 스코어면 종영일 자동 연장 + 강조 플래그
+            if order.end_date and score.entry_date > order.end_date:
+                order.end_date = score.entry_date
+                order.end_date_auto_updated = True
+                changed = True
             if changed:
                 order.save()
 
@@ -4016,7 +4021,8 @@ def verify_kofic_score(request):
             )
 
     # ── 1) 엑셀 파싱 (0원 제외 + 체인 포함 + 극장/관 매칭까지 기존 파서 재사용) ──
-    parsed = preview_kofic_format(file, movie.id, include_chains=True)
+    # K001: 회차별 컬럼이 아니라 '전체' 관객수 기준으로 읽는다 (0회차 스코어 포함)
+    parsed = preview_kofic_format(file, movie.id, include_chains=True, use_total=True)
     if "error" in parsed:
         return Response({"error": parsed["error"]}, status=400)
     rows = parsed.get("data", [])

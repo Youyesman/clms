@@ -213,6 +213,21 @@ class MovieSchedule(models.Model):
         return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(title)).lower()
 
     @staticmethod
+    def detect_sub_type_tag(*sources):
+        """C005: 자막/더빙 구분 검출 — 원문 문자열들에 '더빙'/'자막'이 포함되면 반환.
+
+        체인마다 표기 위치가 다르다: CGV sbtdivNm('자막'/'더빙'),
+        메가박스 playKindNm('2D(자막)'), 영진위 movieNm('...(디지털 더빙)'),
+        롯데 TranslationDivisionCode(50=더빙, 100=자막).
+        """
+        joined = " ".join(str(s) for s in sources if s)
+        if "더빙" in joined:
+            return "더빙"
+        if "자막" in joined:
+            return "자막"
+        return None
+
+    @staticmethod
     def title_matches(target_title, crawled_title):
         """
         영화 제목 매칭 (V003: 특수문자·공백 제외 '정확 일치').
@@ -433,6 +448,10 @@ class MovieSchedule(models.Model):
                 format_tags = cls.extract_format_tags(item.get("movkndDsplNm"), item.get("scnsNm"))
                 if format_tags:
                     extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
+                # C005: 자막/더빙 구분 — CGV는 sbtdivNm('자막'/'더빙')과 prodNm 괄호로 내려준다
+                sub_tag = cls.detect_sub_type_tag(item.get("sbtdivNm"), item.get("prodNm"))
+                if sub_tag and sub_tag not in extracted_tags:
+                    extracted_tags = list(extracted_tags) + [sub_tag]
 
                 final_title = clean_title
                 if title_map is not None:
@@ -823,6 +842,11 @@ class MovieSchedule(models.Model):
                         log.theater_name, screen_name=screen_name
                     )
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
+                # C005: 자막/더빙 구분 — 영진위는 movieNm 괄호에 '(디지털 더빙)'처럼
+                # 복합 표기로 내려오므로 canonical 태그('더빙'/'자막')를 따로 추가한다
+                sub_tag = cls.detect_sub_type_tag(*extracted_tags)
+                if sub_tag and sub_tag not in extracted_tags:
+                    extracted_tags = list(extracted_tags) + [sub_tag]
                 final_title = clean_title
                 if title_map is not None:
                     norm_title = cls.normalize_title(clean_title)
@@ -1059,6 +1083,12 @@ class MovieSchedule(models.Model):
                     format_tags = cls.extract_format_tags(item.get("playKindNm"), item.get("theabExpoNm"))
                     if format_tags:
                         extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
+                    # C005: 자막/더빙 구분 — 메가박스는 playKindNm('2D(자막)' 등)과
+                    # 영화명 접두 '(더빙)'으로 내려준다 (자막 건이 더빙으로 뭉뚱그려지던 오류 수정)
+                    sub_tag = cls.detect_sub_type_tag(
+                        cls.decode_html_entities(item.get("playKindNm")), movie_title)
+                    if sub_tag and sub_tag not in extracted_tags:
+                        extracted_tags = list(extracted_tags) + [sub_tag]
 
                     final_title = clean_title
                     if title_map is not None:
@@ -1305,6 +1335,12 @@ class MovieSchedule(models.Model):
                 )
                 if format_tags:
                     extracted_tags = list(extracted_tags) + [t for t in format_tags if t not in extracted_tags]
+                # C005: 자막/더빙 구분 — 롯데는 TranslationDivisionCode(50=더빙, 100=자막,
+                # 900=해당없음)로 내려준다 (NameKR은 항상 null — 운영 응답 실측)
+                trans_code = item.get("TranslationDivisionCode")
+                sub_tag = {50: "더빙", 100: "자막"}.get(trans_code)
+                if sub_tag and sub_tag not in extracted_tags:
+                    extracted_tags = list(extracted_tags) + [sub_tag]
 
                 final_title = clean_title
                 if title_map is not None:
@@ -1376,6 +1412,27 @@ class MovieSchedule(models.Model):
         cls._purge_stale_backup_rows('LOTTE', log.theater_name, parsed_items)
 
         return len(to_create) + len(to_update), errors
+
+
+class CrawlerScheduleConfig(models.Model):
+    """C007: 자동(데일리) 크롤링 스케줄 설정 — 단일 행으로 운용.
+
+    크론은 5분마다 run_scheduled_crawls 디스패처를 돌리고, 디스패처가 이 설정을
+    읽어 실행 시각(다중)·수집 일수·On/Off를 반영한다. last_runs 는 같은 시각이
+    하루에 두 번 돌지 않게 하는 실행 기록({"13:00": "2026-08-25"}).
+    """
+    enabled = models.BooleanField(default=True)
+    run_times = models.JSONField(default=list)    # ["13:00", "17:30"] (HH:MM, 다중)
+    crawl_days = models.IntegerField(default=3)   # 수집 일수: 내일(D+1) ~ D+N
+    last_runs = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get(cls):
+        obj = cls.objects.first()
+        if obj is None:
+            obj = cls.objects.create(enabled=True, run_times=["13:00"], crawl_days=3)
+        return obj
 
 
 class CrawlerRunHistory(models.Model):

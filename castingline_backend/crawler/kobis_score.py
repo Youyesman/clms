@@ -131,19 +131,27 @@ def _xml_to_xlsx(xml_bytes):
             for cell_el in row_el.findall(f"{_SS}Cell"):
                 idx = cell_el.get(f"{_SS}Index")
                 ci = int(idx) if idx else ci + 1
+                # K002: 병합 셀(ss:MergeAcross/MergeDown)을 무시하면 다음 셀부터
+                # 왼쪽으로 밀린다 ('전체' 3칸, 'N회' 2칸 헤더) — 병합 폭만큼 반영한다.
+                merge_across = int(cell_el.get(f"{_SS}MergeAcross") or 0)
+                merge_down = int(cell_el.get(f"{_SS}MergeDown") or 0)
                 data_el = cell_el.find(f"{_SS}Data")
-                if data_el is None or data_el.text is None:
-                    continue
-                text = data_el.text
-                if data_el.get(f"{_SS}Type") == "Number":
-                    try:
-                        num = float(text)
-                        value = int(num) if num == int(num) else num
-                    except ValueError:
+                if data_el is not None and data_el.text is not None:
+                    text = data_el.text
+                    if data_el.get(f"{_SS}Type") == "Number":
+                        try:
+                            num = float(text)
+                            value = int(num) if num == int(num) else num
+                        except ValueError:
+                            value = text
+                    else:
                         value = text
-                else:
-                    value = text
-                ws.cell(row=ri, column=ci, value=value)
+                    ws.cell(row=ri, column=ci, value=value)
+                if merge_across or merge_down:
+                    ws.merge_cells(start_row=ri, start_column=ci,
+                                   end_row=ri + merge_down,
+                                   end_column=ci + merge_across)
+                ci += merge_across
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

@@ -23,6 +23,23 @@ class OrderSerializer(serializers.ModelSerializer):
                 data[field] = value.get("id")
         return super().to_internal_value(data)
 
+    def validate(self, attrs):
+        # O001: 개봉일 공란 저장 차단 — 비우는 수정도, 개봉일 없는 신규 등록도 거부
+        if "release_date" in attrs and attrs["release_date"] is None:
+            raise serializers.ValidationError(
+                {"release_date": "개봉일은 필수 입력값입니다."})
+        if self.instance is None and not attrs.get("release_date"):
+            raise serializers.ValidationError(
+                {"release_date": "개봉일은 필수 입력값입니다."})
+        return attrs
+
+    def update(self, instance, validated_data):
+        # O002: 사용자가 종영일을 직접 저장(수정 또는 '종영일로 복사')하면
+        # 자동 연장 강조 표시를 해제한다
+        if "end_date" in validated_data:
+            validated_data.setdefault("end_date_auto_updated", False)
+        return super().update(instance, validated_data)
+
     def to_representation(self, instance):
         """
         읽기(GET) 할 때만 호출되는 메서드입니다.

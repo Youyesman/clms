@@ -72,15 +72,26 @@ def run_site_crawler_background(history_id, data, site_key):
         history.save()
 
         # 1. 날짜 목록 구성
-        start_date_str = data.get('crawlStartDate')
-        end_date_str = data.get('crawlEndDate')
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-        date_list = []
-        curr = start_date
-        while curr <= end_date:
-            date_list.append(curr.strftime("%Y%m%d"))
-            curr += timedelta(days=1)
+        # C006: crawlDates(특정 날짜 다중 선택)가 있으면 그 날짜들만,
+        # 없으면 기존처럼 시작일~종료일 연속 범위를 크롤한다
+        crawl_dates = data.get('crawlDates')
+        if crawl_dates and isinstance(crawl_dates, list):
+            parsed = sorted({datetime.strptime(str(d).strip(), "%Y-%m-%d")
+                             for d in crawl_dates if str(d).strip()})
+            date_list = [d.strftime("%Y%m%d") for d in parsed]
+            start_date, end_date = parsed[0], parsed[-1]
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            end_date_str = end_date.strftime("%Y-%m-%d")
+        else:
+            start_date_str = data.get('crawlStartDate')
+            end_date_str = data.get('crawlEndDate')
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+            date_list = []
+            curr = start_date
+            while curr <= end_date:
+                date_list.append(curr.strftime("%Y%m%d"))
+                curr += timedelta(days=1)
 
         # 2. 대상 영화 (요청 페이로드 기준 — 엑셀 필터용)
         movie_settings = data.get('movieSettings', [])
@@ -168,9 +179,10 @@ def run_site_crawler_background(history_id, data, site_key):
         # C002: 멀티 포함 KOBIS 크롤이면 변환 결과도 4개 브랜드 전부 담는다
         excel_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                         if kobis_multiplex else [brand])
+        # C006: 비연속 다중 날짜 크롤 시 범위(gte~lte)가 아니라 크롤한 날짜만 담는다
+        play_dates = [datetime.strptime(d, "%Y%m%d").date() for d in date_list]
         schedule_qs = MovieSchedule.objects.filter(
-            play_date__gte=start_date.date(),
-            play_date__lte=end_date.date(),
+            play_date__in=play_dates,
             brand__in=excel_brands
         )
         transform_excel = export_transformed_schedules(schedule_qs)
@@ -245,13 +257,14 @@ class CrawlerExecutionView(APIView):
     """
     def post(self, request):
         data = request.data
-        
-        # Basic Validation
+
+        # Basic Validation — C006: 특정 날짜 다중 선택(crawlDates) 또는 기간(시작~종료)
+        crawl_dates = data.get('crawlDates')
         start_date_str = data.get('crawlStartDate')
         end_date_str = data.get('crawlEndDate')
-        
-        if not start_date_str or not end_date_str:
-            return Response({"error": "crawlStartDate and crawlEndDate are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not (crawl_dates and isinstance(crawl_dates, list)) and (not start_date_str or not end_date_str):
+            return Response({"error": "크롤링 기간(시작~종료) 또는 특정 날짜 목록(crawlDates)이 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
             # 선택된 사이트별로 이력을 따로 생성하고 각각 백그라운드 실행
@@ -295,6 +308,58 @@ class CrawlerExecutionView(APIView):
         except Exception as e:
             logger.error(f"Crawler Execution Start Failed: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CrawlerScheduleConfigView(APIView):
+    """C007: 자동 크롤링 스케줄 설정 조회/저장 API
+
+    GET  /Api/crawler/schedule-config/          → {enabled, run_times, crawl_days}
+    PUT  /Api/crawler/schedule-config/  (JSON)  → 저장 후 동일 형태 반환
+    """
+    def get(self, request):
+        from crawler.models import CrawlerScheduleConfig
+        c = CrawlerScheduleConfig.get()
+        return Response({"enabled": c.enabled, "run_times": c.run_times,
+                         "crawl_days": c.crawl_days})
+
+    def put(self, request):
+        import re as _re
+        from crawler.models import CrawlerScheduleConfig
+
+        c = CrawlerScheduleConfig.get()
+        data = request.data
+
+        if "enabled" in data:
+            c.enabled = bool(data["enabled"])
+
+        if "run_times" in data:
+            times = data["run_times"]
+            if not isinstance(times, list) or not times:
+                return Response({"error": "실행 시간을 하나 이상 지정해주세요."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            norm = []
+            for t in times:
+                m = _re.fullmatch(r"(\d{1,2}):(\d{2})", str(t).strip())
+                if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+                    return Response({"error": f"시간 형식이 올바르지 않습니다: {t}"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                norm.append(f"{int(m.group(1)):02d}:{m.group(2)}")
+            c.run_times = sorted(set(norm))
+
+        if "crawl_days" in data:
+            try:
+                d = int(data["crawl_days"])
+            except (TypeError, ValueError):
+                return Response({"error": "수집 일수는 숫자여야 합니다."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if not 1 <= d <= 14:
+                return Response({"error": "수집 일수는 1~14일 사이여야 합니다."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            c.crawl_days = d
+
+        c.save()
+        return Response({"enabled": c.enabled, "run_times": c.run_times,
+                         "crawl_days": c.crawl_days})
 
 
 class CrawlerHistoryView(APIView):
@@ -863,6 +928,17 @@ class CrawlerScheduleExportView(APIView):
                 CrawlTargetMovie.objects.filter(movie_type='competitor', is_active=True)
                 .values_list('title', flat=True)
             )
+
+            # C004: 경쟁작 다중 선택 — 지정 시 그 영화들만, 미지정 시 전체(기존 동작)
+            selected_competitors = request.data.get('competitors')
+            if selected_competitors and isinstance(selected_competitors, list):
+                def _ckey(t):
+                    clean, _ = MovieSchedule.parse_and_normalize_title(t)
+                    return MovieSchedule.normalize_title(clean)
+                sel_keys = {_ckey(t) for t in selected_competitors if str(t).strip()}
+                if sel_keys:
+                    competitor_titles = [t for t in competitor_titles
+                                         if _ckey(t) in sel_keys]
 
             competitor_querysets = {}
             for comp_title in competitor_titles:

@@ -47,6 +47,19 @@ class Order(TimeStampedModel):
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
     is_auto_generated = models.BooleanField(default=False)
+    # O002: 종영일이 마지막 상영일로 자동 연장된 상태 표시(빨간 강조).
+    # 사용자가 종영일을 직접 저장(수정/복사 버튼)하면 해제된다.
+    end_date_auto_updated = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            # O003: 같은 영화(포맷 단위) × 극장 오더 중복 생성 금지 (DB 차원 보증)
+            models.UniqueConstraint(
+                fields=["movie", "client"],
+                condition=models.Q(movie__isnull=False, client__isnull=False),
+                name="uniq_order_movie_client",
+            ),
+        ]
 
     def recalc_last_screening_date(self, save=True):
         """마지막 상영일을 '실제 스코어가 존재하는 최종 입회일'로 다시 계산한다.
@@ -67,8 +80,14 @@ class Order(TimeStampedModel):
         if latest == self.last_screening_date:
             return False
         self.last_screening_date = latest
+        update_fields = ['last_screening_date', 'updated_date']
+        # O002: 등록된 종영일 이후 스코어가 잡히면 종영일을 자동 연장하고 강조 플래그를 켠다
+        if latest and self.end_date and latest > self.end_date:
+            self.end_date = latest
+            self.end_date_auto_updated = True
+            update_fields += ['end_date', 'end_date_auto_updated']
         if save:
-            self.save(update_fields=['last_screening_date', 'updated_date'])
+            self.save(update_fields=update_fields)
         return True
 
 
@@ -188,7 +207,8 @@ def recalc_last_screening_dates(pairs=None, movie_ids=None, clear_when_empty=Tru
             return 0
         orders = orders.filter(movie_id__in=movie_ids)
 
-    orders = list(orders.only('id', 'movie_id', 'client_id', 'last_screening_date'))
+    orders = list(orders.only('id', 'movie_id', 'client_id', 'last_screening_date',
+                              'end_date', 'end_date_auto_updated'))
     if not orders:
         return 0
 
@@ -201,8 +221,15 @@ def recalc_last_screening_dates(pairs=None, movie_ids=None, clear_when_empty=Tru
             continue
         if latest != o.last_screening_date:
             o.last_screening_date = latest
+            # O002: 등록된 종영일 이후 상영(스코어)이 잡히면 종영일을 자동 연장하고
+            # 강조 플래그를 켠다 (사용자가 종영일을 직접 저장하면 해제)
+            if latest and o.end_date and latest > o.end_date:
+                o.end_date = latest
+                o.end_date_auto_updated = True
             changed.append(o)
 
     if changed:
-        Order.objects.bulk_update(changed, ['last_screening_date'], batch_size=500)
+        Order.objects.bulk_update(
+            changed, ['last_screening_date', 'end_date', 'end_date_auto_updated'],
+            batch_size=500)
     return len(changed)

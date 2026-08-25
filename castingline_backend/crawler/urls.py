@@ -6,10 +6,12 @@ from .views import (CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadVie
                     CrawlTargetMovieBulkDeleteView, MegaboxScoreCrawlView,
                     MegaboxScoreAllView, MegaboxAccountView, MegaboxAccountDetailView,
                     CineQScoreAllView, CineQAccountView, CineQAccountDetailView,
-                    KobisScoreAllView, KobisAccountView, KobisAccountDetailView)
+                    KobisScoreAllView, KobisAccountView, KobisAccountDetailView,
+                    CrawlerScheduleConfigView)
 
 urlpatterns = [
     path('run/', CrawlerExecutionView.as_view(), name='crawler_run'),
+    path('schedule-config/', CrawlerScheduleConfigView.as_view(), name='crawler_schedule_config'),
     path('stop/<int:history_id>/', CrawlerStopView.as_view(), name='crawler_stop'),
     path('transform/<int:history_id>/', CrawlerTransformView.as_view(), name='crawler_transform'),
     path('history/', CrawlerHistoryView.as_view(), name='crawler_history'),

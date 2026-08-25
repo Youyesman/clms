@@ -190,6 +190,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
     // 특수상영용 영화 선택 (크롤 대상 영화 전체에서)
     const [crawlTargets, setCrawlTargets] = useState<CrawlTarget[]>([]);
     const [specialMovieId, setSpecialMovieId] = useState<number | null>(null);
+    // C004: 경쟁작 다중 선택 — 미선택 시 크롤 대상 영화의 모든 경쟁작(기존 동작)
+    const [selectedCompetitorIds, setSelectedCompetitorIds] = useState<number[]>([]);
 
     // props 변경 시 날짜 동기화
     React.useEffect(() => {
@@ -227,6 +229,11 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
             return;
         }
 
+        // C004: 선택한 경쟁작만 내보내기 (미선택 시 전체)
+        const competitorTitles = crawlTargets
+            .filter((m) => selectedCompetitorIds.includes(m.id))
+            .map((m) => m.clean_title || m.title);
+
         setIsExporting(true);
         try {
             toast.success("엑셀 생성 중... 잠시만 기다려주세요.");
@@ -240,6 +247,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     brands: brands.length < 4 ? brands : undefined,
                     // U002: 특별 포맷을 고르면 주요작 유무와 관계없이 그 포맷만 내보낸다
                     formats: selectedFormats.length > 0 ? selectedFormats : undefined,
+                    // C004: 경쟁작 다중 선택 — 미선택이면 미전송(전체)
+                    competitors: competitorTitles.length > 0 ? competitorTitles : undefined,
                 },
                 { responseType: "blob" }
             );
@@ -384,6 +393,43 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                                 주요작 없이 다운로드 (경쟁작만 — 상영시간표 시트 제외)
                             </MovieItem>
                         </MovieList>
+                    </div>
+
+                    {/* C004: 경쟁작 다중 선택 — 미선택 시 크롤 대상 영화의 모든 경쟁작 */}
+                    <div>
+                        <SectionLabel>경쟁작 선택 (다중 선택 · 미선택 시 전체)</SectionLabel>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                            {crawlTargets.filter((m) => m.movie_type === "competitor" && m.is_active).map((m) => {
+                                const active = selectedCompetitorIds.includes(m.id);
+                                return (
+                                    <button
+                                        key={m.id}
+                                        type="button"
+                                        onClick={() =>
+                                            setSelectedCompetitorIds((prev) =>
+                                                prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                                            )
+                                        }
+                                        style={{
+                                            padding: "3px 10px",
+                                            borderRadius: 999,
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            fontFamily: "SUIT, sans-serif",
+                                            cursor: "pointer",
+                                            border: `1px solid ${active ? "#2563eb" : "#cbd5e1"}`,
+                                            background: active ? "#eff6ff" : "#ffffff",
+                                            color: active ? "#1d4ed8" : "#64748b",
+                                        }}
+                                    >
+                                        {m.title}
+                                    </button>
+                                );
+                            })}
+                            {crawlTargets.filter((m) => m.movie_type === "competitor" && m.is_active).length === 0 && (
+                                <span style={{ fontSize: 12, color: "#94a3b8" }}>등록된 경쟁작이 없습니다.</span>
+                            )}
+                        </div>
                     </div>
 
                     <div>

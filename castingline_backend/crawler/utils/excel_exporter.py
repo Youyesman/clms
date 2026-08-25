@@ -287,12 +287,23 @@ def _extract_format_and_type(tags):
                 fmt_parts = [t]
                 break
     fmt = " ".join(fmt_parts) if fmt_parts else "2D"
-    sub_type = "일반"
-    if "자막" in (tags or []):
-        sub_type = "자막"
-    elif "더빙" in (tags or []):
-        sub_type = "더빙"
+    sub_type = _extract_sub_type(tags)
     return fmt, sub_type
+
+
+def _extract_sub_type(tags):
+    """C005: 구분(더빙/자막/일반) 판별.
+
+    canonical 태그('더빙'/'자막') 외에 영진위식 복합 표기('디지털 더빙',
+    '디지털 영문자막')도 부분 문자열로 판별한다.
+    """
+    for t in (tags or []):
+        if "더빙" in str(t):
+            return "더빙"
+    for t in (tags or []):
+        if "자막" in str(t):
+            return "자막"
+    return "일반"
 
 
 def _brand_priority(b):
@@ -365,7 +376,15 @@ def _filter_cine_de_chef(schedules):
         sch.theater_name = f"CGV {mapped_name}"
         normal_items.append(sch)
 
-    return normal_items
+    # C003: 같은 특별관이 'CINE de CHEF관'/'CINE de CHEF B관' 표기(좌석 정보 없음)로도
+    # 내려와 '스트레스리스 시네마'/'템퍼 시네마' 행과 중복된다.
+    # 좌석수를 읽을 수 없는 CINE de CHEF 표기 회차는 표에서 제거한다.
+    return [
+        sch for sch in normal_items
+        if not (sch.brand and sch.brand.upper() == "CGV"
+                and re.search(r'cine\s*de\s*chef', str(sch.screen_name or ''), re.I)
+                and not _safe_int(sch.total_seats))
+    ]
 
 
 def _process_to_rows(schedules, region_map, normal_index=None):
@@ -377,7 +396,9 @@ def _process_to_rows(schedules, region_map, normal_index=None):
     grouped = {}
     for sch in schedules:
         s_date = sch.play_date or sch.start_time.date()
-        key = (sch.brand, sch.theater_name, sch.screen_name, s_date)
+        # C005: 같은 관이라도 더빙/자막 구분이 다르면 별도 행으로 분리한다
+        key = (sch.brand, sch.theater_name, sch.screen_name, s_date,
+               _extract_sub_type(sch.tags))
         if key not in grouped:
             grouped[key] = []
         grouped[key].append(sch)
@@ -385,12 +406,12 @@ def _process_to_rows(schedules, region_map, normal_index=None):
     rows = []
     max_shows = 0
 
-    for (brand, theater, screen, s_date), items in grouped.items():
+    for (brand, theater, screen, s_date, sub_type), items in grouped.items():
         items.sort(key=lambda x: x.start_time)
 
         region = _resolve_region(brand, theater, region_map)
         display_theater = _format_theater_name(brand, theater)
-        fmt, sub_type = _extract_format_and_type(items[0].tags if items else [])
+        fmt, _ = _extract_format_and_type(items[0].tags if items else [])
 
         total_capacity = _safe_int(items[0].total_seats) if items else 0
         show_count = len(items)
@@ -442,11 +463,20 @@ def _process_to_rows(schedules, region_map, normal_index=None):
             'unmapped': unmapped,
         })
 
+    # C005: 더빙과 자막이 함께 상영되는 영화는, 구분 표기가 없는 회차를
+    # '일반' 대신 '자막'으로 표기한다 (더빙이 아예 없는 영화는 '일반' 유지).
+    # _process_to_rows 는 항상 한 작품 단위로 호출되므로 rows 전체 기준으로 판단한다.
+    if any(r['sub_type'] == '더빙' for r in rows):
+        for r in rows:
+            if r['sub_type'] == '일반':
+                r['sub_type'] = '자막'
+
     rows.sort(key=lambda x: (
         _brand_priority(x['brand']),
         x['region'],
         x['theater'],
-        x['screen']
+        x['screen'],
+        x['sub_type']
     ))
     return rows, max_shows
 
