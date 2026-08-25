@@ -39,8 +39,11 @@ const ModalContainer = styled.div`
     background-color: white;
     padding: 24px;
     border-radius: 8px;
-    width: 640px;
-    max-width: 92%;
+    /* 내용이 많아져 세로로 잘리던 문제 — 가로 2컬럼으로 넓히고, 그래도 넘치면 내부 스크롤 */
+    width: 1040px;
+    max-width: 94%;
+    max-height: 92vh;
+    overflow-y: auto;
     box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
     display: flex;
     flex-direction: column;
@@ -69,9 +72,18 @@ const Header = styled.div`
 `;
 
 const Body = styled.div`
+    /* 좌우 2컬럼 — 왼쪽: 기간·주요작 / 오른쪽: 경쟁작·계열사·포맷·특수상영 */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 28px;
+    align-items: start;
+`;
+
+const Column = styled.div`
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-width: 0;
 `;
 
 const SectionLabel = styled.div`
@@ -380,6 +392,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     </button>
                 </Header>
                 <Body>
+                    <Column>
                     <div>
                         <SectionLabel>조회 기간</SectionLabel>
                         <DateRow style={{ opacity: useSpecificDates ? 0.4 : 1 }}>
@@ -419,6 +432,9 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                         </MovieList>
                     </div>
 
+                    </Column>
+
+                    <Column>
                     {/* C004: 경쟁작 다중 선택 — 미선택 시 크롤 대상 영화의 모든 경쟁작 */}
                     <div>
                         <SectionLabel>경쟁작 선택 (다중 선택 · 미선택 시 전체)</SectionLabel>
@@ -541,6 +557,7 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                             </Button>
                         </div>
                     </div>
+                    </Column>
                 </Body>
                 <Footer>
                     <Button onClick={onClose}>취소</Button>

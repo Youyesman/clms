@@ -40,8 +40,11 @@ const ModalContainer = styled.div`
     background-color: white;
     padding: 24px;
     border-radius: 8px;
-    width: 560px;
+    width: 640px;
     max-width: 92%;
+    /* 내용이 화면보다 길어져도 버튼이 잘리지 않게 내부 스크롤 */
+    max-height: 92vh;
+    overflow-y: auto;
     box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
     display: flex;
     flex-direction: column;
