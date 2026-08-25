@@ -543,7 +543,10 @@ class MovieSchedule(models.Model):
             # 변경될 수 있는 필드만 업데이트
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
             updated_count = len(to_update)
-            
+
+        # C002: 이전 영진위 예비 수집 잔재 정리 (최신 크롤만 표출)
+        cls._purge_stale_backup_rows('CGV', log.theater_name, parsed_items)
+
         return created_count + updated_count, errors
 
     def __str__(self):
@@ -650,6 +653,31 @@ class MovieSchedule(models.Model):
         import html
         return html.unescape(html.unescape(str(crawled_name or ""))), None
 
+    @classmethod
+    def _purge_stale_backup_rows(cls, brand, theater_name, parsed_items):
+        """C002: 영진위 예비 크롤 잔재 정리 — '가장 최근 크롤만 표출'(0825 지시).
+
+        자사 크롤 변환 직후 호출한다. 같은 (브랜드·극장·상영일)에서 이번 수집에
+        없는 회차의 '좌석 정보 없는' 행을 삭제한다. 영진위 수집분은 좌석수가 항상
+        0이고 자사 크롤 행은 좌석수가 있으므로, 자사 사이트가 복구되어 다시
+        크롤하면 이전 영진위 예비 수집분만 정확히 걷어진다.
+        """
+        from django.db.models import Q
+        parsed_keys = {(i['screen_name'], i['start_time']) for i in parsed_items}
+        play_dates = {i.get('play_date') for i in parsed_items if i.get('play_date')}
+        if not play_dates:
+            return 0
+        stale_ids = [
+            o.id for o in cls.objects.filter(
+                brand=brand, theater_name=theater_name, play_date__in=play_dates,
+            ).filter(Q(total_seats=0) | Q(total_seats__isnull=True))
+             .only('id', 'screen_name', 'start_time')
+            if (o.screen_name, o.start_time) not in parsed_keys
+        ]
+        if stale_ids:
+            cls.objects.filter(id__in=stale_ids).delete()
+        return len(stale_ids)
+
     @staticmethod
     def kobis_chain_brand(theater_name):
         """C002: 영진위(KOBIS) 극장명에서 멀티 3사 브랜드 판별 (예비용 크롤).
@@ -695,6 +723,12 @@ class MovieSchedule(models.Model):
         # C002: 멀티 3사 극장(예비용 수집분)이면 브랜드/지점명을 분리
         chain_brand, chain_name = cls.kobis_chain_brand(log.theater_name)
         row_brand = chain_brand or '일반극장'
+
+        # 심야 회차 포함 자사 크롤과 같은 상영일 규칙(query_date)을 쓰기 위한 기준일
+        try:
+            q_date = datetime.strptime(str(log.query_date), "%Y%m%d").date()
+        except Exception:
+            q_date = None
 
         parsed_items = []
         errors = []
@@ -753,7 +787,30 @@ class MovieSchedule(models.Model):
                 continue
 
         if not parsed_items:
+            # 대상 회차가 없으면 기존 데이터를 건드리지 않는다 (빈 응답으로 인한 소실 방지)
             return 0, errors
+
+        if chain_brand:
+            # C002: 멀티 3사 예비 수집은 '가장 최근 크롤만 표출'(0825 지시) —
+            # 같은 (브랜드·지점·상영일)의 기존 행(자사 크롤 행 포함)을 지우고
+            # 이번 영진위 수집분으로 통째로 교체한다. 좌석 정보는 영진위가
+            # 제공하지 않으므로 0 그대로 저장한다(임의 폴백 금지).
+            if q_date:
+                for item in parsed_items:
+                    item['play_date'] = q_date
+                cls.objects.filter(
+                    brand=row_brand, theater_name=chain_name, play_date=q_date,
+                ).delete()
+            seen = set()
+            to_create = []
+            for item in parsed_items:
+                key = (item['screen_name'], item['start_time'])
+                if key in seen:
+                    continue
+                seen.add(key)
+                to_create.append(cls(**item))
+            cls.objects.bulk_create(to_create, ignore_conflicts=True)
+            return len(to_create), errors
 
         # 기존 스케줄 조회 (brand+theater 범위).
         # 같은 영진위 극장을 공유하는 모든 후보 거래처명과 원본 극장명까지 포함해
@@ -1003,6 +1060,9 @@ class MovieSchedule(models.Model):
         if to_update:
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'raw_log', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
 
+        # C002: 이전 영진위 예비 수집 잔재 정리 (최신 크롤만 표출)
+        cls._purge_stale_backup_rows('MEGABOX', log_theater_name, parsed_items)
+
         return len(to_create) + len(to_update), errors
 
     @classmethod
@@ -1241,6 +1301,9 @@ class MovieSchedule(models.Model):
             cls.objects.bulk_create(to_create, ignore_conflicts=True)
         if to_update:
             cls.objects.bulk_update(to_update, ['is_booking_available', 'end_time', 'movie_title', 'tags', 'updated_at', 'total_seats', 'remaining_seats', 'play_date'])
+
+        # C002: 이전 영진위 예비 수집 잔재 정리 (최신 크롤만 표출)
+        cls._purge_stale_backup_rows('LOTTE', log.theater_name, parsed_items)
 
         return len(to_create) + len(to_update), errors
 
