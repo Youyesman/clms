@@ -104,8 +104,11 @@ def _movie_units(main_title=None):
     return units, main_key
 
 
-def _collect(start_date, end_date, units, brands=None, maps=None):
-    """기간 내 MovieSchedule 을 작품 단위로 배정해 집계한다.
+def _collect(date_list, units, brands=None, maps=None):
+    """대상 상영일들의 MovieSchedule 을 작품 단위로 배정해 집계한다.
+
+    date_list: 상영일 목록 — 연속 기간이면 그 범위의 모든 날짜, 특정 날짜
+    선택(C008)이면 그 날짜들만. play_date IN 필터라 비연속도 그대로 동작한다.
 
     엑셀 다운로드와 같은 숫자가 나오도록, 원본 행을 직접 세지 않고
     excel_exporter._process_to_rows 로 (일자·극장·관) 단위 행을 만든 뒤 누적한다.
@@ -120,7 +123,7 @@ def _collect(start_date, end_date, units, brands=None, maps=None):
 
     region_map, normal_index = maps
 
-    qs = MovieSchedule.objects.filter(play_date__gte=start_date, play_date__lte=end_date)
+    qs = MovieSchedule.objects.filter(play_date__in=list(date_list))
     if brands:
         qs = qs.filter(brand__in=brands)
 
@@ -236,16 +239,24 @@ def _movie_summary(key, title, agg, is_main=False):
     }
 
 
-def build_report_data(start_date, end_date, main_title=None, brands=None):
+def build_report_data(start_date, end_date, main_title=None, brands=None, dates=None):
     """보고서 ViewModel 생성. main_title이 없으면 '주요작 없음' 모드.
 
     brands: 엑셀 다운로드와 같은 계열사 필터(["CGV","LOTTE","MEGABOX","일반극장"]).
             None이면 전체.
+    dates:  C008 — 특정 날짜(비연속 다중 선택) 목록. 지정 시 그 날짜들만 집계하고
+            전주 비교도 각 날짜의 정확히 7일 전(같은 요일)으로 잡는다.
     """
     from crawler.utils.excel_exporter import _build_region_map, _build_normal_theater_index
 
-    prev_start = start_date - timedelta(days=7)
-    prev_end = end_date - timedelta(days=7)
+    if dates:
+        cur_dates = sorted(set(dates))
+        start_date, end_date = cur_dates[0], cur_dates[-1]
+    else:
+        cur_dates = [start_date + timedelta(days=i)
+                     for i in range((end_date - start_date).days + 1)]
+    prev_dates = [d - timedelta(days=7) for d in cur_dates]
+    prev_start, prev_end = prev_dates[0], prev_dates[-1]
 
     units, main_key = _movie_units(main_title)
     if not units:
@@ -254,8 +265,8 @@ def build_report_data(start_date, end_date, main_title=None, brands=None):
     # 지역/일반극장 인덱스는 비싸므로 기준기간·전주에서 한 번만 만들어 공유한다
     maps = (_build_region_map(), _build_normal_theater_index())
 
-    cur = _collect(start_date, end_date, units, brands=brands, maps=maps)
-    prev = _collect(prev_start, prev_end, units, brands=brands, maps=maps)
+    cur = _collect(cur_dates, units, brands=brands, maps=maps)
+    prev = _collect(prev_dates, units, brands=brands, maps=maps)
 
     by_movie = cur["by_movie"]
     if not by_movie:
@@ -283,7 +294,10 @@ def build_report_data(start_date, end_date, main_title=None, brands=None):
     data = {
         "mode": "main" if main_key else "none",
         "period": {"start": start_date, "end": end_date,
-                   "prev_start": prev_start, "prev_end": prev_end},
+                   "prev_start": prev_start, "prev_end": prev_end,
+                   # C008: 특정 날짜 선택 시 실제 대상 날짜 목록 (렌더러가 나열 표기)
+                   "dates": cur_dates if dates else None,
+                   "prev_dates": prev_dates if dates else None},
         "has_prev": has_prev,
         "movie_count": len(movies),
         "movies": movies,

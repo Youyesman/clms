@@ -4,6 +4,7 @@ import { AxiosPost, AxiosGet } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, DownloadSimple, Spinner } from "@phosphor-icons/react";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
+import { SpecificDatesPicker } from "./SpecificDatesPicker";
 
 interface CrawlTarget {
     id: number;
@@ -192,6 +193,9 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
     const [specialMovieId, setSpecialMovieId] = useState<number | null>(null);
     // C004: 경쟁작 다중 선택 — 미선택 시 크롤 대상 영화의 모든 경쟁작(기존 동작)
     const [selectedCompetitorIds, setSelectedCompetitorIds] = useState<number[]>([]);
+    // C008: 특정 날짜(비연속 다중 선택)로 생성
+    const [useSpecificDates, setUseSpecificDates] = useState(false);
+    const [specificDates, setSpecificDates] = useState<string[]>([]);
 
     // props 변경 시 날짜 동기화
     React.useEffect(() => {
@@ -234,6 +238,11 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
             .filter((m) => selectedCompetitorIds.includes(m.id))
             .map((m) => m.clean_title || m.title);
 
+        if (useSpecificDates && specificDates.length === 0) {
+            toast.warning("생성할 날짜를 하나 이상 추가해주세요.");
+            return;
+        }
+
         setIsExporting(true);
         try {
             toast.success("엑셀 생성 중... 잠시만 기다려주세요.");
@@ -242,6 +251,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                 {
                     start_date: exportStartDate,
                     end_date: exportEndDate,
+                    // C008: 특정 날짜 선택 시 그 날짜들만 담는다
+                    dates: useSpecificDates ? specificDates : undefined,
                     // E006: 주요작 없이 다운로드 시 movie_title 미전송 → 경쟁작만 내보냄
                     movie_title: selectedMovie ? selectedMovie.clean_title || selectedMovie.title : undefined,
                     brands: brands.length < 4 ? brands : undefined,
@@ -308,6 +319,10 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
             return;
         }
 
+        if (useSpecificDates && specificDates.length === 0) {
+            toast.warning("생성할 날짜를 하나 이상 추가해주세요.");
+            return;
+        }
         setIsExporting(true);
         try {
             toast.success("특수상영 엑셀 생성 중...");
@@ -316,6 +331,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                 {
                     start_date: exportStartDate,
                     end_date: exportEndDate,
+                    // C008: 특정 날짜 선택 시 그 날짜들만 담는다
+                    dates: useSpecificDates ? specificDates : undefined,
                     keyword,
                     movie_title: specialMovie.clean_title || specialMovie.title,
                     brands: brands.length < 4 ? brands : undefined,
@@ -365,11 +382,18 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                 <Body>
                     <div>
                         <SectionLabel>조회 기간</SectionLabel>
-                        <DateRow>
-                            <DateInput type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} />
+                        <DateRow style={{ opacity: useSpecificDates ? 0.4 : 1 }}>
+                            <DateInput type="date" value={exportStartDate} disabled={useSpecificDates} onChange={(e) => setExportStartDate(e.target.value)} />
                             <span style={{ color: "#94a3b8", fontSize: 13 }}>~</span>
-                            <DateInput type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} />
+                            <DateInput type="date" value={exportEndDate} disabled={useSpecificDates} onChange={(e) => setExportEndDate(e.target.value)} />
                         </DateRow>
+                        {/* C008: 연속 기간 대신 특정 날짜들만 담아 생성 */}
+                        <SpecificDatesPicker
+                            enabled={useSpecificDates}
+                            setEnabled={setUseSpecificDates}
+                            dates={specificDates}
+                            setDates={setSpecificDates}
+                        />
                     </div>
 
                     <div>

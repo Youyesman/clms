@@ -874,8 +874,8 @@ class CrawlerScheduleExportView(APIView):
         # U002: 특별 상영 포맷 필터 (["IMAX", "4DX", ...]). 지정 시 해당 포맷 회차만 내보낸다.
         formats = request.data.get('formats')
 
-        if not start_date_str:
-            return Response({"error": "start_date/date is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not start_date_str and not request.data.get('dates'):
+            return Response({"error": "start_date/date 또는 dates가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Support both YYYYMMDD and YYYY-MM-DD formats
@@ -885,17 +885,23 @@ class CrawlerScheduleExportView(APIView):
                     return datetime.strptime(s, "%Y-%m-%d").date()
                 return datetime.strptime(s, "%Y%m%d").date()
 
-            start_date = parse_date(start_date_str)
-            end_date = parse_date(end_date_str)
-
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_transformed_schedules
 
-            # qs is the initial candidate list based on date
-            qs = MovieSchedule.objects.filter(
-                play_date__gte=start_date,
-                play_date__lte=end_date
-            )
+            # C008: 특정 날짜(비연속 다중 선택)로도 생성 가능 — dates 지정 시
+            # 연속 기간이 아니라 그 날짜들만 담는다
+            picked_dates = request.data.get('dates')
+            if picked_dates and isinstance(picked_dates, list):
+                sel_dates = sorted({parse_date(str(d)) for d in picked_dates if str(d).strip()})
+                start_date, end_date = sel_dates[0], sel_dates[-1]
+                qs = MovieSchedule.objects.filter(play_date__in=sel_dates)
+            else:
+                start_date = parse_date(start_date_str)
+                end_date = parse_date(end_date_str)
+                qs = MovieSchedule.objects.filter(
+                    play_date__gte=start_date,
+                    play_date__lte=end_date
+                )
 
             # 멀티(계열사)별 필터링
             if brands and isinstance(brands, list):
@@ -981,21 +987,27 @@ class CrawlerSpecialExportView(APIView):
         brands = request.data.get('brands')
         movie_title = (request.data.get('movie_title') or '').strip()
 
-        if not start_date_str or not keyword:
-            return Response({"error": "start_date와 keyword는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        if (not start_date_str and not request.data.get('dates')) or not keyword:
+            return Response({"error": "start_date(또는 dates)와 keyword는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             def parse_date(s):
                 s = s.strip()
                 return datetime.strptime(s, "%Y-%m-%d").date() if '-' in s else datetime.strptime(s, "%Y%m%d").date()
 
-            start_date = parse_date(start_date_str)
-            end_date = parse_date(end_date_str)
-
             from crawler.models import MovieSchedule
             from crawler.utils.excel_exporter import export_special_screenings
 
-            qs = MovieSchedule.objects.filter(play_date__gte=start_date, play_date__lte=end_date)
+            # C008: 특정 날짜(비연속 다중 선택) 지원
+            picked_dates = request.data.get('dates')
+            if picked_dates and isinstance(picked_dates, list):
+                sel_dates = sorted({parse_date(str(d)) for d in picked_dates if str(d).strip()})
+                start_date, end_date = sel_dates[0], sel_dates[-1]
+                qs = MovieSchedule.objects.filter(play_date__in=sel_dates)
+            else:
+                start_date = parse_date(start_date_str)
+                end_date = parse_date(end_date_str)
+                qs = MovieSchedule.objects.filter(play_date__gte=start_date, play_date__lte=end_date)
             if brands and isinstance(brands, list):
                 qs = qs.filter(brand__in=brands)
 
@@ -1053,8 +1065,12 @@ class CrawlerReportView(APIView):
         if not (brands and isinstance(brands, list)):
             brands = None
 
-        if not start_date_str:
-            return Response({"error": "start_date는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        # C008: 특정 날짜(비연속 다중 선택) 보고서
+        picked_dates = request.data.get('dates')
+        has_dates = bool(picked_dates and isinstance(picked_dates, list))
+
+        if not start_date_str and not has_dates:
+            return Response({"error": "start_date 또는 dates가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
         if mode == 'main' and not main_title:
             return Response({"error": "주요작 있음 보고서는 main_title이 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
         if fmt not in ('pdf', 'excel'):
@@ -1065,14 +1081,19 @@ class CrawlerReportView(APIView):
                 s = s.strip()
                 return datetime.strptime(s, "%Y-%m-%d").date() if '-' in s else datetime.strptime(s, "%Y%m%d").date()
 
-            start_date = parse_date(start_date_str)
-            end_date = parse_date(end_date_str)
-            if end_date < start_date:
-                return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=status.HTTP_400_BAD_REQUEST)
+            if has_dates:
+                sel_dates = sorted({parse_date(str(d)) for d in picked_dates if str(d).strip()})
+                start_date, end_date = sel_dates[0], sel_dates[-1]
+            else:
+                sel_dates = None
+                start_date = parse_date(start_date_str)
+                end_date = parse_date(end_date_str)
+                if end_date < start_date:
+                    return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=status.HTTP_400_BAD_REQUEST)
 
             data = build_report_data(start_date, end_date,
                                      main_title=main_title if mode == 'main' else None,
-                                     brands=brands)
+                                     brands=brands, dates=sel_dates)
 
             save_dir = os.path.join(dj_settings.BASE_DIR, 'media', 'crawler_exports')
             os.makedirs(save_dir, exist_ok=True)
@@ -1081,7 +1102,9 @@ class CrawlerReportView(APIView):
             else:
                 safe = "주요작X"
             ext = 'pdf' if fmt == 'pdf' else 'xlsx'
-            filename = f"상영현황보고서_{safe}_{start_date}~{end_date}.{ext}"
+            period_part = (f"{start_date}~{end_date}_선택{len(sel_dates)}일"
+                           if sel_dates else f"{start_date}~{end_date}")
+            filename = f"상영현황보고서_{safe}_{period_part}.{ext}"
             file_path = os.path.join(save_dir, filename)
 
             if fmt == 'pdf':

@@ -4,6 +4,7 @@ import { AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, FilePdf, FileXls, Spinner } from "@phosphor-icons/react";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
+import { SpecificDatesPicker } from "./SpecificDatesPicker";
 
 /* P001: 영화 상영현황 보고서(PDF/엑셀) 생성 모달
    [시간표 수집] DB의 기준기간 + 전주(-7일) 데이터를 집계해
@@ -154,6 +155,9 @@ export const ReportModal: React.FC<ReportModalProps> = ({
     // W002: 엑셀 다운로드와 같은 계열사 범위로 집계해야 두 파일의 숫자가 일치한다
     const [brandFilter, setBrandFilter] = useState({ cgv: true, lotte: true, mega: true, normal: true });
     const [isBusy, setIsBusy] = useState(false);
+    // C008: 특정 날짜(비연속 다중 선택)로 보고서 생성
+    const [useSpecificDates, setUseSpecificDates] = useState(false);
+    const [specificDates, setSpecificDates] = useState<string[]>([]);
 
     React.useEffect(() => {
         if (isOpen) {
@@ -169,7 +173,12 @@ export const ReportModal: React.FC<ReportModalProps> = ({
         (mainMovies.length === 1 ? mainMovies[0] : null);
 
     const download = async (format: "pdf" | "excel") => {
-        if (!reportStart) {
+        if (useSpecificDates) {
+            if (specificDates.length === 0) {
+                toast.warning("생성할 날짜를 하나 이상 추가해주세요.");
+                return;
+            }
+        } else if (!reportStart) {
             toast.warning("기준 기간을 입력해주세요.");
             return;
         }
@@ -194,6 +203,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 {
                     start_date: reportStart,
                     end_date: reportEnd || reportStart,
+                    // C008: 특정 날짜 선택 시 그 날짜들만 집계 (전주는 각 날짜의 7일 전)
+                    dates: useSpecificDates ? specificDates : undefined,
                     mode,
                     main_title: mode === "main" && mainMovie ? mainMovie.clean_title || mainMovie.title : undefined,
                     brands: brands.length < 4 ? brands : undefined,
@@ -244,11 +255,18 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
                 <div>
                     <SectionLabel>기준 기간 (전주는 자동으로 7일 전 동일 구간과 비교)</SectionLabel>
-                    <DateRow>
-                        <DateInput type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} />
+                    <DateRow style={{ opacity: useSpecificDates ? 0.4 : 1 }}>
+                        <DateInput type="date" value={reportStart} disabled={useSpecificDates} onChange={(e) => setReportStart(e.target.value)} />
                         <span style={{ color: "#94a3b8", fontSize: 13 }}>~</span>
-                        <DateInput type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} />
+                        <DateInput type="date" value={reportEnd} disabled={useSpecificDates} onChange={(e) => setReportEnd(e.target.value)} />
                     </DateRow>
+                    {/* C008: 연속 기간 대신 특정 날짜들만 집계 (전주 비교는 각 날짜의 7일 전) */}
+                    <SpecificDatesPicker
+                        enabled={useSpecificDates}
+                        setEnabled={setUseSpecificDates}
+                        dates={specificDates}
+                        setDates={setSpecificDates}
+                    />
                 </div>
 
                 <div>

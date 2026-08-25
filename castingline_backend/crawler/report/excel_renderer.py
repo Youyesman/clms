@@ -120,6 +120,12 @@ def _kpi_block(ws, row, cols):
 
 
 def _period_str(p):
+    # C008: 특정 날짜(비연속) 선택 보고서는 범위(~) 대신 날짜를 나열해 표기한다
+    if p.get("dates"):
+        cur = ", ".join(d.strftime("%m.%d") for d in p["dates"])
+        prev = ", ".join(d.strftime("%m.%d") for d in (p.get("prev_dates") or []))
+        return (f"조사기간 {p['start'].strftime('%Y')}년 {cur}",
+                f"전주 {prev}")
     return (f"조사기간 {p['start'].strftime('%Y.%m.%d')} - {p['end'].strftime('%Y.%m.%d')}",
             f"전주 {p['prev_start'].strftime('%Y.%m.%d')} - {p['prev_end'].strftime('%Y.%m.%d')}")
 
