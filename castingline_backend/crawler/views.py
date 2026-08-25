@@ -145,7 +145,19 @@ def run_site_crawler_background(history_id, data, site_key):
         else:
             crawl_target_titles = None
 
-        site_logs = site['log_model'].objects.filter(query_date__in=date_list).order_by('created_at')
+        site_logs = list(site['log_model'].objects.filter(query_date__in=date_list).order_by('created_at'))
+        if site_key == 'normal' and not kobis_multiplex:
+            # 멀티 미포함 실행: 과거 멀티 예비 수집 로그(체인 극장)는 변환하지 않는다
+            site_logs = [l for l in site_logs
+                         if not MovieSchedule.kobis_chain_brand(l.theater_name)[0]]
+
+        # 0825: 완전 교체 — 이번 크롤 범위(브랜드×수집된 날짜)의 기존 스케줄을
+        # 전부 지운 뒤 최신 로그로 다시 채운다 (잔재·중복 원천 차단)
+        wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
+                       if kobis_multiplex else [brand])
+        MovieSchedule.replace_before_transform(
+            wipe_brands, sorted({l.query_date for l in site_logs}))
+
         total_created = 0
         for log in site_logs:
             c, _ = site['create_fn'](log, target_titles=crawl_target_titles)
@@ -247,6 +259,12 @@ class CrawlerExecutionView(APIView):
             selected = [k for k in ('cgv', 'lotte', 'mega', 'normal') if choice_company.get(k)]
             if not selected:
                 return Response({"error": "선택된 크롤 대상이 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # C002: 영진위 멀티 수집(예비용)은 완전 교체 방식이라 자사 3사 크롤과
+            # 동시에 돌면 서로 덮어쓴다 → 동시 실행 차단
+            if data.get('kobisMultiplex') and any(choice_company.get(k) for k in ('cgv', 'lotte', 'mega')):
+                return Response({"error": "영진위 멀티 수집(예비용)은 CGV/롯데/메가박스 자사 크롤과 동시에 실행할 수 없습니다. 3사 체크를 해제해주세요."},
+                                status=status.HTTP_400_BAD_REQUEST)
 
             defs = _manual_site_defs()
             history_ids = []
@@ -407,7 +425,9 @@ def run_transform_background(new_history_id, source_history_id):
             if log_ids:
                 cnt = 0
                 errors = []
-                logs = CGVScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                logs = list(CGVScheduleLog.objects.filter(id__in=log_ids).order_by('created_at'))
+                # 0825: 완전 교체 — 재변환도 해당 범위를 지우고 다시 채운다
+                MovieSchedule.replace_before_transform(['CGV'], sorted({l.query_date for l in logs}))
                 for log in logs:
                     processing_context = {"stage": "CGV", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
                     c, e = MovieSchedule.create_from_cgv_log(log, title_map=title_map)
@@ -425,7 +445,9 @@ def run_transform_background(new_history_id, source_history_id):
             if log_ids:
                 cnt = 0
                 errors = []
-                logs = LotteScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                logs = list(LotteScheduleLog.objects.filter(id__in=log_ids).order_by('created_at'))
+                # 0825: 완전 교체 — 재변환도 해당 범위를 지우고 다시 채운다
+                MovieSchedule.replace_before_transform(['LOTTE'], sorted({l.query_date for l in logs}))
                 for log in logs:
                     processing_context = {"stage": "Lotte", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
                     c, e = MovieSchedule.create_from_lotte_log(log, title_map=title_map)
@@ -443,7 +465,9 @@ def run_transform_background(new_history_id, source_history_id):
             if log_ids:
                 cnt = 0
                 errors = []
-                logs = MegaboxScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                logs = list(MegaboxScheduleLog.objects.filter(id__in=log_ids).order_by('created_at'))
+                # 0825: 완전 교체 — 재변환도 해당 범위를 지우고 다시 채운다
+                MovieSchedule.replace_before_transform(['MEGABOX'], sorted({l.query_date for l in logs}))
                 for log in logs:
                     processing_context = {"stage": "Megabox", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
                     c, e = MovieSchedule.create_from_megabox_log(log, title_map=title_map)
@@ -461,7 +485,15 @@ def run_transform_background(new_history_id, source_history_id):
             if log_ids:
                 cnt = 0
                 errors = []
-                logs = KobisScheduleLog.objects.filter(id__in=log_ids).order_by('created_at')
+                logs = list(KobisScheduleLog.objects.filter(id__in=log_ids).order_by('created_at'))
+                if not data.get('kobisMultiplex'):
+                    # 멀티 미포함: 과거 멀티 예비 수집 로그(체인 극장)는 변환 제외
+                    logs = [l for l in logs
+                            if not MovieSchedule.kobis_chain_brand(l.theater_name)[0]]
+                # 0825: 완전 교체 — 재변환도 해당 범위를 지우고 다시 채운다
+                wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
+                               if data.get('kobisMultiplex') else ['일반극장'])
+                MovieSchedule.replace_before_transform(wipe_brands, sorted({l.query_date for l in logs}))
                 for log in logs:
                     processing_context = {"stage": "Normal", "log_id": log.id, "theater": log.theater_name, "date": log.query_date}
                     c, e = MovieSchedule.create_from_kobis_log(log, title_map=title_map)

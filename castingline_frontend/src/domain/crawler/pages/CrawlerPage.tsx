@@ -997,16 +997,17 @@ export const CrawlerPage = () => {
                                         onChange={() => setConfig(prev => ({
                                             ...prev,
                                             kobisMultiplex: !prev.kobisMultiplex,
-                                            // 멀티 포함 수집은 일반극장(KOBIS) 크롤에 얹혀 실행되므로 함께 선택
+                                            // 멀티 포함 수집은 일반극장(KOBIS) 크롤로 실행되며,
+                                            // 자사 3사 크롤과 동시에 돌면 서로 덮어쓰므로 3사는 해제
                                             choiceCompany: !prev.kobisMultiplex
-                                                ? { ...prev.choiceCompany, normal: true }
+                                                ? { cgv: false, lotte: false, mega: false, normal: true }
                                                 : prev.choiceCompany,
                                         }))}
                                     />
                                     {config.kobisMultiplex && (
                                         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                                            일반극장(KOBIS) 크롤 시 CGV·롯데·메가박스 극장도 영진위에서 함께 수집합니다.
-                                            (자사 사이트 크롤이 막혔을 때 예비용 — 좌석수 정보는 제공되지 않습니다)
+                                            CGV·롯데·메가박스 극장도 영진위에서 함께 수집해 해당 날짜 데이터를 통째로 교체합니다.
+                                            (자사 사이트 크롤이 막혔을 때 예비용 — 좌석수 정보는 제공되지 않으며, 자사 크롤과 동시 실행 불가)
                                         </div>
                                     )}
                                 </div>

@@ -205,8 +205,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"수집: 로그 {len(collected)}건 / 일반극장 {total}곳 / 실패 {len(failures)}건"))
 
         if options.get('transform'):
-            from crawler.models import CrawlTargetMovie
+            from crawler.models import CrawlTargetMovie, MovieSchedule
             targets = list(CrawlTargetMovie.objects.filter(is_active=True).values_list('title', flat=True)) or None
+            # 0825: 완전 교체 — 수집된 날짜의 기존 스케줄을 지우고 다시 채운다
+            wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
+                           if include_multiplex else ['일반극장'])
+            MovieSchedule.replace_before_transform(wipe_brands, sorted({c['date'] for c in collected}))
             created, errors = KobisPipelineService.transform_logs_to_schedule(
                 log_ids=[c['log_id'] for c in collected], target_titles=targets
             )

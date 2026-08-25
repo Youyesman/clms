@@ -654,6 +654,32 @@ class MovieSchedule(models.Model):
         return html.unescape(html.unescape(str(crawled_name or ""))), None
 
     @classmethod
+    def replace_before_transform(cls, brands, yyyymmdd_dates):
+        """0825: '가장 최근 크롤만 표출' — 완전 교체 방식.
+
+        크롤 변환 직전에 이번 크롤 범위(브랜드 × 상영일)의 기존 스케줄을 전부
+        지운 뒤 새 수집분으로 다시 채운다. 잔재(이전 크롤의 폐지·변경 회차,
+        영진위↔자사 표기 차이 행 등)가 원천적으로 남지 않는다.
+        수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의 기존
+        데이터는 유지된다 (빈 크롤이 멀쩡한 데이터를 지우는 일 방지).
+        """
+        from datetime import datetime as _dt
+        dates = []
+        for d in (yyyymmdd_dates or []):
+            try:
+                dates.append(_dt.strptime(str(d), "%Y%m%d").date())
+            except Exception:
+                continue
+        if not brands or not dates:
+            return 0
+        deleted, _detail = cls.objects.filter(
+            brand__in=list(brands), play_date__in=dates,
+        ).delete()
+        if deleted:
+            print(f"   [Replace] {'/'.join(brands)} {len(dates)}일치 기존 스케줄 {deleted}건 삭제 (완전 교체)")
+        return deleted
+
+    @classmethod
     def _purge_stale_backup_rows(cls, brand, theater_name, parsed_items):
         """C002: 영진위 예비 크롤 잔재 정리 — '가장 최근 크롤만 표출'(0825 지시).
 
@@ -677,6 +703,47 @@ class MovieSchedule(models.Model):
         if stale_ids:
             cls.objects.filter(id__in=stale_ids).delete()
         return len(stale_ids)
+
+    @classmethod
+    def _resolve_chain_theater_name(cls, brand, kobis_name):
+        """C002: 영진위 멀티 극장명 → 자사 크롤 극장명 매핑.
+
+        영진위와 자사의 지점 표기가 다른 극장(예: 영진위 '영등포' ↔ 자사
+        '영등포타임스퀘어', '수원' ↔ '수원(수원역롯데몰)', '월드타워_샤롯데' ↔
+        '월드타워')을 같은 극장으로 합치기 위해, 최근 30일 자사 크롤(좌석수 있는
+        행)의 극장명과 정규화 비교한다. **유일하게** 매칭될 때만 치환하고,
+        못 찾거나 여럿이면 영진위 표기를 그대로 쓴다 (임의 매핑 금지).
+        """
+        import re
+        from datetime import timedelta
+        from django.utils import timezone as dj_tz
+
+        since = dj_tz.now() - timedelta(days=30)
+        own_names = set(cls.objects.filter(
+            brand=brand, total_seats__gt=0, created_at__gte=since,
+        ).values_list('theater_name', flat=True).distinct())
+        if kobis_name in own_names:
+            return kobis_name
+
+        def key(s):
+            s = re.sub(r'\([^)]*\)', '', str(s))                      # 괄호 내용 제거
+            s = re.sub(r'[_\s]*(샤롯데|charlotte관?)$', '', s, flags=re.I)  # 특별관 접미
+            s = re.sub(r'(지점|점)$', '', s)                            # 접미 '점'
+            return re.sub(r'\s+', '', s).lower()
+
+        k = key(kobis_name)
+        if not k:
+            return kobis_name
+        exact = [n for n in own_names if key(n) == k]
+        if len(exact) == 1:
+            return exact[0]
+        if not exact:
+            # 접두/포함 매칭 (예: 영진위 '영등포' → 자사 '영등포타임스퀘어')
+            pref = [n for n in own_names
+                    if key(n).startswith(k) or k.startswith(key(n))]
+            if len(pref) == 1:
+                return pref[0]
+        return kobis_name
 
     @staticmethod
     def kobis_chain_brand(theater_name):
@@ -720,9 +787,12 @@ class MovieSchedule(models.Model):
         theater_info = json_data.get("theater") or [{}]
         homepg = theater_info[0].get("homepgUrl") if theater_info else None
 
-        # C002: 멀티 3사 극장(예비용 수집분)이면 브랜드/지점명을 분리
+        # C002: 멀티 3사 극장(예비용 수집분)이면 브랜드/지점명을 분리하고,
+        # 영진위 지점명을 자사 크롤 지점명으로 매핑 (같은 극장으로 합쳐지도록)
         chain_brand, chain_name = cls.kobis_chain_brand(log.theater_name)
         row_brand = chain_brand or '일반극장'
+        if chain_brand:
+            chain_name = cls._resolve_chain_theater_name(row_brand, chain_name)
 
         # 심야 회차 포함 자사 크롤과 같은 상영일 규칙(query_date)을 쓰기 위한 기준일
         try:
