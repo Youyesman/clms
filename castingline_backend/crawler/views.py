@@ -103,7 +103,11 @@ def run_site_crawler_background(history_id, data, site_key):
         # 3. 수집
         check_stop_signal()
         print(f"Executing {label} for {date_list}")
-        logs, cnt, failures = site['service'].collect_schedule_logs(dates=date_list, stop_signal=check_stop_signal)
+        # C002: 일반극장(KOBIS) 크롤에서 멀티 3사 포함 옵션 (자사 크롤 불가 시 예비용)
+        kobis_multiplex = bool(site_key == 'normal' and data.get('kobisMultiplex'))
+        collect_kwargs = {'include_multiplex': True} if kobis_multiplex else {}
+        logs, cnt, failures = site['service'].collect_schedule_logs(
+            dates=date_list, stop_signal=check_stop_signal, **collect_kwargs)
         check_stop_signal()
 
         for f in failures:
@@ -149,10 +153,13 @@ def run_site_crawler_background(history_id, data, site_key):
 
         # 6. 변환 결과 엑셀
         from crawler.utils.excel_exporter import export_transformed_schedules
+        # C002: 멀티 포함 KOBIS 크롤이면 변환 결과도 4개 브랜드 전부 담는다
+        excel_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
+                        if kobis_multiplex else [brand])
         schedule_qs = MovieSchedule.objects.filter(
             play_date__gte=start_date.date(),
             play_date__lte=end_date.date(),
-            brand__in=[brand]
+            brand__in=excel_brands
         )
         transform_excel = export_transformed_schedules(schedule_qs)
 
@@ -246,6 +253,9 @@ class CrawlerExecutionView(APIView):
             for site_key in selected:
                 site_conf = dict(data)
                 site_conf['site'] = defs[site_key]['label']
+                # C002: 멀티 포함 KOBIS 크롤은 이력에서 구분되게 표기
+                if site_key == 'normal' and data.get('kobisMultiplex'):
+                    site_conf['site'] = '일반극장(멀티 포함)'
                 site_conf['choiceCompany'] = {k: (k == site_key) for k in ('cgv', 'lotte', 'mega', 'normal')}
 
                 history = CrawlerRunHistory.objects.create(

@@ -67,6 +67,8 @@ interface TimetableData {
         movie_title: string;
         release_date: string | null;
         distributor_name: string | null;
+        /* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */
+        last_crawled_at: string | null;
     };
     by_chain: StatRow[];
     by_region: StatRow[];
@@ -512,6 +514,10 @@ export function TimeTablePage() {
                                 배급사: {data.meta.distributor_name}
                             </span>
                         )}
+                        {/* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */}
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "#1e293b", marginLeft: 16 }}>
+                            수집 완료 시간: {data.meta.last_crawled_at ?? "-"}
+                        </span>
                     </div>
 
                     {/* 계열사별 + 상영시간 회차 비율 (나란히) */}

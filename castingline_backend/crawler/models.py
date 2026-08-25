@@ -215,39 +215,24 @@ class MovieSchedule(models.Model):
     @staticmethod
     def title_matches(target_title, crawled_title):
         """
-        영화 제목 매칭 (유연한 비교):
-        1. 정규화 후 부분 문자열 매칭 (기존 방식)
-        2. 토큰 기반 매칭: 짧은 쪽의 모든 토큰이 긴 쪽에 포함되면 매칭
-           예) "BTS WORLD TOUR ARIRANG LIVE VIEWING" vs
-               "BTS WORLD TOUR 'ARIRANG' IN JAPAN- LIVE VIEWING"
-               → 짧은 쪽 토큰 {bts,world,tour,arirang,live,viewing} ⊆ 긴 쪽 → 매칭
+        영화 제목 매칭 (V003: 특수문자·공백 제외 '정확 일치').
+
+        양쪽 제목에서 메타 태그([IMAX], (더빙) 등)를 떼고(parse_and_normalize_title)
+        특수문자·공백을 제거(normalize_title)한 결과가 완전히 같아야만 매칭한다.
+        예) 등록 '오디세이' ↔ 크롤 '오디세이...!', '오디세이(더빙)' → 매칭 O
+            등록 '오디세이' ↔ 크롤 '2001 스페이스 오디세이' → 매칭 X
+
+        (예전의 부분 문자열·토큰 포함 매칭은 '오디세이'가
+        '2001 스페이스 오디세이'까지 끌어와 미등록 영화가 수집·표기되는
+        문제가 있었다.)
         """
-        import re
-        norm_target = MovieSchedule.normalize_title(target_title)
-        norm_crawled = MovieSchedule.normalize_title(crawled_title)
-
-        # 1. 기존 부분 문자열 매칭
-        if norm_target in norm_crawled or norm_crawled in norm_target:
-            return True
-
-        # 2. 토큰 기반 매칭
-        # 특수문자를 공백으로 치환 후 소문자 토큰 분리
-        def tokenize(title):
-            cleaned = re.sub(r'[^a-zA-Z0-9가-힣\s]', ' ', str(title)).lower()
-            return set(cleaned.split())
-
-        target_tokens = tokenize(target_title)
-        crawled_tokens = tokenize(crawled_title)
-
-        if not target_tokens or not crawled_tokens:
+        clean_target, _ = MovieSchedule.parse_and_normalize_title(target_title)
+        clean_crawled, _ = MovieSchedule.parse_and_normalize_title(crawled_title)
+        norm_target = MovieSchedule.normalize_title(clean_target)
+        norm_crawled = MovieSchedule.normalize_title(clean_crawled)
+        if not norm_target or not norm_crawled:
             return False
-
-        # 짧은 쪽의 모든 토큰이 긴 쪽에 포함되면 매칭
-        shorter, longer = (target_tokens, crawled_tokens) if len(target_tokens) <= len(crawled_tokens) else (crawled_tokens, target_tokens)
-        if shorter <= longer:
-            return True
-
-        return False
+        return norm_target == norm_crawled
 
     @staticmethod
     def decode_html_entities(text):
@@ -665,10 +650,29 @@ class MovieSchedule(models.Model):
         import html
         return html.unescape(html.unescape(str(crawled_name or ""))), None
 
+    @staticmethod
+    def kobis_chain_brand(theater_name):
+        """C002: 영진위(KOBIS) 극장명에서 멀티 3사 브랜드 판별 (예비용 크롤).
+
+        반환: (브랜드, 접두어 제거 지점명) — 멀티가 아니면 (None, None).
+        자사 크롤과 같은 형식(브랜드 접두어 없는 지점명)으로 저장해
+        지역 매핑·엑셀 표기가 기존 데이터와 자연스럽게 이어지게 한다.
+        """
+        import re
+        norm = re.sub(r"\s+", "", str(theater_name or ""))
+        for prefix, brand in (("CGV", "CGV"), ("메가박스", "MEGABOX"),
+                              ("롯데시네마", "LOTTE"), ("롯데", "LOTTE")):
+            if norm.startswith(prefix):
+                return brand, (norm[len(prefix):] or norm)
+        return None, None
+
     @classmethod
     def create_from_kobis_log(cls, log, target_titles=None, title_map=None):
         """
-        KobisScheduleLog -> MovieSchedule 변환 (brand='일반극장').
+        KobisScheduleLog -> MovieSchedule 변환.
+        - 일반극장: brand='일반극장' + 거래처 매핑(K001)
+        - 멀티 3사 극장(C002 예비용 수집분): 극장명 접두어로 브랜드 판별해
+          brand='CGV'/'LOTTE'/'MEGABOX' 로 저장 (자사 크롤과 같은 지점명 형식)
         KOBIS 응답: {theater:[{homepgUrl}], schedule:[{scrnNm, movieNm, movieCd, showTm}]}
         showTm 은 콤마 구분 시각 문자열 "0830,1040,1310".
         """
@@ -688,6 +692,10 @@ class MovieSchedule(models.Model):
         theater_info = json_data.get("theater") or [{}]
         homepg = theater_info[0].get("homepgUrl") if theater_info else None
 
+        # C002: 멀티 3사 극장(예비용 수집분)이면 브랜드/지점명을 분리
+        chain_brand, chain_name = cls.kobis_chain_brand(log.theater_name)
+        row_brand = chain_brand or '일반극장'
+
         parsed_items = []
         errors = []
         for item in schedule_list:
@@ -701,11 +709,15 @@ class MovieSchedule(models.Model):
                         continue
 
                 screen_name = cls.normalize_screen_name(item.get("scrnNm"))
-                # 극장명: 기존 DB 극장과 매핑 — 같은 영진위 극장명이 여러 거래처로
-                # 나뉜 경우(예: 영화의 전당) 관명으로 판별해야 하므로 관 단위로 매핑 (K001)
-                mapped_theater_name, _client_id = cls.map_kobis_theater_name(
-                    log.theater_name, screen_name=screen_name
-                )
+                if chain_brand:
+                    # C002: 멀티 3사는 거래처 매핑 대신 접두어 제거 지점명 사용
+                    mapped_theater_name = chain_name
+                else:
+                    # 극장명: 기존 DB 극장과 매핑 — 같은 영진위 극장명이 여러 거래처로
+                    # 나뉜 경우(예: 영화의 전당) 관명으로 판별해야 하므로 관 단위로 매핑 (K001)
+                    mapped_theater_name, _client_id = cls.map_kobis_theater_name(
+                        log.theater_name, screen_name=screen_name
+                    )
                 clean_title, extracted_tags = cls.parse_and_normalize_title(movie_title)
                 final_title = clean_title
                 if title_map is not None:
@@ -721,7 +733,7 @@ class MovieSchedule(models.Model):
                     if not start_dt:
                         continue
                     parsed_items.append({
-                        'brand': '일반극장',
+                        'brand': row_brand,
                         'theater_name': mapped_theater_name,
                         'screen_name': screen_name,
                         'start_time': start_dt,
@@ -749,12 +761,13 @@ class MovieSchedule(models.Model):
         all_start = [i['start_time'] for i in parsed_items]
         lookup_names = {i['theater_name'] for i in parsed_items}
         lookup_names.add(str(log.theater_name or ""))
-        lookup_names.update(
-            c.client_name for c in cls._kobis_client_candidates(log.theater_name)
-            if c.client_name
-        )
+        if not chain_brand:
+            lookup_names.update(
+                c.client_name for c in cls._kobis_client_candidates(log.theater_name)
+                if c.client_name
+            )
         existing_qs = cls.objects.filter(
-            brand='일반극장',
+            brand=row_brand,
             theater_name__in=[n for n in lookup_names if n],
             start_time__gte=min(all_start),
             start_time__lte=max(all_start) + timedelta(hours=1),

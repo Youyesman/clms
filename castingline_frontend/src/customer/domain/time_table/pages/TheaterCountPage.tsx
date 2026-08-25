@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { useRecoilState } from "recoil";
 import { TimeTableFilterState } from "../../../../atom/TimeTableFilterState";
 import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
+import { useTableSort, SortDir } from "../useTableSort";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, Legend,
@@ -37,6 +38,18 @@ interface TheaterData {
     dates: string[];
     movies: MovieTheater[];
     grand: GrandTotal;
+    /* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */
+    last_crawled_at: string | null;
+}
+
+/* V004: 표 정렬용 값 추출 */
+function sortValue(m: MovieTheater, key: string): string | number | null {
+    if (key === "title") return m.title;
+    if (key === "period") return m.period_theaters;
+    if (key === "lw_period") return m.lw_period_theaters;
+    if (key.startsWith("cur:")) return m.daily[key.slice(4)]?.theaters ?? null;
+    if (key.startsWith("lw:")) return m.daily[key.slice(3)]?.lw_theaters ?? null;
+    return null;
 }
 
 /* ── 스타일 ── */
@@ -295,6 +308,14 @@ export function TheaterCountPage() {
         return () => window.removeEventListener("click", close);
     }, [popover]);
 
+    /* V004: 표 정렬 — 기본값은 [합계 총 상영관수] 내림차순 */
+    const { sort, toggle, sorted: sortedMovies } = useTableSort(data?.movies ?? [], "period", sortValue);
+    const arrow = (key: string) => (sort.key === key ? (sort.dir === "desc" ? " ▼" : " ▲") : "");
+    const thSort = (key: string, dirDefault: SortDir = "desc") => ({
+        onClick: () => toggle(key, dirDefault),
+        style: { cursor: "pointer" as const, userSelect: "none" as const },
+    });
+
     /* 바 차트 데이터 */
     const barData = data?.movies.map(m => ({
         title: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
@@ -471,6 +492,10 @@ export function TheaterCountPage() {
                                     <Legend wrapperStyle={{ paddingTop: 4 }} />
                                 </BarChart>
                             </ResponsiveContainer>
+                            {/* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */}
+                            <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 6 }}>
+                                수집 완료 시간: {data.last_crawled_at ?? "-"}
+                            </div>
                         </div>
                     </SectionCard>
 
@@ -481,7 +506,7 @@ export function TheaterCountPage() {
                             <Tbl>
                                 <thead>
                                     <tr>
-                                        <th rowSpan={2} style={{ minWidth: 140 }}>영화명</th>
+                                        <th rowSpan={2} style={{ minWidth: 140, cursor: "pointer", userSelect: "none" }} onClick={() => toggle("title", "asc")}>영화명{arrow("title")}</th>
                                         {data.dates.map(d => (
                                             <th key={d} colSpan={2}>{d}</th>
                                         ))}
@@ -490,16 +515,16 @@ export function TheaterCountPage() {
                                     <tr>
                                         {data.dates.map(d => (
                                             <React.Fragment key={d}>
-                                                <th className="lw-col">전주</th>
-                                                <th>총 상영관수</th>
+                                                <th className="lw-col" {...thSort(`lw:${d}`)}>전주{arrow(`lw:${d}`)}</th>
+                                                <th {...thSort(`cur:${d}`)}>총 상영관수{arrow(`cur:${d}`)}</th>
                                             </React.Fragment>
                                         ))}
-                                        <th className="lw-col">전주</th>
-                                        <th>총 상영관수</th>
+                                        <th className="lw-col" {...thSort("lw_period")}>전주{arrow("lw_period")}</th>
+                                        <th {...thSort("period")}>총 상영관수{arrow("period")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {data.movies.map((m, i) => (
+                                    {sortedMovies.map((m, i) => (
                                         <tr key={i}>
                                             <td style={{ textAlign: "left" }}>{m.title}</td>
                                             {data.dates.map(d => {

@@ -22,6 +22,8 @@ interface ICrawlerConfig {
     crawlStartDate: string;
     crawlEndDate: string;
     choiceCompany: IChoiceCompany;
+    /* C002: 일반극장(KOBIS) 크롤 시 멀티 3사도 영진위에서 함께 수집 (예비용) */
+    kobisMultiplex: boolean;
 }
 
 export interface ICrawlerHistory {
@@ -179,7 +181,8 @@ const INITIAL_CONFIG: ICrawlerConfig = {
         mega: true,
         lotte: true,
         normal: true
-    }
+    },
+    kobisMultiplex: false
 };
 
 export const CrawlerPage = () => {
@@ -984,6 +987,28 @@ export const CrawlerPage = () => {
                                     <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
                                     <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
                                     <CustomCheckbox label="일반극장" checked={config.choiceCompany.normal} onChange={() => handleCompanyChange('normal')} />
+                                </div>
+                                {/* C002: 3사 사이트 개편 등으로 자사 크롤이 막혔을 때의 예비용 —
+                                    영진위(KOBIS)에서 멀티 3사+일반극장을 함께 수집 */}
+                                <div style={{ marginTop: 8 }}>
+                                    <CustomCheckbox
+                                        label="영진위에서 멀티 3사도 수집 (예비용)"
+                                        checked={config.kobisMultiplex}
+                                        onChange={() => setConfig(prev => ({
+                                            ...prev,
+                                            kobisMultiplex: !prev.kobisMultiplex,
+                                            // 멀티 포함 수집은 일반극장(KOBIS) 크롤에 얹혀 실행되므로 함께 선택
+                                            choiceCompany: !prev.kobisMultiplex
+                                                ? { ...prev.choiceCompany, normal: true }
+                                                : prev.choiceCompany,
+                                        }))}
+                                    />
+                                    {config.kobisMultiplex && (
+                                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                                            일반극장(KOBIS) 크롤 시 CGV·롯데·메가박스 극장도 영진위에서 함께 수집합니다.
+                                            (자사 사이트 크롤이 막혔을 때 예비용 — 좌석수 정보는 제공되지 않습니다)
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

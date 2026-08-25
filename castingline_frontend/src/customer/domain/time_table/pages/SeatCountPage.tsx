@@ -3,6 +3,7 @@ import styled from "styled-components";
 import { useRecoilState } from "recoil";
 import { TimeTableFilterState } from "../../../../atom/TimeTableFilterState";
 import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
+import { useTableSort, SortDir } from "../useTableSort";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -50,6 +51,26 @@ interface CompetitorData {
     dates: string[];
     movies: MovieSeat[];
     grand: GrandTotal;
+    /* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */
+    last_crawled_at: string | null;
+}
+
+/* V004: 표 정렬용 값 추출 */
+function sortValue(m: MovieSeat, key: string): string | number | null {
+    if (key === "title") return m.title;
+    if (key === "period") return m.period_total;
+    if (key === "lw_period") return m.lw_period_total;
+    if (key.startsWith("cur:")) return m.daily[key.slice(4)]?.total_seats ?? null;
+    if (key.startsWith("lw:")) return m.daily[key.slice(3)]?.lw_total_seats ?? null;
+    return null;
+}
+
+/* V004: 예매율/좌점율 요약 표 정렬용 값 추출
+   (예매율은 판매좌석수, 좌점율은 총 좌석수에 비례하므로 그 값으로 정렬) */
+function summarySortValue(m: MovieSeat, key: string): string | number | null {
+    if (key === "title") return m.title;
+    if (key === "sold" || key === "rate") return m.period_sold;
+    return m.period_total; // total, share
 }
 
 /* ── 스타일 ── */
@@ -439,6 +460,22 @@ export function SeatCountPage() {
         return () => window.removeEventListener("click", close);
     }, [popover]);
 
+    /* V004: 표 정렬 — 기본값은 [합계 총 좌석수] 내림차순 */
+    const { sort, toggle, sorted: sortedMovies } = useTableSort(data?.movies ?? [], "period", sortValue);
+    const arrow = (key: string) => (sort.key === key ? (sort.dir === "desc" ? " ▼" : " ▲") : "");
+    const thSort = (key: string, dirDefault: SortDir = "desc") => ({
+        onClick: () => toggle(key, dirDefault),
+        style: { cursor: "pointer" as const, userSelect: "none" as const },
+    });
+
+    /* V004: 예매율/좌점율 요약 표 정렬 — 기본값은 총 좌석수 내림차순 */
+    const { sort: sumSort, toggle: sumToggle, sorted: sortedSummary } = useTableSort(data?.movies ?? [], "total", summarySortValue);
+    const sumArrow = (key: string) => (sumSort.key === key ? (sumSort.dir === "desc" ? " ▼" : " ▲") : "");
+    const sumThSort = (key: string, dirDefault: SortDir = "desc") => ({
+        onClick: () => sumToggle(key, dirDefault),
+        style: { cursor: "pointer" as const, userSelect: "none" as const },
+    });
+
     /* 바 차트 데이터 */
     const barData = data?.movies.map(m => ({
         title: m.title.length > 10 ? m.title.slice(0, 10) + "…" : m.title,
@@ -653,6 +690,10 @@ export function SeatCountPage() {
                                         <Legend wrapperStyle={{ paddingTop: 4 }} />
                                     </BarChart>
                                 </ResponsiveContainer>
+                                {/* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */}
+                                <div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: "#1e293b", marginTop: 6 }}>
+                                    수집 완료 시간: {data.last_crawled_at ?? "-"}
+                                </div>
                             </div>
                         </SectionCard>
 
@@ -755,7 +796,7 @@ export function SeatCountPage() {
                             <Tbl>
                                 <thead>
                                     <tr>
-                                        <th rowSpan={2} style={{ minWidth: 140 }}>영화명</th>
+                                        <th rowSpan={2} style={{ minWidth: 140, cursor: "pointer", userSelect: "none" }} onClick={() => toggle("title", "asc")}>영화명{arrow("title")}</th>
                                         {data.dates.map(d => (
                                             <th key={d} colSpan={2}>{d}</th>
                                         ))}
@@ -764,16 +805,16 @@ export function SeatCountPage() {
                                     <tr>
                                         {data.dates.map(d => (
                                             <React.Fragment key={d}>
-                                                <th className="lw-col">전주</th>
-                                                <th>총 좌석수</th>
+                                                <th className="lw-col" {...thSort(`lw:${d}`)}>전주{arrow(`lw:${d}`)}</th>
+                                                <th {...thSort(`cur:${d}`)}>총 좌석수{arrow(`cur:${d}`)}</th>
                                             </React.Fragment>
                                         ))}
-                                        <th className="lw-col">전주</th>
-                                        <th>총 좌석수</th>
+                                        <th className="lw-col" {...thSort("lw_period")}>전주{arrow("lw_period")}</th>
+                                        <th {...thSort("period")}>총 좌석수{arrow("period")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {data.movies.map((m, i) => (
+                                    {sortedMovies.map((m, i) => (
                                         <tr key={i}>
                                             <td style={{ textAlign: "left" }}>{m.title}</td>
                                             {data.dates.map(d => {
@@ -816,15 +857,15 @@ export function SeatCountPage() {
                             <Tbl>
                                 <thead>
                                     <tr>
-                                        <th>영화명</th>
-                                        <th>총 좌석수</th>
-                                        <th>판매좌석수</th>
-                                        <th>실시간 예매율</th>
-                                        <th>좌점율</th>
+                                        <th {...sumThSort("title", "asc")}>영화명{sumArrow("title")}</th>
+                                        <th {...sumThSort("total")}>총 좌석수{sumArrow("total")}</th>
+                                        <th {...sumThSort("sold")}>판매좌석수{sumArrow("sold")}</th>
+                                        <th {...sumThSort("rate")}>실시간 예매율{sumArrow("rate")}</th>
+                                        <th {...sumThSort("share")}>좌점율{sumArrow("share")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {data.movies.map((m, i) => (
+                                    {sortedSummary.map((m, i) => (
                                         <tr key={i}>
                                             <td style={{ textAlign: "left" }}>{m.title}</td>
                                             <td>{fmt(m.period_total)}</td>

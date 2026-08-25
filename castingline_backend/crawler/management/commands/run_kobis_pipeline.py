@@ -56,8 +56,13 @@ def _post(session, token, endpoint, data):
     return resp.json()
 
 
-def crawl_widearea(widearea_cd, dates, stop_signal=None, crawler_run=None):
-    """단일 광역 처리: 기초→상영관(일반극장만)→날짜별 스케줄 수집 후 로그 저장."""
+def crawl_widearea(widearea_cd, dates, stop_signal=None, crawler_run=None,
+                   include_multiplex=False):
+    """단일 광역 처리: 기초→상영관→날짜별 스케줄 수집 후 로그 저장.
+
+    include_multiplex=True(C002)면 CGV/롯데/메가박스 체인 극장도 함께 수집한다
+    (3사 사이트 개편 등으로 자사 크롤이 막혔을 때의 예비용).
+    """
     collected, failures = [], []
     theater_count = 0
     try:
@@ -77,7 +82,7 @@ def crawl_widearea(widearea_cd, dates, stop_signal=None, crawler_run=None):
 
         for th in theas:
             thea_cd, thea_nm = th["cd"], th["cdNm"]
-            if _is_chain_theater(thea_nm):
+            if not include_multiplex and _is_chain_theater(thea_nm):
                 continue  # 체인 극장 제외 (기존 크롤러가 처리)
             theater_count += 1
 
@@ -113,8 +118,12 @@ def crawl_widearea(widearea_cd, dates, stop_signal=None, crawler_run=None):
 class KobisPipelineService:
 
     @classmethod
-    def collect_schedule_logs(cls, dates=None, stop_signal=None, crawler_run=None):
-        """전국 광역 병렬 순회 → KobisScheduleLog 저장. Returns (collected, total_theaters, failures)."""
+    def collect_schedule_logs(cls, dates=None, stop_signal=None, crawler_run=None,
+                              include_multiplex=False):
+        """전국 광역 병렬 순회 → KobisScheduleLog 저장. Returns (collected, total_theaters, failures).
+
+        include_multiplex=True(C002)면 멀티 3사(CGV/롯데/메가박스) 극장도 함께 수집한다.
+        """
         if not dates:
             dates = [datetime.now().strftime("%Y%m%d")]
 
@@ -122,7 +131,8 @@ class KobisPipelineService:
         total_theaters = 0
         with ThreadPoolExecutor(max_workers=6) as ex:
             futures = [
-                ex.submit(crawl_widearea, wc, dates, stop_signal, crawler_run)
+                ex.submit(crawl_widearea, wc, dates, stop_signal, crawler_run,
+                          include_multiplex)
                 for wc in WIDE_AREA_CODES
             ]
             for f in futures:
@@ -134,7 +144,8 @@ class KobisPipelineService:
                 except Exception as e:
                     print(f"[KOBIS] worker 실패: {e}")
 
-        print(f"[KOBIS] 수집 완료 - 일반극장 {total_theaters}곳 / 로그 {len(collected)}건 / 실패 {len(failures)}건")
+        scope = "일반극장+멀티3사" if include_multiplex else "일반극장"
+        print(f"[KOBIS] 수집 완료 - {scope} {total_theaters}곳 / 로그 {len(collected)}건 / 실패 {len(failures)}건")
         return collected, total_theaters, failures
 
     @staticmethod
@@ -170,6 +181,8 @@ class Command(BaseCommand):
         parser.add_argument('--start-date', type=str, help='시작 날짜 (YYYYMMDD)')
         parser.add_argument('--end-date', type=str, help='종료 날짜 (YYYYMMDD)')
         parser.add_argument('--transform', action='store_true', help='수집 후 MovieSchedule 변환까지 수행')
+        parser.add_argument('--include-multiplex', action='store_true',
+                            help='멀티 3사(CGV/롯데/메가박스)도 함께 수집 (C002 예비용)')
 
     def handle(self, *args, **options):
         if options.get('start_date') and options.get('end_date'):
@@ -184,8 +197,11 @@ class Command(BaseCommand):
         else:
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y%m%d") for i in range(3)]
 
-        self.stdout.write(f"🎬 KOBIS 일반극장 크롤링 시작: {dates}")
-        collected, total, failures = KobisPipelineService.collect_schedule_logs(dates=dates)
+        include_multiplex = bool(options.get('include_multiplex'))
+        scope = "일반극장+멀티3사" if include_multiplex else "일반극장"
+        self.stdout.write(f"🎬 KOBIS {scope} 크롤링 시작: {dates}")
+        collected, total, failures = KobisPipelineService.collect_schedule_logs(
+            dates=dates, include_multiplex=include_multiplex)
         self.stdout.write(self.style.SUCCESS(f"수집: 로그 {len(collected)}건 / 일반극장 {total}곳 / 실패 {len(failures)}건"))
 
         if options.get('transform'):

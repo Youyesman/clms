@@ -2026,6 +2026,22 @@ def score_ranking(request):
     return Response({"meta": meta, "rows": rows})
 
 
+# ── V002: 마지막 수집(크롤링) 일시 ──
+def _last_crawled_str(date_to, brands=None, titles=None):
+    """'날짜 To' 상영일 데이터의 마지막 수집(변환) 일시 "YYYY-MM-DD HH:MM". 없으면 None."""
+    from crawler.models import MovieSchedule
+    from django.db.models import Max
+    from django.utils import timezone as dj_tz
+
+    qs = MovieSchedule.objects.filter(play_date=date_to)
+    if brands:
+        qs = qs.filter(brand__in=brands)
+    if titles:
+        qs = qs.filter(movie_title__in=titles)
+    last = qs.aggregate(m=Max("updated_at"))["m"]
+    return dj_tz.localtime(last).strftime("%Y-%m-%d %H:%M") if last else None
+
+
 # ── 집계작 시간표 날짜 목록 API ──
 @api_view(["GET"])
 def score_timetable_dates(request):
@@ -2077,6 +2093,10 @@ def score_timetable(request):
     import re
     from crawler.models import MovieSchedule
     from client.models import Client
+    # V001: 일반극장(KOBIS) 좌석수·지역 보강은 크롤러 엑셀과 같은 인덱스를 쓴다
+    from crawler.utils.excel_exporter import (
+        _build_normal_theater_index, _resolve_normal_theater,
+    )
 
     movie_id = request.query_params.get("movie_id")
     date_from_str = request.query_params.get("date_from")
@@ -2111,6 +2131,7 @@ def score_timetable(request):
                 "movie_title": movie.title_ko,
                 "release_date": str(movie.release_date) if movie.release_date else None,
                 "distributor_name": movie.distributor.client_name if movie.distributor else None,
+                "last_crawled_at": None,
             },
             "by_chain": [], "by_region": [], "by_format": [],
             "time_slots": {"count_rows": [], "pct_rows": []},
@@ -2196,8 +2217,9 @@ def score_timetable(request):
         if 1261 <= m <= 1439: return "심야"
         return None
 
-    BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스', 'OTHER': '일반'}
-    CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반']
+    BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스',
+                     '일반극장': '일반극장', 'OTHER': '일반'}
+    CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반극장', '일반']
     SLOT_NAMES = ["조조", "오전", "오후", "저녁", "심야"]
 
     def empty_agg():
@@ -2209,6 +2231,9 @@ def score_timetable(request):
     slot_agg = defaultdict(lambda: defaultdict(int))
     daily_agg = defaultdict(int)
 
+    # V001: 일반극장 매칭 인덱스 (영진위극장명→Client, 관명→좌석수)
+    normal_index = _build_normal_theater_index()
+
     for s in schedules:
         brand = s['brand']
         bd = BRAND_DISPLAY.get(brand, brand)
@@ -2216,10 +2241,22 @@ def score_timetable(request):
         screen = s['screen_name']
         ts = s['total_seats'] or 0
         rem = s['remaining_seats'] or 0
-        sold = max(0, ts - rem)
+        # 좌석 정보가 없는 회차는 잔여좌석을 모르므로 판매좌석수는 0 (엑셀과 동일)
+        sold = max(0, ts - rem) if ts > 0 else 0
         tags = s['tags'] or []
         fmt = get_format(tags)
-        region, cls = get_client_info(brand, theater)
+        if brand == '일반극장':
+            # V001: 엑셀과 동일하게 영진위극장명/극장명 매칭으로 지역·좌석수 보강
+            info = _resolve_normal_theater(theater, screen, normal_index)
+            if info:
+                region = info['region'] if info['region'] in REGION_ORDER else '기타'
+                if ts <= 0 and info['seat']:
+                    ts = info['seat']
+            else:
+                region = '기타'
+            cls = '-'
+        else:
+            region, cls = get_client_info(brand, theater)
         play_date = s['play_date']
         start_time = s['start_time']
 
@@ -2362,6 +2399,8 @@ def score_timetable(request):
             "movie_title": movie.title_ko,
             "release_date": str(movie.release_date) if movie.release_date else None,
             "distributor_name": movie.distributor.client_name if movie.distributor else None,
+            # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시
+            "last_crawled_at": _last_crawled_str(d_to, titles=matched_titles),
         },
         "by_chain": by_chain,
         "by_region": by_region,
@@ -3221,6 +3260,58 @@ def _get_region(brand, theater, region_map):
 # ============================
 #  주요작 영화 목록 API
 # ============================
+def _v003_norm_key(title):
+    """V003: 제목 비교 키 — 메타 태그 제거 후 특수문자·공백 제거 + 소문자."""
+    from crawler.models import MovieSchedule
+    clean, _ = MovieSchedule.parse_and_normalize_title(title)
+    return MovieSchedule.normalize_title(clean)
+
+
+def _competitor_title_map(raw_titles):
+    """V003: 주요작 메뉴용 제목 병합·필터 맵.
+
+    활성 크롤대상 영화와 정규화(특수문자·공백 제외) '정확 일치'하는 제목만 남기고,
+    표기 변형('어떻게 해야 했을까' / '어떻게 해야 했을까?')은 대표 제목 하나로
+    합친다. 미등록 영화('2001 스페이스 오디세이' 등)는 맵에서 빠져 표기되지 않는다.
+    반환: {크롤 원제: 대표 제목}
+    """
+    from crawler.models import CrawlTargetMovie
+
+    allowed = set()
+    for t in CrawlTargetMovie.objects.filter(is_active=True).values_list("title", flat=True):
+        key = _v003_norm_key(t)
+        if key:
+            allowed.add(key)
+
+    by_key = defaultdict(list)
+    for rt in set(raw_titles):
+        key = _v003_norm_key(rt)
+        if key in allowed:
+            by_key[key].append(rt)
+
+    title_map = {}
+    for variants in by_key.values():
+        # 대표 제목: 특수문자가 덜 붙은(짧은) 표기 우선
+        display = min(variants, key=lambda s: (len(s), s))
+        for rt in variants:
+            title_map[rt] = display
+    return title_map
+
+
+def _merge_titles(schedules, title_map, selected_keys):
+    """V003: 스케줄 행의 제목을 대표 제목으로 치환하고, 미등록/미선택 영화 행은 제외."""
+    out = []
+    for s in schedules:
+        disp = title_map.get(s['movie_title'])
+        if not disp:
+            continue
+        if selected_keys and _v003_norm_key(disp) not in selected_keys:
+            continue
+        s['movie_title'] = disp
+        out.append(s)
+    return out
+
+
 @api_view(["GET"])
 def score_competitor_movies(request):
     """
@@ -3265,7 +3356,9 @@ def score_competitor_movies(request):
             qs.values_list('movie_title', flat=True).distinct().order_by('movie_title')
         )
 
-    return Response({"movies": titles})
+    # V003: 크롤대상 영화만 남기고 표기 변형은 대표 제목으로 병합
+    title_map = _competitor_title_map(titles)
+    return Response({"movies": sorted(set(title_map.values()))})
 
 
 # ============================
@@ -3309,11 +3402,11 @@ def score_competitor_seats(request):
     region_map = _build_competitor_region_map() if selected_regions else {}
 
     def build_qs(df, dt):
+        # V003: 영화 필터는 DB가 아니라 병합(_merge_titles) 단계에서 정규화 키로 적용
+        # (표기 변형 '어떻게 해야 했을까?'가 movie_title__in 필터에 걸리지 않는 문제)
         qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
         if selected_brands:
             qs = qs.filter(brand__in=selected_brands)
-        if selected_movies:
-            qs = qs.filter(movie_title__in=selected_movies)
         return qs.values('movie_title', 'play_date', 'brand', 'theater_name', 'total_seats', 'remaining_seats')
 
     def aggregate(schedules, date_offset_days=0):
@@ -3348,10 +3441,20 @@ def score_competitor_seats(request):
 
     # 당기 집계
     curr_schedules = list(build_qs(d_from, d_to))
+    lw_schedules = list(build_qs(lw_from, lw_to))
+
+    # V003: 크롤대상 영화만 + 표기 변형 병합 (당기·전주 공통 대표 제목)
+    title_map = _competitor_title_map(
+        [s['movie_title'] for s in curr_schedules] + [s['movie_title'] for s in lw_schedules])
+    selected_keys = {_v003_norm_key(m) for m in selected_movies}
+    curr_schedules = _merge_titles(curr_schedules, title_map, selected_keys)
+    lw_schedules = _merge_titles(lw_schedules, title_map, selected_keys)
+    lc_titles = [rt for rt, disp in title_map.items()
+                 if not selected_keys or _v003_norm_key(disp) in selected_keys]
+
     curr_agg = aggregate(curr_schedules, date_offset_days=0)
 
     # 전주 집계 (날짜를 +7하여 당기 날짜에 맞춤)
-    lw_schedules = list(build_qs(lw_from, lw_to))
     lw_agg = aggregate(lw_schedules, date_offset_days=7)
 
     # 날짜 목록 (당기 기준)
@@ -3408,6 +3511,8 @@ def score_competitor_seats(request):
     return Response({
         "dates": all_dates,
         "movies": movies_result,
+        # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 (V003: 병합된 실제 원제 기준)
+        "last_crawled_at": _last_crawled_str(d_to, brands=selected_brands, titles=lc_titles),
         "grand": {
             "period_total": grand_total,
             "period_sold": grand_sold,
@@ -3458,8 +3563,7 @@ def score_competitor_theaters(request):
         qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
         if selected_brands:
             qs = qs.filter(brand__in=selected_brands)
-        if selected_movies:
-            qs = qs.filter(movie_title__in=selected_movies)
+        # V003: 영화 필터는 병합(_merge_titles) 단계에서 정규화 키로 적용
         return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name'))
 
     def aggregate_theaters(schedules, date_offset_days=0):
@@ -3483,9 +3587,18 @@ def score_competitor_theaters(request):
         return agg
 
     curr_schedules = fetch_schedules(d_from, d_to)
-    curr_agg = aggregate_theaters(curr_schedules, date_offset_days=0)
-
     lw_schedules = fetch_schedules(lw_from, lw_to)
+
+    # V003: 크롤대상 영화만 + 표기 변형 병합 (당기·전주 공통 대표 제목)
+    title_map = _competitor_title_map(
+        [s['movie_title'] for s in curr_schedules] + [s['movie_title'] for s in lw_schedules])
+    selected_keys = {_v003_norm_key(m) for m in selected_movies}
+    curr_schedules = _merge_titles(curr_schedules, title_map, selected_keys)
+    lw_schedules = _merge_titles(lw_schedules, title_map, selected_keys)
+    lc_titles = [rt for rt, disp in title_map.items()
+                 if not selected_keys or _v003_norm_key(disp) in selected_keys]
+
+    curr_agg = aggregate_theaters(curr_schedules, date_offset_days=0)
     lw_agg = aggregate_theaters(lw_schedules, date_offset_days=7)
 
     all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
@@ -3533,6 +3646,8 @@ def score_competitor_theaters(request):
     return Response({
         "dates": all_dates,
         "movies": movies_result,
+        # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 (V003: 병합된 실제 원제 기준)
+        "last_crawled_at": _last_crawled_str(d_to, brands=selected_brands, titles=lc_titles),
         "grand": {
             "period_theaters": len(grand_period_set),
             "daily": {ds: {"theaters": len(v)} for ds, v in grand_daily.items()},
@@ -3582,8 +3697,7 @@ def score_competitor_screens(request):
         qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
         if selected_brands:
             qs = qs.filter(brand__in=selected_brands)
-        if selected_movies:
-            qs = qs.filter(movie_title__in=selected_movies)
+        # V003: 영화 필터는 병합(_merge_titles) 단계에서 정규화 키로 적용
         return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name', 'screen_name'))
 
     def aggregate_screens(schedules, date_offset_days=0):
@@ -3607,9 +3721,18 @@ def score_competitor_screens(request):
         return agg
 
     curr_schedules = fetch_schedules(d_from, d_to)
-    curr_agg = aggregate_screens(curr_schedules, date_offset_days=0)
-
     lw_schedules = fetch_schedules(lw_from, lw_to)
+
+    # V003: 크롤대상 영화만 + 표기 변형 병합 (당기·전주 공통 대표 제목)
+    title_map = _competitor_title_map(
+        [s['movie_title'] for s in curr_schedules] + [s['movie_title'] for s in lw_schedules])
+    selected_keys = {_v003_norm_key(m) for m in selected_movies}
+    curr_schedules = _merge_titles(curr_schedules, title_map, selected_keys)
+    lw_schedules = _merge_titles(lw_schedules, title_map, selected_keys)
+    lc_titles = [rt for rt, disp in title_map.items()
+                 if not selected_keys or _v003_norm_key(disp) in selected_keys]
+
+    curr_agg = aggregate_screens(curr_schedules, date_offset_days=0)
     lw_agg = aggregate_screens(lw_schedules, date_offset_days=7)
 
     all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
@@ -3657,6 +3780,8 @@ def score_competitor_screens(request):
     return Response({
         "dates": all_dates,
         "movies": movies_result,
+        # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 (V003: 병합된 실제 원제 기준)
+        "last_crawled_at": _last_crawled_str(d_to, brands=selected_brands, titles=lc_titles),
         "grand": {
             "period_screens": len(grand_period_set),
             "daily": {ds: {"screens": len(v)} for ds, v in grand_daily.items()},
@@ -3706,8 +3831,7 @@ def score_competitor_shows(request):
         qs = MovieSchedule.objects.filter(play_date__gte=df, play_date__lte=dt)
         if selected_brands:
             qs = qs.filter(brand__in=selected_brands)
-        if selected_movies:
-            qs = qs.filter(movie_title__in=selected_movies)
+        # V003: 영화 필터는 병합(_merge_titles) 단계에서 정규화 키로 적용
         return list(qs.values('movie_title', 'play_date', 'brand', 'theater_name'))
 
     def aggregate_shows(schedules, date_offset_days=0):
@@ -3731,9 +3855,18 @@ def score_competitor_shows(request):
         return agg
 
     curr_schedules = fetch_schedules(d_from, d_to)
-    curr_agg = aggregate_shows(curr_schedules, date_offset_days=0)
-
     lw_schedules = fetch_schedules(lw_from, lw_to)
+
+    # V003: 크롤대상 영화만 + 표기 변형 병합 (당기·전주 공통 대표 제목)
+    title_map = _competitor_title_map(
+        [s['movie_title'] for s in curr_schedules] + [s['movie_title'] for s in lw_schedules])
+    selected_keys = {_v003_norm_key(m) for m in selected_movies}
+    curr_schedules = _merge_titles(curr_schedules, title_map, selected_keys)
+    lw_schedules = _merge_titles(lw_schedules, title_map, selected_keys)
+    lc_titles = [rt for rt, disp in title_map.items()
+                 if not selected_keys or _v003_norm_key(disp) in selected_keys]
+
+    curr_agg = aggregate_shows(curr_schedules, date_offset_days=0)
     lw_agg = aggregate_shows(lw_schedules, date_offset_days=7)
 
     all_dates = sorted({ds for title_data in curr_agg.values() for ds in title_data})
@@ -3775,6 +3908,8 @@ def score_competitor_shows(request):
     return Response({
         "dates": all_dates,
         "movies": movies_result,
+        # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 (V003: 병합된 실제 원제 기준)
+        "last_crawled_at": _last_crawled_str(d_to, brands=selected_brands, titles=lc_titles),
         "grand": {
             "period_shows": grand_period_shows,
             "daily": {ds: {"shows": v} for ds, v in grand_daily.items()},
