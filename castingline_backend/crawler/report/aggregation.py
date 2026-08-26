@@ -35,6 +35,29 @@ from crawler.models import MovieSchedule, CrawlTargetMovie
 MULTI_LABEL = {"CGV": "CGV", "LOTTE": "롯데", "MEGABOX": "메가박스"}
 MULTI_ORDER = ["CGV", "롯데", "메가박스", "기타"]
 
+# M001 P.4: 주요 시간대 구분 (회차 시작시각 기준)
+DAY_SLOTS = [
+    ("조조 (05~10시)", 5, 10),
+    ("오전 (10~12시)", 10, 12),
+    ("오후 (12~17시)", 12, 17),
+    ("저녁/프라임 (17~21시)", 17, 21),
+    ("심야 (21~24시)", 21, 24),
+]
+
+
+def _slot_index(hhmm):
+    """'HH:MM' → DAY_SLOTS 인덱스. 자정 이후 새벽 회차는 심야로 본다."""
+    try:
+        h = int(str(hhmm).split(":")[0])
+    except (ValueError, IndexError):
+        return None
+    if h < 5:
+        return len(DAY_SLOTS) - 1
+    for i, (_, lo, hi) in enumerate(DAY_SLOTS):
+        if lo <= h < hi:
+            return i
+    return len(DAY_SLOTS) - 1
+
 
 def _brand_to_multi(brand):
     return MULTI_LABEL.get((brand or "").upper(), "기타")
@@ -130,6 +153,8 @@ def _collect(date_list, units, brands=None, maps=None):
     by_movie = defaultdict(_Agg)
     by_multi = defaultdict(_Agg)
     by_theater = defaultdict(_Agg)
+    by_movie_day = defaultdict(_Agg)          # (key, date) — M001 P.4 일별 비교
+    day_slot_shows = defaultdict(lambda: defaultdict(int))  # (key, date) -> slot -> 회차수
     grand_theaters = set()
     grand_day_screens = set()
 
@@ -173,6 +198,12 @@ def _collect(date_list, units, brands=None, maps=None):
                 by_movie[key].add(r, play_date)
                 by_multi[(key, _brand_to_multi(r["brand"]))].add(r, play_date)
                 by_theater[(key, (r["brand"], r["theater"]))].add(r, play_date)
+                by_movie_day[(key, play_date)].add(r, play_date)
+                # M001 P.4 ③: 회차 시작시각을 시간대로 분류
+                for t in r.get("show_times", []):
+                    si = _slot_index(t) if t else None
+                    if si is not None:
+                        day_slot_shows[(key, play_date)][si] += 1
                 grand_theaters.add((r["brand"], r["theater"]))
                 grand_day_screens.add((play_date, r["brand"], r["theater"], r["screen"]))
 
@@ -180,6 +211,8 @@ def _collect(date_list, units, brands=None, maps=None):
         "by_movie": by_movie,
         "by_multi": by_multi,
         "by_theater": by_theater,
+        "by_movie_day": by_movie_day,
+        "day_slot_shows": day_slot_shows,
         "grand_theaters": grand_theaters,
         "grand_day_screens": grand_day_screens,
     }
@@ -414,6 +447,93 @@ def build_report_data(start_date, end_date, main_title=None, brands=None, dates=
                 "cur_rank": ranks[top["key"]][m],
             }
         data["leaders"] = leaders
+
+    # ================= M001: P.4 일별 비교 데이터 =================
+    cur_day = cur["by_movie_day"]
+    prev_day_map = prev["by_movie_day"]
+    prev_days_with_data = {dd for (_, dd) in prev_day_map.keys()}
+
+    def _daily_kpi_rows(only_key=None):
+        """일자별 4대 지표(총좌석/예매/점유율/회차) + 전주 같은 요일 대비.
+
+        only_key가 있으면 그 작품만(주요작 모드 ①), 없으면 조사작품 전체 합
+        (주요작 없음 모드 ① '전체 시장').
+        """
+        rows = []
+        for d, pd_ in zip(cur_dates, prev_dates):
+            t = s = sh = 0
+            pt = ps = psh = 0
+            p_has_movie = False
+            for (k, dd), a in cur_day.items():
+                if dd == d and (only_key is None or k == only_key):
+                    t += a.total; s += a.sold; sh += a.shows
+            for (k, dd), a in prev_day_map.items():
+                if dd == pd_ and (only_key is None or k == only_key):
+                    pt += a.total; ps += a.sold; psh += a.shows
+                    p_has_movie = True
+            has_prev_day = pd_ in prev_days_with_data
+            occ = (s / t * 100) if t else 0.0
+            p_occ = (ps / pt * 100) if pt else 0.0
+            rows.append({
+                "date": d, "prev_date": pd_,
+                "total_seats": t, "reserved": s, "occupancy": occ, "shows": sh,
+                "seats_cmp": _cmp(t, pt if p_has_movie else None, has_prev_day, "석"),
+                "reserved_cmp": _cmp(s, ps if p_has_movie else None, has_prev_day, "석"),
+                "occ_cmp": _occ_cmp(occ, p_occ if p_has_movie else None, has_prev_day),
+                "shows_cmp": _cmp(sh, psh if p_has_movie else None, has_prev_day, "회"),
+            })
+        return rows
+
+    # ② 총 좌석수(기간 합) 기준 TOP10 — 주요작이 TOP10 밖이면 별도 행으로 추가
+    top_entries = list(movies[:10])
+    if main_key and not any(s["is_main"] for s in top_entries):
+        main_entry = next((s for s in movies if s["is_main"]), None)
+        if main_entry:
+            top_entries.append(main_entry)
+    rank_of = {s["key"]: i for i, s in enumerate(movies, 1)}
+    daily_top = []
+    for s in top_entries:
+        key = s["key"]
+        days = []
+        for d, pd_ in zip(cur_dates, prev_dates):
+            a = cur_day.get((key, d))
+            pa = prev_day_map.get((key, pd_))
+            seats = a.total if a else 0
+            occ = a.occupancy if a else 0.0
+            days.append({
+                "total_seats": seats,
+                "occupancy": occ,
+                "seats_cmp": _cmp(seats, pa.total if pa else None,
+                                  pd_ in prev_days_with_data, "석"),
+            })
+        daily_top.append({"rank": rank_of[key], "title": s["title"],
+                          "is_main": s["is_main"], "days": days})
+
+    data["daily"] = {
+        "dates": cur_dates,
+        "prev_dates": prev_dates,
+        "kpi_rows": _daily_kpi_rows(only_key=main_key),  # main 없으면 전체 시장
+        "top": daily_top,
+    }
+
+    if main_key:
+        # ③ 주요작 일자별 주요 시간대 회차 배정 비중
+        slot_counts = cur["day_slot_shows"]
+        slot_rows, total_by_slot, grand_shows = [], [0] * len(DAY_SLOTS), 0
+        for d in cur_dates:
+            counts = slot_counts.get((main_key, d), {})
+            tot = sum(counts.values())
+            row_counts = [counts.get(i, 0) for i in range(len(DAY_SLOTS))]
+            slot_rows.append({"date": d, "counts": row_counts, "total": tot})
+            for i, c in enumerate(row_counts):
+                total_by_slot[i] += c
+            grand_shows += tot
+        data["daily"]["slots"] = {
+            "labels": [lbl for lbl, _, _ in DAY_SLOTS],
+            "rows": slot_rows,
+            "avg_pct": [(c / grand_shows * 100) if grand_shows else 0.0
+                        for c in total_by_slot],
+        }
 
     # ---- 데이터 검증 (§20) — 실패 시 예외가 아니라 경고 목록으로 전달 ----
     warnings = []

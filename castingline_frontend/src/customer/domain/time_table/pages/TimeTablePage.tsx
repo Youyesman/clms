@@ -11,6 +11,8 @@ import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
+import { downloadTimetableExcel } from "../exportTimetableExcel"; // A001
+import { TimetableReportModal } from "../TimetableReportModal"; // A003
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -213,6 +215,10 @@ export function TimeTablePage() {
     /* 검색 결과 */
     const [data, setData] = useState<TimetableData | null>(null);
 
+    /* A001: 엑셀 다운로드 / A003: 요약보고서 모달 */
+    const [excelBusy, setExcelBusy] = useState(false);
+    const [showReportModal, setShowReportModal] = useState(false);
+
     /* 차트 클릭 popover */
     const [popover, setPopover] = useState<{ x: number; y: number; date: string; value: number } | null>(null);
     /* 선택된 영화 정보 */
@@ -281,6 +287,26 @@ export function TimeTablePage() {
             .catch(err => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
     }, [movieId, dateFrom, dateTo, toast]);
+
+    /* A001: 현재 조회 조건 그대로 엑셀 다운로드 (그래프 제외) */
+    const handleExcel = useCallback(async () => {
+        const errs = { movie: !movieId, dateFrom: !dateFrom, dateTo: !dateTo };
+        setFieldErrors(errs);
+        if (Object.values(errs).some(Boolean)) return;
+        setExcelBusy(true);
+        try {
+            await downloadTimetableExcel(
+                "timetable",
+                { movie_id: movieId, date_from: dateFrom, date_to: dateTo },
+                `집계작 시간표_${selectedMovie?.title_ko ?? ""}`
+            );
+            toast.success("엑셀 파일이 다운로드 되었습니다.");
+        } catch (err: any) {
+            toast.error(handleBackendErrors(err));
+        } finally {
+            setExcelBusy(false);
+        }
+    }, [movieId, dateFrom, dateTo, selectedMovie, toast]);
 
     /* 차트 클릭 처리 */
     const handleChartClick = (chartData: any, event: any) => {
@@ -433,9 +459,28 @@ export function TimeTablePage() {
             {/* ── 필터 ── */}
             <CommonFilterBar
                 actions={
-                    <SearchBtn onClick={handleSearch} disabled={loading}>
-                        {loading ? "조회 중…" : "검색"}
-                    </SearchBtn>
+                    <>
+                        <SearchBtn onClick={handleSearch} disabled={loading}>
+                            {loading ? "조회 중…" : "검색"}
+                        </SearchBtn>
+                        {/* A001: 엑셀 다운로드 */}
+                        <SearchBtn
+                            onClick={handleExcel}
+                            disabled={excelBusy}
+                            style={{ background: "#16a34a" }}
+                            title="현재 조회 조건의 데이터를 엑셀로 다운로드 (그래프 제외)"
+                        >
+                            {excelBusy ? "생성 중…" : "엑셀"}
+                        </SearchBtn>
+                        {/* A003: 요약보고서(PDF) 다운로드 */}
+                        <SearchBtn
+                            onClick={() => setShowReportModal(true)}
+                            style={{ background: "#dc2626" }}
+                            title="요약보고서(PDF) 다운로드 — 출력 유형 선택"
+                        >
+                            PDF 보고서
+                        </SearchBtn>
+                    </>
                 }>
                 <CustomSelect
                     label="연도"
@@ -628,6 +673,16 @@ export function TimeTablePage() {
                 <PopoverBox $x={popover.x} $y={popover.y}>
                     {popover.date} &nbsp;|&nbsp; 총좌석수: {popover.value.toLocaleString("ko-KR")}석
                 </PopoverBox>
+            )}
+
+            {/* A003: 요약보고서(PDF) 다운로드 모달 */}
+            {showReportModal && (
+                <TimetableReportModal
+                    movieTitle={selectedMovie?.title_ko ?? null}
+                    defaultStart={dateFrom}
+                    defaultEnd={dateTo}
+                    onClose={() => setShowReportModal(false)}
+                />
             )}
         </PageWrapper>
     );

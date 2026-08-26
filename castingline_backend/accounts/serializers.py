@@ -13,6 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "username", "password", "nickname", "email", "team",
             "direct_call", "phone", "country", "is_active", "is_superuser",
+            "timetable_access",
             "groups", "groups_display", "last_login", "created_date",
             "client", "client_id", "client_name", "client_type",
         ]

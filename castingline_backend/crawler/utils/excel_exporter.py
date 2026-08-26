@@ -106,14 +106,26 @@ def _auto_width(ws, min_row=1):
             if cell.row < min_row:
                 continue
             try:
-                if cell.value:
-                    val = str(cell.value)
+                v = cell.value
+                if v is None or v == "":
+                    continue
+                # M004: 실제 표시 폭 기준으로 계산 — 수식 문자열('=SUM…')과
+                # 백분율 float의 원시값 길이가 폭을 부풀리지 않게 한다
+                if isinstance(v, str) and v.startswith("="):
+                    continue
+                if isinstance(v, float):
+                    width = 7  # 0.0% / #,##0 표시 서식 기준
+                elif isinstance(v, int):
+                    width = len(f"{v:,}")
+                else:
+                    val = str(v)
                     width = sum(2 if ord(c) > 127 else 1 for c in val)
-                    max_len = max(max_len, width)
+                max_len = max(max_len, width)
             except:
                 pass
-        adj = (max_len + 2) * 1.1
-        ws.column_dimensions[get_column_letter(i)].width = min(max(adj, 8), 50)
+        # M004: 페이지가 한눈에 들어오게 — 여유는 살리되 과하게 넓어지지 않게 조정
+        adj = (max_len + 1) * 1.05
+        ws.column_dimensions[get_column_letter(i)].width = min(max(adj, 6), 32)
 
 
 def _build_region_map():
@@ -574,9 +586,11 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
         c.border = THIN_BORDER
         c.fill = YELLOW_FILL
 
-    # Row 3: Date/Generation Info
+    # Row 3: 날짜만 가운데 표기 (M004: 생성 시간 표기 삭제)
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=max_col)
-    ws.cell(row=3, column=1, value=f"{date_str} | {gen_info}").font = INFO_FONT
+    date_cell = ws.cell(row=3, column=1, value=date_str)
+    date_cell.font = SUBTOTAL_FONT
+    date_cell.alignment = CENTER
 
     # Row 4: Headers
     for ci, col_name in enumerate(all_cols, 1):
@@ -663,6 +677,7 @@ def _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, g
                         subtotal_rows=subtotal_row_nums)
 
     ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A5"  # M004: 4행(헤더)까지 틀고정
     _auto_width(ws, min_row=4)
 
 
@@ -682,12 +697,13 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
     total_cols = fixed_cols + len(movie_titles) * cols_per_movie
 
     # Row 1: Movie title headers (merged per movie block)
-    ws.cell(row=1, column=1, value="상영일자").fill = BLUE_FILL
-    ws.cell(row=1, column=1).font = HEADER_FONT
+    # M004: 1행 A열은 비우고 B열에 '영화명' 표기
+    ws.cell(row=1, column=1, value="").fill = BLUE_FILL
     ws.cell(row=1, column=1).border = THIN_BORDER
-    ws.cell(row=1, column=1).alignment = CENTER
-    ws.cell(row=1, column=2, value="").fill = BLUE_FILL
+    ws.cell(row=1, column=2, value="영화명").fill = BLUE_FILL
+    ws.cell(row=1, column=2).font = HEADER_FONT
     ws.cell(row=1, column=2).border = THIN_BORDER
+    ws.cell(row=1, column=2).alignment = CENTER
 
     for mi, mt in enumerate(movie_titles):
         start_col = fixed_cols + 1 + mi * cols_per_movie
@@ -707,7 +723,8 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
     ws.cell(row=2, column=1).font = HEADER_FONT
     ws.cell(row=2, column=1).border = THIN_BORDER
     ws.cell(row=2, column=1).alignment = CENTER
-    ws.cell(row=2, column=2, value="영화명").fill = BLUE_FILL
+    # M004: 2행 B열은 '멀티'(계열사 구분) 표기
+    ws.cell(row=2, column=2, value="멀티").fill = BLUE_FILL
     ws.cell(row=2, column=2).font = HEADER_FONT
     ws.cell(row=2, column=2).border = THIN_BORDER
     ws.cell(row=2, column=2).alignment = CENTER
@@ -767,8 +784,9 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
                         (s['sold_seats'] / s['total_seats'] if s['total_seats'] else 0, PCT_FMT),
                     ]
                 elif brand_presence is not None and not brand_presence.get((proc_date, brand), True):
-                    # 크롤 데이터 자체가 없는 날짜×계열사 — 상영 없음(공백)과 구분 (C001)
-                    vals = [('미수집', None)] + [('', None)] * (cols_per_movie - 1)
+                    # 크롤 데이터 자체가 없는 날짜×계열사 (C001)
+                    # M004: '미수집' 글자 대신 숫자 0으로 표기
+                    vals = [(0, NUM_FMT)] + [('', None)] * (cols_per_movie - 1)
                 else:
                     vals = [('', None)] * cols_per_movie
 
@@ -825,7 +843,8 @@ def _write_comparison_sheet(ws, main_data, competitor_data_dict, movie_title, ge
         row_idx += 1
 
     ws.sheet_view.showGridLines = False
-    _auto_width(ws)
+    ws.freeze_panes = "C3"  # M004: 제목 2행 + 상영일자·멀티 열 틀고정
+    _auto_width(ws, min_row=2)
 
 
 def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_title, gen_info):
@@ -841,12 +860,29 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
     for ct, c_data in competitor_data_dict.items():
         all_movie_data[ct] = c_data
 
-    # Row 1: Gen info
+    # M004: 생성 시간 행 삭제 — 1행은 공백, 2행 작품명, 3행 서브헤더, 4행부터 데이터
     total_cols = fixed_cols + len(movie_titles) * cols_per_movie
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
-    ws.cell(row=1, column=1, value=gen_info).font = INFO_FONT
 
-    # Row 3: Movie title headers
+    # Row 2: Movie title headers (M004: A·B열의 '상영일자'/'극장명' 글자 삭제)
+    ws.cell(row=2, column=1, value="").fill = BLUE_FILL
+    ws.cell(row=2, column=1).border = THIN_BORDER
+    ws.cell(row=2, column=2, value="").fill = BLUE_FILL
+    ws.cell(row=2, column=2).border = THIN_BORDER
+
+    for mi, mt in enumerate(movie_titles):
+        start_col = fixed_cols + 1 + mi * cols_per_movie
+        end_col = start_col + cols_per_movie - 1
+        ws.merge_cells(start_row=2, start_column=start_col, end_row=2, end_column=end_col)
+        cell = ws.cell(row=2, column=start_col, value=mt)
+        cell.fill = BLUE_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        for ci in range(start_col, end_col + 1):
+            ws.cell(row=2, column=ci).border = THIN_BORDER
+            ws.cell(row=2, column=ci).fill = BLUE_FILL
+
+    # Row 3: Sub-headers
+    sub_headers = ['상영관', '회차', '좌석수', '총좌석수', '판매좌석수', '판매좌석율']
     ws.cell(row=3, column=1, value="상영일자").fill = BLUE_FILL
     ws.cell(row=3, column=1).font = HEADER_FONT
     ws.cell(row=3, column=1).border = THIN_BORDER
@@ -856,33 +892,10 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
     ws.cell(row=3, column=2).border = THIN_BORDER
     ws.cell(row=3, column=2).alignment = CENTER
 
-    for mi, mt in enumerate(movie_titles):
-        start_col = fixed_cols + 1 + mi * cols_per_movie
-        end_col = start_col + cols_per_movie - 1
-        ws.merge_cells(start_row=3, start_column=start_col, end_row=3, end_column=end_col)
-        cell = ws.cell(row=3, column=start_col, value=mt)
-        cell.fill = BLUE_FILL
-        cell.font = HEADER_FONT
-        cell.alignment = CENTER
-        for ci in range(start_col, end_col + 1):
-            ws.cell(row=3, column=ci).border = THIN_BORDER
-            ws.cell(row=3, column=ci).fill = BLUE_FILL
-
-    # Row 4: Sub-headers
-    sub_headers = ['상영관', '회차', '좌석수', '총좌석수', '판매좌석수', '판매좌석율']
-    ws.cell(row=4, column=1, value="상영일자").fill = BLUE_FILL
-    ws.cell(row=4, column=1).font = HEADER_FONT
-    ws.cell(row=4, column=1).border = THIN_BORDER
-    ws.cell(row=4, column=1).alignment = CENTER
-    ws.cell(row=4, column=2, value="극장명").fill = BLUE_FILL
-    ws.cell(row=4, column=2).font = HEADER_FONT
-    ws.cell(row=4, column=2).border = THIN_BORDER
-    ws.cell(row=4, column=2).alignment = CENTER
-
     for mi in range(len(movie_titles)):
         for si, sh in enumerate(sub_headers):
             col = fixed_cols + 1 + mi * cols_per_movie + si
-            cell = ws.cell(row=4, column=col, value=sh)
+            cell = ws.cell(row=3, column=col, value=sh)
             cell.fill = BLUE_FILL
             cell.font = HEADER_FONT
             cell.border = THIN_BORDER
@@ -973,7 +986,7 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
             rate_cell.number_format = PCT_FMT
 
     # Write data rows — 브랜드(멀티)별 소계(분홍) + 날짜별 총계(파랑, E003)
-    row_idx = 5
+    row_idx = 4  # M004: 생성 시간 행 삭제로 한 행 위부터 시작
     brand_agg = None
     # E002/E003: 소계·총계 첫 칸의 극장수. 이 칸은 작품별로 나뉘어 있지 않으므로
     # 상영시간표 소계·비교표와 같은 뜻이 되도록 **기준 작품**(주요작, 없으면 첫 경쟁작)이
@@ -1078,7 +1091,8 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         row_idx = _flush_date(row_idx)
 
     ws.sheet_view.showGridLines = False
-    _auto_width(ws, min_row=4)
+    ws.freeze_panes = "C4"  # M004: 제목·헤더 3행 + 상영일자·극장명 열 틀고정
+    _auto_width(ws, min_row=3)
 
 
 def export_transformed_schedules(queryset, movie_title=None, start_date=None, end_date=None, competitor_querysets=None):
@@ -1182,7 +1196,17 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
             return d.strftime("%Y-%m-%d")
         return str(d).split(' ')[0]
 
-    filename = f"excel_{safe_title}__{fmt_date(start_date)}-{fmt_date(end_date)}_({gen_date} [{gen_time}])({day_of_week}).xlsx"
+    # M003: 파일명 규칙 변경
+    #  - 주요작 선택: '시간표_주요작제목.xlsx' (예: 시간표_비광)
+    #  - 주요작 없음: '경쟁작 좌석수_MM.DD~MM.DD.xlsx' (예: 경쟁작 좌석수_08.20~08.26)
+    def _mmdd(x):
+        return f"{x[5:7]}.{x[8:10]}" if len(x) >= 10 else x
+
+    if has_main:
+        filename = f"시간표_{safe_title}.xlsx"
+    else:
+        filename = (f"경쟁작 좌석수_{_mmdd(fmt_date(start_date))}"
+                    f"~{_mmdd(fmt_date(end_date))}.xlsx")
     file_path = os.path.join(save_dir, filename)
 
     # ========== Write Excel ==========
@@ -1193,7 +1217,10 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
 
     # 1. Schedule Sheets (상영시간표) — 주요작이 있을 때만 (E006)
     for proc_date, rows in all_data.items():
-        sheet_name = f"상영시간표_{proc_date.strftime('%Y-%m-%d')}"
+        # M004: 시트명은 시간표의 해당 날짜만 (예: '0902')
+        sheet_name = proc_date.strftime('%m%d')
+        if sheet_name in wb.sheetnames:  # 연도가 다른 같은 월일 충돌 방지
+            sheet_name = proc_date.strftime('%y%m%d')
         ws = wb.create_sheet(sheet_name)
         _write_schedule_sheet(ws, rows, proc_date, movie_title, display_max_shows, gen_info)
 

@@ -1,6 +1,8 @@
 import React from "react";
 import styled from "styled-components";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useRecoilValue } from "recoil";
+import { AccountState } from "../../atom/AccountState";
 import {
     ChartBar, Calendar, ListBullets, ChartLineUp, Armchair, Trophy,
     CurrencyCircleDollar, Stack, Buildings, Tag,
@@ -105,6 +107,7 @@ const NavItem = styled.div<{ $active: boolean }>`
 export function CustomerSidebar() {
     const location = useLocation();
     const navigate = useNavigate();
+    const account = useRecoilValue(AccountState);
 
     // 현재 경로에 해당하는 그룹만 표시
     const activeGroup = MENU_GROUPS.find((g) =>
@@ -112,6 +115,10 @@ export function CustomerSidebar() {
     );
 
     if (!activeGroup) return null;
+
+    // U001: 시간표 조회 접근 권한이 꺼진 계정은 시간표 그룹 숨김
+    if (activeGroup.basePath === "/time_table" && account.timetable_access === false)
+        return null;
 
     return (
         <SidebarContainer>

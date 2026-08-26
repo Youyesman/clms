@@ -275,6 +275,87 @@ def build_excel(data, out_path):
     rows, hl = _movie_table_rows(data["movies"], p3_keys, star_main=star)
     _write_table(ws, 4, p3_headers, rows, highlight_rows=hl)
 
+    # ================= P4 (M001: 일별 비교) =================
+    daily = data.get("daily")
+    if daily:
+        dates = daily["dates"]
+        n = len(dates)
+        if data["mode"] == "main":
+            ws = wb.create_sheet("P4 주요작 일별 상영 추이")
+            title = "P.4 주요작 일별 상영 추이"
+            sub = (f"작품명 {data['main']['title']} | {cur_s} | "
+                   f"전주 동일요일 {prev_s.replace('전주 ', '')}")
+            sec1 = f"① 주요작 일별 상영 현황 - {data['main']['title']}"
+            sec2 = "② 총 좌석수 TOP 10 + 주요작 일별 전주 비교"
+        else:
+            ws = wb.create_sheet("P4 일별 상영 추이")
+            title = "P.4 일별 상영 추이"
+            sub = f"{cur_s} | 전주 동일요일 {prev_s.replace('전주 ', '')}"
+            sec1 = "① 전체 시장 일별 현황"
+            sec2 = "② 총 좌석수 기준 TOP 10 작품 일별 전주 비교"
+        _set_widths(ws, [14, 26] + [17, 22] * n)
+        _sheet_head(ws, title, sub, last_col=max(2 + n * 2, 6))
+
+        # ① 일별 4대 지표
+        _cell(ws, 4, 1, sec1, font=SECTION_FONT, border=False, align=LEFT)
+        headers1 = ["지표"]
+        for r in daily["kpi_rows"]:
+            headers1 += [f"{r['date'].month}/{r['date'].day}",
+                         f"전주 {r['prev_date'].month}/{r['prev_date'].day} 대비"]
+        metric_defs = [
+            ("총 좌석수", lambda r: fmt_num(r["total_seats"], "석"), "seats_cmp"),
+            ("예매좌석수", lambda r: fmt_num(r["reserved"], "석"), "reserved_cmp"),
+            ("좌석점유율", lambda r: fmt_pct(r["occupancy"]), "occ_cmp"),
+            ("회차수", lambda r: fmt_num(r["shows"], "회"), "shows_cmp"),
+        ]
+        rows1 = []
+        for label, fn, ck in metric_defs:
+            row = [(label, DATA_BOLD)]
+            for r in daily["kpi_rows"]:
+                row.append(fn(r))
+                row.append(_cmp_value(r[ck]))
+            rows1.append(row)
+        next_r = _write_table(ws, 5, headers1, rows1)
+
+        # ② TOP10(+주요작) 일별 전주 비교
+        _cell(ws, next_r + 1, 1, sec2, font=SECTION_FONT, border=False, align=LEFT)
+        headers2 = ["#", "작품명"]
+        for d in dates:
+            headers2 += [f"{d.month}/{d.day} 총 좌석수(좌점율)", "전주比"]
+        rows2, hl2 = [], set()
+        for i, m in enumerate(daily["top"]):
+            is_star = star and m["is_main"]
+            row = [m["rank"],
+                   (("★ " + m["title"]) if is_star else m["title"],
+                    DATA_BOLD if is_star else DATA_FONT)]
+            for day in m["days"]:
+                row.append(f"{fmt_num(day['total_seats'])} ({fmt_pct(day['occupancy'])})")
+                row.append(_cmp_value(day["seats_cmp"]))
+            rows2.append(row)
+            if is_star:
+                hl2.add(i)
+        next_r2 = _write_table(ws, next_r + 2, headers2, rows2, highlight_rows=hl2)
+
+        # ③ 주요작 일자별 주요 시간대 회차 배정 비중
+        slots = daily.get("slots")
+        if data["mode"] == "main" and slots:
+            _cell(ws, next_r2 + 1, 1, "③ 주요작 일자별 주요 시간대 회차 배정 비중",
+                  font=SECTION_FONT, border=False, align=LEFT)
+            headers3 = ["구분"] + slots["labels"] + ["총 회차"]
+            weekday = ["월", "화", "수", "목", "금", "토", "일"]
+            rows3 = []
+            for r in slots["rows"]:
+                d = r["date"]
+                row = [(f"{d.month}/{d.day} ({weekday[d.weekday()]})", DATA_BOLD)]
+                for c in r["counts"]:
+                    pct = (c / r["total"] * 100) if r["total"] else 0.0
+                    row.append(f"{fmt_num(c)}회 ({fmt_pct(pct)})")
+                row.append((f"{fmt_num(r['total'])}회 (100%)", DATA_BOLD))
+                rows3.append(row)
+            rows3.append([("기간 평균 비중", DATA_BOLD)]
+                         + [fmt_pct(x) for x in slots["avg_pct"]] + ["100.0%"])
+            _write_table(ws, next_r2 + 2, headers3, rows3)
+
     for ws in wb.worksheets:
         ws.sheet_view.showGridLines = False
 

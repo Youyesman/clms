@@ -130,7 +130,7 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/time_table/theater-count": { group: "배급사 뷰", name: "극장수" },
     "/manage/time_table/screen-count": { group: "배급사 뷰", name: "스크린수" },
     "/manage/time_table/show-count": { group: "배급사 뷰", name: "상영횟수" },
-    "/manage/time_table/seat-count": { group: "배급사 뷰", name: "좌석수" },
+    "/manage/time_table/seat-count": { group: "배급사 뷰", name: "좌석수(좌점율)" },
 };
 
 function StaffTopbar({ $sidebarWidth }: { $sidebarWidth: number }) {

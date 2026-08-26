@@ -160,7 +160,10 @@ function CustomerTopbar() {
 
                     <NavItem to="/score">{t("스코어")}</NavItem>
 
-                    <NavItem to="/time_table">{t("시간표")}</NavItem>
+                    {/* U001: 시간표 조회 접근 권한이 꺼진 계정은 탭 숨김 */}
+                    {nowAccount.timetable_access !== false && (
+                        <NavItem to="/time_table">{t("시간표")}</NavItem>
+                    )}
 
                     <NavItem to="/settlement/detail">{t("부금관리")}</NavItem>
                 </NavWrapper>

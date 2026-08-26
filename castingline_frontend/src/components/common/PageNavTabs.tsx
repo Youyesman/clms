@@ -49,7 +49,7 @@ const Tab = styled.button<{ $active: boolean }>`
 
 export const TIME_TABLE_TABS: TabItem[] = [
     { to: "/time_table", label: "집계작 시간표" },
-    { to: "/time_table/seat-count", label: "주요작 좌석수" },
+    { to: "/time_table/seat-count", label: "주요작 좌석수(좌점율)" },
     { to: "/time_table/theater-count", label: "주요작 상영관수" },
     { to: "/time_table/screen-count", label: "주요작 스크린수" },
     { to: "/time_table/show-count", label: "주요작 상영회차수" },

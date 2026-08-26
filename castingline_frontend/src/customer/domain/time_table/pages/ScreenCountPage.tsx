@@ -11,6 +11,7 @@ import {
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
 import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
+import { downloadTimetableExcel } from "../exportTimetableExcel"; // A001
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -242,6 +243,7 @@ export function ScreenCountPage() {
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<ScreenData | null>(null);
     const [fieldErrors, setFieldErrors] = useState({ dateFrom: false, dateTo: false });
+    const [excelBusy, setExcelBusy] = useState(false); // A001: 엑셀 다운로드 진행 상태
     const [popover, setPopover] = useState<{ x: number; y: number; title: string; period: string; value: number } | null>(null);
     const isFirstMount = useRef(true);
 
@@ -282,6 +284,26 @@ export function ScreenCountPage() {
             .then(res => setData(res.data))
             .catch(err => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
+    }, [dateFrom, dateTo, selectedMovies, selectedBrands, selectedRegions, toast]);
+
+    /* A001: 현재 조회 조건 그대로 엑셀 다운로드 (그래프 제외) */
+    const handleExcel = useCallback(async () => {
+        const errs = { dateFrom: !dateFrom, dateTo: !dateTo };
+        setFieldErrors(errs);
+        if (Object.values(errs).some(Boolean)) return;
+        setExcelBusy(true);
+        try {
+            const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+            if (selectedMovies.length) params.movies = selectedMovies.join(",");
+            if (selectedBrands.length) params.brands = selectedBrands.join(",");
+            if (selectedRegions.length) params.regions = selectedRegions.join(",");
+            await downloadTimetableExcel("screens", params, "주요작 스크린수");
+            toast.success("엑셀 파일이 다운로드 되었습니다.");
+        } catch (err: any) {
+            toast.error(handleBackendErrors(err));
+        } finally {
+            setExcelBusy(false);
+        }
     }, [dateFrom, dateTo, selectedMovies, selectedBrands, selectedRegions, toast]);
 
     /* 마운트 시 영화 목록 로드 후 자동 검색 */
@@ -413,6 +435,12 @@ export function ScreenCountPage() {
 
                     <SearchBtn onClick={handleSearch} disabled={loading}>
                         {loading ? "검색 중..." : "검색"}
+                    </SearchBtn>
+
+                    {/* A001: 엑셀 다운로드 */}
+                    <SearchBtn onClick={handleExcel} disabled={excelBusy} style={{ background: "#16a34a" }}
+                        title="현재 조회 조건의 데이터를 엑셀로 다운로드 (그래프 제외)">
+                        {excelBusy ? "생성 중..." : "엑셀"}
                     </SearchBtn>
                 </FilterRow>
             </FilterCard>

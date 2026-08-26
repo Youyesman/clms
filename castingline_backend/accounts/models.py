@@ -19,6 +19,8 @@ class User(AbstractUser):
         related_name="users",
         verbose_name="소속 배급사",
     )
+    # U001: 배급사 계정별 [시간표 조회] 메뉴 접근 권한 (Off면 메뉴 숨김)
+    timetable_access = models.BooleanField(default=True, verbose_name="시간표 조회 접근 권한")
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
 

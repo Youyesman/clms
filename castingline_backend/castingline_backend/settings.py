@@ -92,6 +92,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost",
 ]
 
+# M003: 교차 출처(로컬 dev 등)에서도 프론트가 서버 지정 파일명(Content-Disposition)을
+# 읽을 수 있게 노출한다 (운영은 same-origin이라 원래 문제 없음)
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
+
 ROOT_URLCONF = "castingline_backend.urls"
 
 TEMPLATES = [

@@ -429,6 +429,9 @@ export const CrawlerPage = () => {
             }
             const payload: any = { ...config };
             if (useSpecificDates) payload.crawlDates = specificDates;
+            // M002: '크롤 대상 영화'에서 체크한 영화가 있으면 그 영화만 수동 크롤링
+            // (미체크 시 기존처럼 활성 영화 전체 — 자동 크롤링은 항상 전체)
+            if (selectedTargetIds.length > 0) payload.targetMovieIds = selectedTargetIds;
             await AxiosPost("crawler/run", payload);
             setShowCrawlModal(false);
             toast.success("크롤러가 실행되었습니다.");
@@ -1112,6 +1115,12 @@ export const CrawlerPage = () => {
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* M002: 크롤 대상 영화에서 체크한 영화만 크롤링 안내 */}
+                            <div style={{ padding: '8px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: selectedTargetIds.length > 0 ? '#fef9c3' : '#f1f5f9', color: selectedTargetIds.length > 0 ? '#a16207' : '#64748b' }}>
+                                {selectedTargetIds.length > 0
+                                    ? `체크한 ${selectedTargetIds.length}개 영화만 크롤링합니다. (미체크 영화의 기존 데이터는 유지)`
+                                    : "크롤 대상 영화 전체를 크롤링합니다. (특정 영화만 원하면 목록에서 체크 후 실행)"}
+                            </div>
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: useSpecificDates ? 0.4 : 1 }}>

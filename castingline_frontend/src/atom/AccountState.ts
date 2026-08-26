@@ -22,6 +22,8 @@ export interface Account {
     kakao_id: string;
     client_id: number | null;
     is_superuser: boolean;
+    // U001: [시간표 조회] 메뉴 접근 권한 (false면 메뉴 숨김)
+    timetable_access?: boolean;
 }
 
 export const AccountState = atom<Account>({
@@ -38,6 +40,7 @@ export const AccountState = atom<Account>({
         kakao_id: "",
         client_id: null,
         is_superuser: false,
+        timetable_access: true,
     },
     effects_UNSTABLE: [persistAtom],
 });

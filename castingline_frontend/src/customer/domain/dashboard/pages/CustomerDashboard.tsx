@@ -1,4 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// B001: 대시보드 화면 그대로 PDF 저장
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import styled from "styled-components";
 import { CaretUp, CaretDown, Minus, User, CurrencyKrw, FilmStrip } from "@phosphor-icons/react";
 import { AxiosGet } from "../../../../axios/Axios";
@@ -248,6 +251,44 @@ export function CustomerDashboard() {
         [movies]
     );
 
+    /* B001: 화면에 보이는 그대로 PDF 다운로드 (영화·날짜 변경분 포함) */
+    const wrapRef = useRef<HTMLDivElement>(null);
+    const [pdfBusy, setPdfBusy] = useState(false);
+    const handlePdfDownload = useCallback(async () => {
+        const el = wrapRef.current;
+        if (!el) return;
+        setPdfBusy(true);
+        try {
+            const canvas = await html2canvas(el, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: "#f1f5f9",
+            });
+            // JPEG 압축으로 파일 용량 절감 (PNG 대비 1/10 수준)
+            const img = canvas.toDataURL("image/jpeg", 0.85);
+            const pdf = new jsPDF("p", "mm", "a4");
+            const pageW = 210;
+            const pageH = 297;
+            const imgH = (canvas.height * pageW) / canvas.width;
+            // 세로로 길면 페이지를 나눠 이어 붙인다
+            let offset = 0;
+            pdf.addImage(img, "JPEG", 0, 0, pageW, imgH);
+            let remaining = imgH - pageH;
+            while (remaining > 0) {
+                offset -= pageH;
+                pdf.addPage();
+                pdf.addImage(img, "JPEG", 0, offset, pageW, imgH);
+                remaining -= pageH;
+            }
+            const movieName = selectedMovie?.title_ko || "";
+            pdf.save(`대시보드_${movieName}_${scoreDate}.pdf`);
+        } catch {
+            toast.error("PDF 생성 중 오류가 발생했습니다.");
+        } finally {
+            setPdfBusy(false);
+        }
+    }, [selectedMovie, scoreDate, toast]);
+
     const today = new Date();
     const todayStr = `${today.getFullYear()}년 ${String(today.getMonth() + 1).padStart(2, "0")}월 ${String(today.getDate()).padStart(2, "0")}일`;
     const dateLabel = (d: string) => {
@@ -256,7 +297,7 @@ export function CustomerDashboard() {
     };
 
     return (
-        <Wrap>
+        <Wrap ref={wrapRef}>
             <HeaderRow>
                 <TitleBlock>
                     <Title>Casting Line Dashboard</Title>
@@ -270,6 +311,20 @@ export function CustomerDashboard() {
                     value={movieId}
                     onChange={(v) => setMovieId(v)}
                 />
+                {/* B001: 대시보드 화면 PDF 다운로드 */}
+                <button
+                    onClick={handlePdfDownload}
+                    disabled={pdfBusy}
+                    data-html2canvas-ignore="true"
+                    style={{
+                        marginLeft: "auto", height: 36, padding: "0 16px",
+                        background: "#dc2626", color: "#ffffff", border: "none",
+                        borderRadius: 6, fontSize: 13, fontWeight: 700,
+                        cursor: "pointer", opacity: pdfBusy ? 0.6 : 1,
+                    }}
+                >
+                    {pdfBusy ? "PDF 생성 중…" : "PDF 다운로드"}
+                </button>
             </HeaderRow>
 
             {/* ── 통계카드 ── */}

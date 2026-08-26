@@ -79,6 +79,7 @@ interface UserFormData {
     groups: number[];
     is_superuser: boolean;
     client: number | null; // 소속사(배급사/제작사 Client) FK — 고객 계정 데이터 필터링 기준
+    timetable_access: boolean; // U001: [시간표 조회] 메뉴 접근 권한
 }
 
 interface UserRecord extends Omit<UserFormData, "password"> {
@@ -107,6 +108,7 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
         country: "KR",
         groups: [] as number[],
         is_superuser: false,
+        timetable_access: true,
     });
     // 소속사(배급사/제작사) 선택 상태 (AutocompleteInputClient가 { client_company: Client } 형태로 읽고 씀)
     const [clientPick, setClientPick] = useState<any>({ client_company: null });
@@ -122,6 +124,7 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
                 password: "",
                 groups: user.groups || [],
                 is_superuser: user.is_superuser || false,
+                timetable_access: user.timetable_access ?? true,
             });
             // 수정 모드: 기존 소속사를 자동완성 입력에 채움
             setClientPick({
@@ -197,6 +200,14 @@ function UserFormModal({ user, onSuccess, onClose }: UserFormModalProps) {
                 options={[{ label: "고객", value: "false" }, { label: "관리자", value: "true" }]}
                 value={String(formData.is_superuser)}
                 onChange={(v) => handleChange("is_superuser", v === "true")}
+            />
+
+            {/* U001: 계정별 [시간표 조회] 접근 권한 — Off면 상단 메뉴에서 시간표 탭 숨김 */}
+            <CustomSelect
+                label="시간표 조회 접근"
+                options={[{ label: "On (허용)", value: "true" }, { label: "Off (숨김)", value: "false" }]}
+                value={String(formData.timetable_access)}
+                onChange={(v) => handleChange("timetable_access", v === "true")}
             />
 
             <AutocompleteInputClient

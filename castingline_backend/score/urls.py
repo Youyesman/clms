@@ -68,6 +68,10 @@ urlpatterns = [
     path('score/timetable/', score_timetable,
          name='score-timetable'),
 
+    # 11-1. A001: 시간표 조회 전 탭 엑셀 다운로드
+    path('score/timetable-excel/', score_timetable_excel,
+         name='score-timetable-excel'),
+
     # 12. 상세 부금 조회 API (배급사용)
     path('score/settlement/', score_settlement_detail,
          name='score-settlement-detail'),

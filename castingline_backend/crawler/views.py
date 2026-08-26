@@ -147,7 +147,13 @@ def run_site_crawler_background(history_id, data, site_key):
 
         # 5. 자동 변환: 크롤 대상 영화 기준
         check_stop_signal()
-        active_targets = list(CrawlTargetMovie.objects.filter(is_active=True))
+        # M002: 수동 크롤링에서 체크한 영화만 선택한 경우 그 영화들만 변환 대상.
+        # 교체도 영화별로 이뤄지므로 선택하지 않은 영화의 기존 데이터는 유지된다.
+        selected_ids = data.get('targetMovieIds') or []
+        active_qs = CrawlTargetMovie.objects.filter(is_active=True)
+        if selected_ids:
+            active_qs = active_qs.filter(id__in=selected_ids)
+        active_targets = list(active_qs)
         if active_targets:
             crawl_target_titles = []
             for tm in active_targets:
@@ -162,12 +168,14 @@ def run_site_crawler_background(history_id, data, site_key):
             site_logs = [l for l in site_logs
                          if not MovieSchedule.kobis_chain_brand(l.theater_name)[0]]
 
-        # 0825: 완전 교체 — 이번 크롤 범위(브랜드×수집된 날짜)의 기존 스케줄을
-        # 전부 지운 뒤 최신 로그로 다시 채운다 (잔재·중복 원천 차단)
+        # 0825: 영화별 교체 — 이번 크롤 범위(브랜드×수집된 날짜×대상 영화)의
+        # 기존 스케줄을 지운 뒤 최신 로그로 다시 채운다 (잔재·중복 원천 차단,
+        # 크롤 대상에서 뺀 영화의 이전 데이터는 유지)
         wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                        if kobis_multiplex else [brand])
         MovieSchedule.replace_before_transform(
-            wipe_brands, sorted({l.query_date for l in site_logs}))
+            wipe_brands, sorted({l.query_date for l in site_logs}),
+            target_titles=crawl_target_titles)
 
         total_created = 0
         for log in site_logs:
@@ -1060,6 +1068,9 @@ class CrawlerReportView(APIView):
         fmt = (request.data.get('format') or 'pdf').lower()
         mode = request.data.get('mode') or 'main'
         main_title = (request.data.get('main_title') or '').strip()
+        # A003: 출력 범위 — 'main_only'(주요작 상세 1P) / 'main_comp'(1P+경쟁작 비교 2P)
+        #       / 'comp_only'(경쟁작 Top20 요약 1P) / 미지정(기존 전체 페이지)
+        scope = (request.data.get('scope') or '').strip() or None
         # W002: 엑셀 다운로드와 같은 계열사 범위로 집계해야 숫자가 일치한다
         brands = request.data.get('brands')
         if not (brands and isinstance(brands, list)):
@@ -1097,18 +1108,23 @@ class CrawlerReportView(APIView):
 
             save_dir = os.path.join(dj_settings.BASE_DIR, 'media', 'crawler_exports')
             os.makedirs(save_dir, exist_ok=True)
+            ext = 'pdf' if fmt == 'pdf' else 'xlsx'
+            # M003: 보고서 파일명 규칙
+            #  - 주요작 있음: '요약보고서_영화명(MM.DD~MM.DD)'
+            #  - 주요작 없음: '경쟁작 요약보고서(MM.DD~MM.DD)'
+            period_part = (f"{start_date.strftime('%m.%d')}"
+                           f"~{end_date.strftime('%m.%d')}")
+            if sel_dates:
+                period_part += f"_선택{len(sel_dates)}일"
             if mode == 'main':
                 safe = _re.sub(r'[\\/*?:"<>|]', "", main_title).replace(" ", "")
+                filename = f"요약보고서_{safe}({period_part}).{ext}"
             else:
-                safe = "주요작X"
-            ext = 'pdf' if fmt == 'pdf' else 'xlsx'
-            period_part = (f"{start_date}~{end_date}_선택{len(sel_dates)}일"
-                           if sel_dates else f"{start_date}~{end_date}")
-            filename = f"상영현황보고서_{safe}_{period_part}.{ext}"
+                filename = f"경쟁작 요약보고서({period_part}).{ext}"
             file_path = os.path.join(save_dir, filename)
 
             if fmt == 'pdf':
-                build_pdf(data, file_path)
+                build_pdf(data, file_path, scope=scope)
             else:
                 build_excel(data, file_path)
 

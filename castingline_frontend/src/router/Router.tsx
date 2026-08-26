@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import { lazy } from "react";
+import { lazy, ReactElement } from "react";
 import App from "../App";
 import { Login } from "../domain/auth/pages/Login";
 import PrivateRouter from "./PrivateRouter";
@@ -20,6 +20,17 @@ import { ShowCountPage } from "../customer/domain/time_table/pages/ShowCountPage
 import LandingPage from "../domain/landing/pages/LandingPage";
 import { CustomerDashboard } from "../customer/domain/dashboard/pages/CustomerDashboard";
 import { MyProfile } from "../domain/auth/pages/MyProfile";
+import { useRecoilValue } from "recoil";
+import { AccountState } from "../atom/AccountState";
+
+// U001: 시간표 조회 접근 권한이 꺼진 계정은 직접 URL 진입도 빈 화면 처리
+function TimetableGuard({ children }: { children: ReactElement }) {
+    const account = useRecoilValue(AccountState);
+    if (!account.is_superuser && account.timetable_access === false) {
+        return <Navigate to="/dashboard" replace />;
+    }
+    return children;
+}
 
 const router = createBrowserRouter([
     {
@@ -43,11 +54,11 @@ const router = createBrowserRouter([
             { path: "settlement/aggregate", element: <SettlementAggregatePage /> },
             { path: "settlement/theater-total", element: <TheaterTotalPage /> },
             { path: "settlement/supply-price", element: <SupplyPricePage /> },
-            { path: "time_table", element: <TimeTablePage /> },
-            { path: "time_table/seat-count", element: <SeatCountPage /> },
-            { path: "time_table/theater-count", element: <TheaterCountPage /> },
-            { path: "time_table/screen-count", element: <ScreenCountPage /> },
-            { path: "time_table/show-count", element: <ShowCountPage /> },
+            { path: "time_table", element: <TimetableGuard><TimeTablePage /></TimetableGuard> },
+            { path: "time_table/seat-count", element: <TimetableGuard><SeatCountPage /></TimetableGuard> },
+            { path: "time_table/theater-count", element: <TimetableGuard><TheaterCountPage /></TimetableGuard> },
+            { path: "time_table/screen-count", element: <TimetableGuard><ScreenCountPage /></TimetableGuard> },
+            { path: "time_table/show-count", element: <TimetableGuard><ShowCountPage /></TimetableGuard> },
 
             // ── 관리자(superuser) 전용 ──
             // catch-all: /manage 이하 모든 경로를 PrivateRouter가 받음

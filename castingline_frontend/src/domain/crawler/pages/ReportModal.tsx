@@ -222,10 +222,17 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             const link = document.createElement("a");
             link.href = url;
             const contentDisposition = response.headers?.["content-disposition"];
-            let filename = `상영현황보고서_${mode === "main" && mainMovie ? mainMovie.title : "주요작X"}.${format === "pdf" ? "pdf" : "xlsx"}`;
+            // M003: 서버가 정한 파일명(요약보고서_영화명(MM.DD~MM.DD) 등)을 그대로 사용
+            let filename =
+                mode === "main" && mainMovie
+                    ? `요약보고서_${mainMovie.title}.${format === "pdf" ? "pdf" : "xlsx"}`
+                    : `경쟁작 요약보고서.${format === "pdf" ? "pdf" : "xlsx"}`;
             if (contentDisposition) {
-                const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                if (match?.[1]) filename = decodeURIComponent(match[1]);
+                // 한글 파일명은 filename*=utf-8'' 형식으로 오므로 우선 처리
+                const star = contentDisposition.match(/filename\*=(?:utf-8'')?([^;]+)/i);
+                const plain = contentDisposition.match(/filename="?([^";]+)"?/);
+                if (star?.[1]) filename = decodeURIComponent(star[1]);
+                else if (plain?.[1]) filename = decodeURIComponent(plain[1]);
             }
             link.setAttribute("download", filename);
             document.body.appendChild(link);
