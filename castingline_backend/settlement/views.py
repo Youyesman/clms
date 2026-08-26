@@ -1501,6 +1501,20 @@ class SettlementAdjustmentView(APIView):
                 obj = qs.first() or SettlementAdjustment(
                     yyyymm=yyyy_mm, movie_id=movie_id,
                     client=client, screen_format=fmt)
+        # F001: 날짜 저장의 출처(일괄 vs 수기/AI) 구분 처리
+        # - 일괄(date_bulk)이 기존 수기/AI 확정값을 덮을 때는 이전 확정값을
+        #   date_to_prev에 보관하고, 최초 확정 때의 원본(시스템값)은 유지한다.
+        # - 수기/AI 저장은 보관값을 비운다 (최신 수기값이 기준이 된다).
+        if "date_to" in data:
+            if data.get("date_bulk"):
+                if obj.pk and obj.date_to_override and not obj.date_to_is_bulk:
+                    defaults["date_to_prev"] = obj.date_to_override
+                if obj.pk and obj.date_to_override and obj.date_to_original:
+                    defaults["date_to_original"] = obj.date_to_original
+                defaults["date_to_is_bulk"] = True
+            else:
+                defaults["date_to_is_bulk"] = False
+                defaults["date_to_prev"] = None
         for k, v in defaults.items():
             setattr(obj, k, v)
         obj.save()
@@ -1567,8 +1581,19 @@ class SettlementAdjustmentDetailView(APIView):
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
         if scope == "date":
+            # F001: 일괄 수정 해제 — 일괄이 덮어쓰기 전의 수기/AI 확정값이
+            # 보관돼 있으면 삭제 대신 그 값으로 복구한다
+            if obj.date_to_is_bulk and obj.date_to_prev:
+                obj.date_to_override = obj.date_to_prev
+                obj.date_to_prev = None
+                obj.date_to_is_bulk = False
+                obj.save()
+                return Response({"restored": str(obj.date_to_override),
+                                 "id": obj.pk})
             obj.date_to_override = None
             obj.date_to_original = ""
+            obj.date_to_prev = None
+            obj.date_to_is_bulk = False
         elif scope == "amount":
             obj.supply_delta = obj.vat_delta = obj.payout_delta = 0
             obj.supply_original = obj.vat_original = obj.payout_original = None

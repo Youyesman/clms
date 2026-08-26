@@ -30,6 +30,12 @@ class SettlementAdjustment(models.Model):
     date_to_override = models.DateField(null=True, blank=True, verbose_name="날짜(To) 조정값")
     date_to_original = models.CharField(max_length=10, blank=True, default="",
                                         verbose_name="조정 전 날짜(To)")
+    # F001: '날짜 일괄 수정'이 수기/AI 확정값을 덮어쓸 때 이전 확정값을 보관.
+    # '일괄 변경 해제' 시 시스템 초기값이 아닌 이 값으로 복구한다.
+    date_to_prev = models.DateField(null=True, blank=True,
+                                    verbose_name="일괄 수정 전 확정값(수기/AI)")
+    date_to_is_bulk = models.BooleanField(default=False,
+                                          verbose_name="현재 확정값이 일괄 수정분인지")
     note = models.CharField(max_length=200, blank=True, default="", verbose_name="비고")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

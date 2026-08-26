@@ -491,7 +491,7 @@ function BulkDateModal({
     movieId: string;
     rows: any[];
     onSaved: (results: any[]) => void;
-    onCleared: (adjIds: number[]) => void;
+    onCleared: (adjIds: number[], anyRestored?: boolean) => void;
     onClose: () => void;
 }) {
     const toast = useToast();
@@ -540,6 +540,9 @@ function BulkDateModal({
                     screen_format: r["포맷버킷"] || "",
                     date_to: dateTo,
                     date_to_original: r["날짜조정"]?.["원본"] ?? (r["날짜(To)"] || ""),
+                    // F001: 일괄 수정임을 표시 — 기존 수기/AI 확정값은 서버가 보관해
+                    // '일괄 해제' 시 그 값으로 복구한다 (단건 수정은 수기로 취급)
+                    date_bulk: !single,
                     // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
                     auto_confirm: false,
                 })),
@@ -570,14 +573,20 @@ function BulkDateModal({
             async () => {
                 setSaving(true);
                 try {
-                    await Promise.all(
+                    const resps = await Promise.all(
                         clearIds.map((id) =>
                             AxiosDelete(`settlement-adjustments/${id}`, "date")
                         )
                     );
-                    toast.success(`${clearIds.length}건의 날짜 확정을 해제했습니다.`);
+                    // F001: 일괄 해제 시 수기/AI 확정값이 있던 행은 그 값으로 복구됨
+                    const restored = resps.filter((r: any) => r?.data?.restored).length;
+                    toast.success(
+                        restored
+                            ? `${clearIds.length}건 해제 — ${restored}건은 수기/AI 확정값으로 복구했습니다.`
+                            : `${clearIds.length}건의 날짜 확정을 해제했습니다.`
+                    );
                     onClose();
-                    onCleared(clearIds);
+                    onCleared(clearIds, restored > 0);
                 } catch {
                     toast.error("해제 중 오류가 발생했습니다.");
                 } finally {
@@ -1067,7 +1076,13 @@ export function ManageSettlement() {
     };
 
     /** 날짜(To) 확정 해제 결과를 재조회 없이 반영 — 원본 날짜로 복구 */
-    const applyDateClearedLocally = (adjIds: number[]) => {
+    const applyDateClearedLocally = (adjIds: number[], anyRestored?: boolean) => {
+        // F001: 수기/AI 확정값으로 복구된 행이 있으면 서버 기준으로 재조회
+        // (복구된 날짜값은 서버만 알고 있다)
+        if (anyRestored) {
+            refreshSettlements();
+            return;
+        }
         const ids = new Set(adjIds);
         // 원본 날짜가 보존되지 않은 행이 있으면 서버 기준으로 갱신 (스크롤 유지)
         const missingOrig = settlements.some(
@@ -1129,14 +1144,21 @@ export function ManageSettlement() {
             "warning",
             async () => {
                 try {
+                    let resp: any = null;
                     if (scope) {
-                        await AxiosDelete(`settlement-adjustments/${adjId}`, scope);
+                        resp = await AxiosDelete(`settlement-adjustments/${adjId}`, scope);
                     } else {
                         await AxiosDelete("settlement-adjustments", adjId);
                     }
-                    toast.success(`${label}을 해제했습니다.`);
+                    // F001: 일괄 확정 해제가 수기/AI 확정값으로 복구된 경우
+                    const restored = !!resp?.data?.restored;
+                    toast.success(
+                        restored
+                            ? `${label}을 해제했습니다. (수기/AI 확정값 ${resp.data.restored}로 복구)`
+                            : `${label}을 해제했습니다.`
+                    );
                     if (scope === "date") {
-                        applyDateClearedLocally([adjId]);
+                        applyDateClearedLocally([adjId], restored);
                         return;
                     }
                     setSettlements((prev) => {

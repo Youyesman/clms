@@ -31,6 +31,30 @@ class OrderSerializer(serializers.ModelSerializer):
         if self.instance is None and not attrs.get("release_date"):
             raise serializers.ValidationError(
                 {"release_date": "개봉일은 필수 입력값입니다."})
+
+        # O003(0826): 개봉일 변경 제한 — 실제 스코어가 존재하는 최초 날짜보다
+        # 늦은 날짜를 개봉일로 지정하면 저장을 차단한다
+        new_release = attrs.get("release_date")
+        if new_release:
+            movie = attrs.get("movie") or (self.instance.movie if self.instance else None)
+            client = attrs.get("client") or (self.instance.client if self.instance else None)
+            if movie and client:
+                from django.db.models import Min
+                from score.models import Score
+                from .models import movie_family_ids
+
+                first_score = (
+                    Score.objects
+                    .filter(movie_id__in=movie_family_ids(movie.id),
+                            client_id=client.id,
+                            entry_date__isnull=False)
+                    .aggregate(mn=Min("entry_date"))["mn"]
+                )
+                if first_score and new_release > first_score:
+                    raise serializers.ValidationError({
+                        "release_date": (
+                            f"개봉일보다 앞 날짜에 스코어가 존재합니다. "
+                            f"(최초 스코어 발생일: {first_score})")})
         return attrs
 
     def update(self, instance, validated_data):
