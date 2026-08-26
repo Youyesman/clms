@@ -673,14 +673,20 @@ class MovieSchedule(models.Model):
         return html.unescape(html.unescape(str(crawled_name or ""))), None
 
     @classmethod
-    def replace_before_transform(cls, brands, yyyymmdd_dates):
-        """0825: '가장 최근 크롤만 표출' — 완전 교체 방식.
+    def replace_before_transform(cls, brands, yyyymmdd_dates, target_titles=None):
+        """0825: '가장 최근 크롤만 표출' — 교체 방식.
 
-        크롤 변환 직전에 이번 크롤 범위(브랜드 × 상영일)의 기존 스케줄을 전부
-        지운 뒤 새 수집분으로 다시 채운다. 잔재(이전 크롤의 폐지·변경 회차,
-        영진위↔자사 표기 차이 행 등)가 원천적으로 남지 않는다.
-        수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의 기존
-        데이터는 유지된다 (빈 크롤이 멀쩡한 데이터를 지우는 일 방지).
+        크롤 변환 직전에 이번 크롤 범위의 기존 스케줄을 지운 뒤 새 수집분으로
+        다시 채운다. 잔재(이전 크롤의 폐지·변경 회차, 영진위↔자사 표기 차이
+        행 등)가 원천적으로 남지 않는다.
+
+        교체 단위는 **영화별**이다: target_titles(이번 변환의 크롤 대상 영화)가
+        주어지면 (브랜드 × 상영일)에서 그 영화들의 행만 지운다. 크롤 대상에서
+        뺀 영화의 이전 데이터는 유지된다 — 예) 1시에 30편 크롤 후 2시에 20편만
+        다시 돌리면, 뺀 10편은 1시 데이터 그대로, 돌린 20편만 2시 기준으로 교체.
+        target_titles 가 없으면(대상 미지정 = 전 영화 수집·재변환) 범위 전체를
+        지운다. 수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의
+        기존 데이터는 유지된다.
         """
         from datetime import datetime as _dt
         dates = []
@@ -691,11 +697,21 @@ class MovieSchedule(models.Model):
                 continue
         if not brands or not dates:
             return 0
-        deleted, _detail = cls.objects.filter(
-            brand__in=list(brands), play_date__in=dates,
-        ).delete()
+        qs = cls.objects.filter(brand__in=list(brands), play_date__in=dates)
+        scope = "전체"
+        if target_titles:
+            # 영화별 덮어쓰기 — 저장된 제목의 표기 변형('어떻게 해야 했을까?' 등)도
+            # 정확 일치 규칙(title_matches)으로 같은 영화로 보고 함께 지운다
+            existing_titles = list(qs.values_list('movie_title', flat=True).distinct())
+            doomed = [t for t in existing_titles
+                      if any(cls.title_matches(tt, t) for tt in target_titles)]
+            if not doomed:
+                return 0
+            qs = qs.filter(movie_title__in=doomed)
+            scope = f"대상 {len(target_titles)}편"
+        deleted, _detail = qs.delete()
         if deleted:
-            print(f"   [Replace] {'/'.join(brands)} {len(dates)}일치 기존 스케줄 {deleted}건 삭제 (완전 교체)")
+            print(f"   [Replace] {'/'.join(brands)} {len(dates)}일치 {scope} 기존 스케줄 {deleted}건 삭제 (영화별 교체)")
         return deleted
 
     @classmethod
@@ -886,15 +902,22 @@ class MovieSchedule(models.Model):
 
         if chain_brand:
             # C002: 멀티 3사 예비 수집은 '가장 최근 크롤만 표출'(0825 지시) —
-            # 같은 (브랜드·지점·상영일)의 기존 행(자사 크롤 행 포함)을 지우고
-            # 이번 영진위 수집분으로 통째로 교체한다. 좌석 정보는 영진위가
-            # 제공하지 않으므로 0 그대로 저장한다(임의 폴백 금지).
+            # 같은 (브랜드·지점·상영일)에서 **이번 수집에 포함된 영화의** 기존 행
+            # (자사 크롤 행 포함)을 지우고 이번 영진위 수집분으로 교체한다.
+            # 크롤 대상에서 뺀 영화의 이전 데이터는 유지된다(영화별 덮어쓰기).
+            # 좌석 정보는 영진위가 제공하지 않으므로 0 그대로 저장한다(임의 폴백 금지).
             if q_date:
                 for item in parsed_items:
                     item['play_date'] = q_date
-                cls.objects.filter(
-                    brand=row_brand, theater_name=chain_name, play_date=q_date,
-                ).delete()
+                new_keys = {cls.normalize_title(i['movie_title'])
+                            for i in parsed_items}
+                scope_qs = cls.objects.filter(
+                    brand=row_brand, theater_name=chain_name, play_date=q_date)
+                doomed = [t for t in scope_qs.values_list('movie_title', flat=True).distinct()
+                          if cls.normalize_title(
+                              cls.parse_and_normalize_title(t)[0]) in new_keys]
+                if doomed:
+                    scope_qs.filter(movie_title__in=doomed).delete()
             seen = set()
             to_create = []
             for item in parsed_items:

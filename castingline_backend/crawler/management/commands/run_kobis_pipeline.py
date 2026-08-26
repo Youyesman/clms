@@ -210,7 +210,7 @@ class Command(BaseCommand):
             # 0825: 완전 교체 — 수집된 날짜의 기존 스케줄을 지우고 다시 채운다
             wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                            if include_multiplex else ['일반극장'])
-            MovieSchedule.replace_before_transform(wipe_brands, sorted({c['date'] for c in collected}))
+            MovieSchedule.replace_before_transform(wipe_brands, sorted({c['date'] for c in collected}), target_titles=targets)
             created, errors = KobisPipelineService.transform_logs_to_schedule(
                 log_ids=[c['log_id'] for c in collected], target_titles=targets
             )
