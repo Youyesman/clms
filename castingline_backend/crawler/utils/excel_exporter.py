@@ -461,18 +461,29 @@ def _process_to_rows(schedules, region_map, normal_index=None):
         total_seats_sum = 0
         sold_seats_sum = 0
         show_times = []
+        # V001/V002(0828): 회차 단위 지표(골든타임·특별관 등)를 쓰는 화면이
+        # 자체 계산을 따로 하지 않도록 회차별 상세도 함께 내보낸다.
+        shows_detail = []
 
         for item in items:
-            show_times.append(dj_timezone.localtime(item.start_time).strftime("%H:%M"))
+            hhmm = dj_timezone.localtime(item.start_time).strftime("%H:%M")
+            show_times.append(hhmm)
             raw_seat = _safe_int(item.total_seats)
             r_seat = _safe_int(item.remaining_seats)
             # 좌석 정보가 없는 회차(일반극장/KOBIS 등)는 극장 정원으로 총좌석수만 채우고,
             # 잔여좌석을 모르므로 판매좌석수는 0으로 둔다. (예전엔 정원 전체가 판매된 것으로
             # 집계돼 소계·총계의 판매좌석수와 좌판율이 부풀려졌다.)
             t_seat = raw_seat if raw_seat > 0 else total_capacity
+            i_sold = max(0, t_seat - r_seat) if raw_seat > 0 else 0
             total_seats_sum += t_seat
-            if raw_seat > 0:
-                sold_seats_sum += max(0, t_seat - r_seat)
+            sold_seats_sum += i_sold
+            shows_detail.append({
+                'time': hhmm,
+                'hour': dj_timezone.localtime(item.start_time).hour,
+                'seats': t_seat,
+                'sold': i_sold,
+                'tags': list(item.tags or []),
+            })
 
         max_shows = max(max_shows, len(show_times))
 
@@ -485,6 +496,7 @@ def _process_to_rows(schedules, region_map, normal_index=None):
             'screen': screen,
             'capacity': total_capacity,
             'show_times': show_times,
+            'shows': shows_detail,
             'show_count': show_count,
             'total_seats': total_seats_sum,
             'sold_seats': sold_seats_sum,
@@ -867,7 +879,10 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
     """Write 경쟁작 detail sheet - per-screen data for all movies side by side."""
     # E006: 주요작 없으면 경쟁작만 나열
     movie_titles = ([movie_title] if main_data else []) + list(competitor_data_dict.keys())
-    cols_per_movie = 6  # 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
+    # V003(0828): 소계·총계의 극장수를 **작품별**로 표기한다. 예전에는 A열에 기준
+    # 작품(첫 작품)의 극장수 하나만 적어서, 기준 작품이 안 걸린 계열사는 0으로 나오고
+    # 총계도 비교표와 어긋났다. 비교표와 같은 열 구성으로 맞춘다.
+    cols_per_movie = 7  # 극장수, 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
     fixed_cols = 2  # 상영일자, 극장명
 
     all_movie_data = {}
@@ -898,7 +913,7 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
             ws.cell(row=2, column=ci).fill = BLUE_FILL
 
     # Row 3: Sub-headers
-    sub_headers = ['상영관', '회차', '좌석수', '총좌석수', '판매좌석수', '판매좌석율']
+    sub_headers = ['극장수', '상영관', '회차', '좌석수', '총좌석수', '판매좌석수', '판매좌석율']
     ws.cell(row=3, column=1, value="상영일자").fill = BLUE_FILL
     ws.cell(row=3, column=1).font = HEADER_FONT
     ws.cell(row=3, column=1).border = THIN_BORDER
@@ -962,7 +977,8 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
     # 들어오는데, 제목을 키로 쓰면 두 블록이 누적기 하나를 공유해 같은 행을 두 번
     # 더한다 → 소계가 정확히 2배로 부풀었다(비교표와 불일치).
     def _new_agg():
-        return {mi: {'screens': 0, 'shows': 0, 'capacity': 0, 'total': 0, 'sold': 0}
+        return {mi: {'screens': 0, 'shows': 0, 'capacity': 0, 'total': 0, 'sold': 0,
+                     'theaters': set()}
                 for mi in range(len(movie_titles))}
 
     def _accumulate(agg, movie_rows):
@@ -974,58 +990,48 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                 a['capacity'] += r['capacity']
                 a['total'] += r['total_seats']
                 a['sold'] += r['sold_seats']
+                # V003: 비교표(_calc_summary)와 같은 기준 — (브랜드, 극장) 고유 수
+                a['theaters'].add((r['brand'], r['theater']))
 
-    def _write_total_row(rr, label, agg, fill, font, theater_count=None):
+    def _write_total_row(rr, label, agg, fill, font):
         for ci in range(1, total_cols + 1):
             cell = ws.cell(row=rr, column=ci)
             cell.border = THIN_BORDER
             cell.alignment = CENTER
             cell.fill = fill
             cell.font = font
-        # E002: 상영시간표 소계처럼 첫 칸에 극장수(동일 극장 1개) 합계를 기록
-        if theater_count is not None:
-            tc_cell = ws.cell(row=rr, column=1, value=int(theater_count))
-            tc_cell.number_format = NUM_FMT
         ws.cell(row=rr, column=2, value=label)
         for mi, mt in enumerate(movie_titles):
             base_col = fixed_cols + 1 + mi * cols_per_movie
             a = agg[mi]
             if a['screens'] == 0:
                 continue
-            # 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
-            vals = [a['screens'], a['shows'], a['capacity'], a['total'], a['sold']]
+            # 극장수, 상영관, 회차, 좌석수, 총좌석수, 판매좌석수, 판매좌석율
+            vals = [len(a['theaters']), a['screens'], a['shows'],
+                    a['capacity'], a['total'], a['sold']]
             for si, v in enumerate(vals):
                 cell = ws.cell(row=rr, column=base_col + si, value=int(v))
                 cell.number_format = NUM_FMT
-            rate_cell = ws.cell(row=rr, column=base_col + 5,
+            rate_cell = ws.cell(row=rr, column=base_col + 6,
                                 value=(a['sold'] / a['total']) if a['total'] > 0 else 0)
             rate_cell.number_format = PCT_FMT
 
     # Write data rows — 브랜드(멀티)별 소계(분홍) + 날짜별 총계(파랑, E003)
     row_idx = 4  # M004: 생성 시간 행 삭제로 한 행 위부터 시작
     brand_agg = None
-    # E002/E003: 소계·총계 첫 칸의 극장수. 이 칸은 작품별로 나뉘어 있지 않으므로
-    # 상영시간표 소계·비교표와 같은 뜻이 되도록 **기준 작품**(주요작, 없으면 첫 경쟁작)이
-    # 실제로 걸린 극장만 센다. (모든 작품 합집합으로 세면 기준작이 안 걸린 극장까지
-    # 포함돼 비교표의 극장수와 어긋난다.)
-    base_title = movie_titles[0] if movie_titles else None
-    brand_theaters = set()
     date_agg = None
-    date_theaters = set()
     current_group = None  # (날짜, 브랜드) — 날짜가 바뀌면 같은 브랜드라도 소계를 끊는다
 
     def _flush_brand(rr):
         g_date, g_brand = current_group
         _write_total_row(rr, BRAND_SUBTOTAL_LABEL.get(g_brand, f"{g_brand} 소계"),
-                         brand_agg, PINK_FILL, BOLD_FONT,
-                         theater_count=len(brand_theaters))
+                         brand_agg, PINK_FILL, BOLD_FONT)
         return rr + 1
 
     def _flush_date(rr):
         # E003: 날짜별 세 멀티 합계 — 기존 최하단 총계와 같은 파란색
         _write_total_row(rr, f"{current_group[0].strftime('%Y-%m-%d')} 총계",
-                         date_agg, TOTAL_BLUE_FILL, WHITE_FONT,
-                         theater_count=len(date_theaters))
+                         date_agg, TOTAL_BLUE_FILL, WHITE_FONT)
         return rr + 1
 
     for key in sorted_keys:
@@ -1039,20 +1045,15 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         elif group != current_group:
             row_idx = _flush_brand(row_idx)
             brand_agg = _new_agg()
-            brand_theaters = set()
             if proc_date != current_group[0]:
                 # 날짜가 바뀌면 이전 날짜의 총계를 쓴다 (E003)
                 row_idx = _flush_date(row_idx)
                 date_agg = _new_agg()
-                date_theaters = set()
             current_group = group
 
         movie_rows = theater_movie_index[key]
         _accumulate(brand_agg, movie_rows)
         _accumulate(date_agg, movie_rows)
-        if movie_rows.get(base_title):
-            brand_theaters.add(theater)
-            date_theaters.add(theater)
 
         # Find max screens for this theater across all movies
         max_screens = max(len(rows) for rows in movie_rows.values())
@@ -1076,7 +1077,9 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                 if screen_idx < len(m_rows):
                     r = m_rows[screen_idx]
                     sold_rate = (r['sold_seats'] / r['total_seats']) if r['total_seats'] > 0 else 0
+                    # V003: 극장수 칸은 소계·총계 전용이라 데이터 행에서는 비워 둔다
                     vals = [
+                        '',
                         r['screen'],
                         r['show_count'],
                         r['capacity'],
@@ -1085,17 +1088,17 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
                         sold_rate
                     ]
                 else:
-                    vals = ['', '', '', '', '', '']
+                    vals = ['', '', '', '', '', '', '']
 
                 for si, v in enumerate(vals):
                     cell = ws.cell(row=row_idx, column=base_col + si, value=v)
                     cell.border = THIN_BORDER
                     cell.alignment = CENTER
                     cell.font = DATA_FONT
-                    # 합계줄과 동일한 숫자/백분율 서식 (si 0=상영관명은 문자)
-                    if si in (1, 2, 3, 4) and isinstance(v, (int, float)):
+                    # 합계줄과 동일한 숫자/백분율 서식 (si 0=극장수 공란, 1=상영관명은 문자)
+                    if si in (2, 3, 4, 5) and isinstance(v, (int, float)):
                         cell.number_format = NUM_FMT
-                    elif si == 5 and isinstance(v, (int, float)):
+                    elif si == 6 and isinstance(v, (int, float)):
                         cell.number_format = PCT_FMT
 
             row_idx += 1
