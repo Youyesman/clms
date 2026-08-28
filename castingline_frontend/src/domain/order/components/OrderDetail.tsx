@@ -144,7 +144,9 @@ export function OrderDetail({
         }
 
         // ✅ 이미 같은 값이면 API 호출 안 함
-        if (item[key] === processedValue) return;
+        // O001(0827): 단, 종영일이 자동 연장돼 빨간 강조가 켜진 행은 값이 같아도
+        // 저장을 보내야 강조 플래그가 해제된다 ('종영일로 복사' 체크 버튼 포함)
+        if (item[key] === processedValue && !(key === "end_date" && item.end_date_auto_updated)) return;
 
         AxiosPatch("order", { [key]: processedValue }, item.id)
             .then((res) => {

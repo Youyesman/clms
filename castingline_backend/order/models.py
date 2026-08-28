@@ -77,17 +77,22 @@ class Order(TimeStampedModel):
             .values_list('entry_date', flat=True)
             .first()
         )
-        if latest == self.last_screening_date:
-            return False
-        self.last_screening_date = latest
-        update_fields = ['last_screening_date', 'updated_date']
-        # O002: 등록된 종영일 이후 스코어가 잡히면 종영일을 자동 연장하고 강조 플래그를 켠다
-        if latest and self.end_date and latest > self.end_date:
-            self.end_date = latest
+        update_fields = []
+        if latest != self.last_screening_date:
+            self.last_screening_date = latest
+            update_fields += ['last_screening_date', 'updated_date']
+        # O002: 등록된 종영일 이후 스코어가 잡히면 종영일을 자동 연장하고 강조 플래그를 켠다.
+        # 0827 O001: 마지막 상영일이 이미 갱신돼 있어도(다른 저장 경로가 먼저 올린 경우)
+        # 종영일이 뒤처져 있으면 연장해야 하므로, 변경 여부와 무관하게 항상 검사한다.
+        if (self.last_screening_date and self.end_date
+                and self.last_screening_date > self.end_date):
+            self.end_date = self.last_screening_date
             self.end_date_auto_updated = True
-            update_fields += ['end_date', 'end_date_auto_updated']
+            update_fields += ['end_date', 'end_date_auto_updated', 'updated_date']
+        if not update_fields:
+            return False
         if save:
-            self.save(update_fields=update_fields)
+            self.save(update_fields=sorted(set(update_fields)))
         return True
 
 
@@ -219,13 +224,20 @@ def recalc_last_screening_dates(pairs=None, movie_ids=None, clear_when_empty=Tru
         latest = latest_map.get((o.movie_id, o.client_id))
         if latest is None and not clear_when_empty:
             continue
+        dirty = False
         if latest != o.last_screening_date:
             o.last_screening_date = latest
-            # O002: 등록된 종영일 이후 상영(스코어)이 잡히면 종영일을 자동 연장하고
-            # 강조 플래그를 켠다 (사용자가 종영일을 직접 저장하면 해제)
-            if latest and o.end_date and latest > o.end_date:
-                o.end_date = latest
-                o.end_date_auto_updated = True
+            dirty = True
+        # O002: 등록된 종영일 이후 상영(스코어)이 잡히면 종영일을 자동 연장하고
+        # 강조 플래그를 켠다 (사용자가 종영일을 직접 저장하면 해제).
+        # 0827 O001: 마지막 상영일이 이미 갱신돼 있던 행(다른 저장 경로가 먼저
+        # 올린 경우)도 종영일이 뒤처져 있으면 연장되도록, 변경 여부와 무관하게 검사한다.
+        if (o.last_screening_date and o.end_date
+                and o.last_screening_date > o.end_date):
+            o.end_date = o.last_screening_date
+            o.end_date_auto_updated = True
+            dirty = True
+        if dirty:
             changed.append(o)
 
     if changed:

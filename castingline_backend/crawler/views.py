@@ -168,14 +168,14 @@ def run_site_crawler_background(history_id, data, site_key):
             site_logs = [l for l in site_logs
                          if not MovieSchedule.kobis_chain_brand(l.theater_name)[0]]
 
-        # 0825: 영화별 교체 — 이번 크롤 범위(브랜드×수집된 날짜×대상 영화)의
-        # 기존 스케줄을 지운 뒤 최신 로그로 다시 채운다 (잔재·중복 원천 차단,
-        # 크롤 대상에서 뺀 영화의 이전 데이터는 유지)
+        # C002(0827): 날짜 전체 교체 — 같은 날짜를 다시 크롤하면 (브랜드×수집된 날짜)의
+        # 기존 스케줄을 영화 구분 없이 전부 지운 뒤 이번 크롤 대상 영화만 다시 채운다.
+        # → 이전 크롤에만 있던 영화의 잔재 데이터가 보고서/엑셀에 남지 않는다.
+        # (수집 로그가 있는 날짜만 지우므로 크롤이 통째로 실패한 날짜는 기존 데이터 유지)
         wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                        if kobis_multiplex else [brand])
         MovieSchedule.replace_before_transform(
-            wipe_brands, sorted({l.query_date for l in site_logs}),
-            target_titles=crawl_target_titles)
+            wipe_brands, sorted({l.query_date for l in site_logs}))
 
         total_created = 0
         for log in site_logs:
@@ -1075,6 +1075,10 @@ class CrawlerReportView(APIView):
         brands = request.data.get('brands')
         if not (brands and isinstance(brands, list)):
             brands = None
+        # C004(0827): 경쟁작 다중 선택 — 미지정이면 활성 크롤 대상 전체
+        competitors = request.data.get('competitors')
+        if not (competitors and isinstance(competitors, list)):
+            competitors = None
 
         # C008: 특정 날짜(비연속 다중 선택) 보고서
         picked_dates = request.data.get('dates')
@@ -1104,7 +1108,8 @@ class CrawlerReportView(APIView):
 
             data = build_report_data(start_date, end_date,
                                      main_title=main_title if mode == 'main' else None,
-                                     brands=brands, dates=sel_dates)
+                                     brands=brands, dates=sel_dates,
+                                     competitors=competitors)
 
             save_dir = os.path.join(dj_settings.BASE_DIR, 'media', 'crawler_exports')
             os.makedirs(save_dir, exist_ok=True)

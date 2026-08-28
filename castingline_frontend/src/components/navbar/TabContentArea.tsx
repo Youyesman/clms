@@ -32,10 +32,7 @@ import { SettlementAggregatePage } from "../../customer/domain/settlement/pages/
 import { TheaterTotalPage } from "../../customer/domain/settlement/pages/TheaterTotalPage";
 import { SupplyPricePage } from "../../customer/domain/settlement/pages/SupplyPricePage";
 import { TimeTablePage } from "../../customer/domain/time_table/pages/TimeTablePage";
-import { SeatCountPage } from "../../customer/domain/time_table/pages/SeatCountPage";
-import { TheaterCountPage } from "../../customer/domain/time_table/pages/TheaterCountPage";
-import { ScreenCountPage } from "../../customer/domain/time_table/pages/ScreenCountPage";
-import { ShowCountPage } from "../../customer/domain/time_table/pages/ShowCountPage";
+import { CompetitorPage } from "../../customer/domain/time_table/pages/CompetitorPage";
 import { ScoreOverview } from "../../domain/dashboard/ScoreOverview";
 import { CumulativeRanking } from "../../domain/dashboard/CumulativeRanking";
 import Main from "../../domain/main/pages/Main";
@@ -74,10 +71,8 @@ const PATH_TO_COMPONENT: Record<string, React.ComponentType> = {
     "/manage/settlement/theater-total": TheaterTotalPage,
     "/manage/settlement/supply-price": SupplyPricePage,
     "/manage/time_table": TimeTablePage,
-    "/manage/time_table/seat-count": SeatCountPage,
-    "/manage/time_table/theater-count": TheaterCountPage,
-    "/manage/time_table/screen-count": ScreenCountPage,
-    "/manage/time_table/show-count": ShowCountPage,
+    // T002(0827): 주요작 4개 탭 삭제, '경쟁작' 신설
+    "/manage/time_table/competitor": CompetitorPage,
     "/manage/dashboard/score": ScoreOverview,
     "/manage/dashboard/ranking": CumulativeRanking,
 };

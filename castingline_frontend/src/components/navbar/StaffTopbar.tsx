@@ -127,10 +127,8 @@ const PATH_MAP: Record<string, { group: string; name: string }> = {
     "/manage/settlement/theater-total": { group: "배급사 뷰", name: "극장별 합계" },
     "/manage/settlement/supply-price": { group: "배급사 뷰", name: "공급가 조회" },
     "/manage/time_table": { group: "배급사 뷰", name: "시간표 조회" },
-    "/manage/time_table/theater-count": { group: "배급사 뷰", name: "극장수" },
-    "/manage/time_table/screen-count": { group: "배급사 뷰", name: "스크린수" },
-    "/manage/time_table/show-count": { group: "배급사 뷰", name: "상영횟수" },
-    "/manage/time_table/seat-count": { group: "배급사 뷰", name: "좌석수(좌점율)" },
+    // T002(0827): 주요작 4개 메뉴 삭제, '경쟁작' 신설
+    "/manage/time_table/competitor": { group: "배급사 뷰", name: "경쟁작" },
 };
 
 function StaffTopbar({ $sidebarWidth }: { $sidebarWidth: number }) {

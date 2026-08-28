@@ -674,19 +674,22 @@ class MovieSchedule(models.Model):
 
     @classmethod
     def replace_before_transform(cls, brands, yyyymmdd_dates, target_titles=None):
-        """0825: '가장 최근 크롤만 표출' — 교체 방식.
+        """'가장 최근 크롤만 표출' — 교체 방식.
 
         크롤 변환 직전에 이번 크롤 범위의 기존 스케줄을 지운 뒤 새 수집분으로
         다시 채운다. 잔재(이전 크롤의 폐지·변경 회차, 영진위↔자사 표기 차이
         행 등)가 원천적으로 남지 않는다.
 
-        교체 단위는 **영화별**이다: target_titles(이번 변환의 크롤 대상 영화)가
-        주어지면 (브랜드 × 상영일)에서 그 영화들의 행만 지운다. 크롤 대상에서
-        뺀 영화의 이전 데이터는 유지된다 — 예) 1시에 30편 크롤 후 2시에 20편만
-        다시 돌리면, 뺀 10편은 1시 데이터 그대로, 돌린 20편만 2시 기준으로 교체.
-        target_titles 가 없으면(대상 미지정 = 전 영화 수집·재변환) 범위 전체를
-        지운다. 수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의
-        기존 데이터는 유지된다.
+        C002(0827): 교체 단위는 **(브랜드 × 상영일) 전체**다. 같은 날짜를 다시
+        크롤하면 그 날짜의 기존 데이터는 영화 구분 없이 전부 지워지고 이번
+        크롤 대상 영화만 남는다 — 예) 1차에 20편으로 9/2~9/8을 크롤한 뒤
+        2차에 3편만 골라 9/2~9/4를 다시 크롤하면, 9/2~9/4는 그 3편만 남고
+        9/5~9/8은 1차 데이터가 유지된다. (0825의 '영화별 교체'는 이전 크롤
+        영화의 잔재가 보고서에 계속 남는 문제로 0827에 폐기)
+
+        target_titles 는 하위 호환용으로 남겨둔다: 주어지면 예전처럼 그 영화들의
+        행만 지운다(현재 호출부는 모두 미지정). 수집 로그가 있는 날짜만 지우므로,
+        크롤이 통째로 실패한 날짜의 기존 데이터는 유지된다.
         """
         from datetime import datetime as _dt
         dates = []
@@ -711,7 +714,7 @@ class MovieSchedule(models.Model):
             scope = f"대상 {len(target_titles)}편"
         deleted, _detail = qs.delete()
         if deleted:
-            print(f"   [Replace] {'/'.join(brands)} {len(dates)}일치 {scope} 기존 스케줄 {deleted}건 삭제 (영화별 교체)")
+            print(f"   [Replace] {'/'.join(brands)} {len(dates)}일치 {scope} 기존 스케줄 {deleted}건 삭제 (날짜 전체 교체)")
         return deleted
 
     @classmethod

@@ -3,7 +3,7 @@ import styled from "styled-components";
 import { PageNavTabs, TIME_TABLE_TABS } from "../../../../components/common/PageNavTabs";
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid,
-    Tooltip, ResponsiveContainer,
+    Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import { useToast } from "../../../../components/common/CustomToast";
 import { AxiosGet } from "../../../../axios/Axios";
@@ -12,13 +12,16 @@ import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { downloadTimetableExcel } from "../exportTimetableExcel"; // A001
-import { TimetableReportModal } from "../TimetableReportModal"; // A003
+
+/* T001(0827): 집계작 시간표 화면 개편
+   - KEY SUMMARY: 합계(전주 대비) + 일별 행
+   - 지역별/포맷별 상세 현황: 일별 컬럼 + 비중(%)
+   - 상영일자 추이: 4개 지표 버튼, 금주 실선 vs 전주 점선
+   - 상단 엑셀/PDF: 그래프 제외 화면 그대로 + 캐스팅라인 로고 */
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
     n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
-const fmtD = (n: number | null | undefined) =>
-    n == null ? "-" : Number(n).toFixed(1);
 const fmtPct = (n: number | null | undefined) =>
     n == null ? "-" : Number(n).toFixed(1) + "%";
 
@@ -31,37 +34,52 @@ interface MovieOption {
     distributor_name: string | null;
 }
 
-interface StatRow {
-    label: string;
-    theater_count: number;
-    show_count: number;
-    avg_shows: number;
-    screen_count: number;
+interface Kpis {
     total_seats: number;
-    avg_seats: number;
     sold_seats: number;
-    is_total?: boolean;
+    occupancy: number;
+    shows: number;
+    theaters: number;
+    screens: number;
 }
 
-interface FormatRow extends StatRow {
-    format: string;
-    classification: string;
-}
+interface CmpNum { diff: number; rate: number | null }
 
-interface SlotRow {
+interface KeySummaryTotal extends Kpis {
     label: string;
-    조조?: number;
-    오전?: number;
-    오후?: number;
-    저녁?: number;
-    심야?: number;
-    total?: number;
+    cmp: {
+        total_seats: CmpNum; sold_seats: CmpNum; occupancy: { diff: number };
+        shows: CmpNum; theaters: CmpNum; screens: CmpNum;
+    } | null;
+}
+
+interface KeySummaryDay extends Kpis { date: string; label: string }
+
+interface DetailDay { seats: number; share: number }
+
+interface DetailRow {
+    label: string;
+    days: DetailDay[];
+    total_seats: number;
+    total_share: number;
+    count: number;
+    shows: number;
     is_total?: boolean;
 }
 
-interface DailyPoint {
+interface DetailBlock {
+    dates: string[];
+    labels: string[];
+    count_label: string;
+    rows: DetailRow[];
+}
+
+interface TrendPoint {
     date: string;
-    total_seats: number;
+    label: string;
+    prev_date: string;
+    cur: Kpis;
+    prev: Kpis | null;
 }
 
 interface TimetableData {
@@ -69,14 +87,17 @@ interface TimetableData {
         movie_title: string;
         release_date: string | null;
         distributor_name: string | null;
-        /* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */
         last_crawled_at: string | null;
+        date_from: string;
+        date_to: string;
+        prev_from: string;
+        prev_to: string;
+        has_prev: boolean;
     };
-    by_chain: StatRow[];
-    by_region: StatRow[];
-    by_format: FormatRow[];
-    time_slots: { count_rows: SlotRow[]; pct_rows: SlotRow[] };
-    daily_chart: DailyPoint[];
+    key_summary: { total: KeySummaryTotal; days: KeySummaryDay[] };
+    region_detail: DetailBlock;
+    format_detail: DetailBlock;
+    trend: { dates: string[]; prev_dates: string[]; points: TrendPoint[]; compare_note: string };
 }
 
 /* ── 스타일 ── */
@@ -90,9 +111,6 @@ const PageWrapper = styled.div`
     gap: 16px;
 `;
 
-
-
-
 const SearchBtn = styled.button`
     height: 30px;
     padding: 0 20px;
@@ -104,7 +122,6 @@ const SearchBtn = styled.button`
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    &:hover { background: #2563eb; }
     &:disabled { background: #94a3b8; cursor: not-allowed; }
 `;
 
@@ -130,7 +147,6 @@ const TableWrap = styled.div`
 
 const Tbl = styled.table`
     width: 100%;
-    /* collapse는 테두리가 셀과 분리돼 sticky 헤더 뒤로 글자가 비침 — separate로 셀에 귀속 */
     border-collapse: separate;
     border-spacing: 0;
     border-top: 1px solid #e2e8f0;
@@ -140,50 +156,34 @@ const Tbl = styled.table`
     th, td {
         border-right: 1px solid #e2e8f0;
         border-bottom: 1px solid #e2e8f0;
-        padding: 5px 10px;
+        padding: 6px 10px;
         text-align: center;
     }
     th {
         background: #f1f5f9;
         font-weight: 700;
         color: #475569;
-        position: sticky;
-        top: 0;
-        z-index: 1;
     }
     td { color: #475569; }
     tbody tr:hover td { background: #f8fafc; }
     .total-row td {
-        background: #bfdbfe !important;
+        background: #eff6ff !important;
         color: #1d4ed8 !important;
         font-weight: 700;
-        font-size: 12.5px;
     }
+    .share-cell { color: #94a3b8; font-size: 11.5px; }
 `;
 
-const TwoColGrid = styled.div`
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    @media (max-width: 1100px) { grid-template-columns: 1fr; }
-`;
-
-const ChartSection = styled(SectionCard)``;
-
-const PopoverBox = styled.div<{ $x: number; $y: number }>`
-    position: fixed;
-    left: ${p => p.$x + 12}px;
-    top: ${p => p.$y - 30}px;
-    background: #1e293b;
-    color: white;
+const MetricBtn = styled.button<{ $active: boolean }>`
+    height: 28px;
+    padding: 0 14px;
     border-radius: 6px;
-    padding: 6px 12px;
     font-size: 12px;
     font-weight: 600;
-    pointer-events: none;
-    z-index: 9999;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    cursor: pointer;
+    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
+    background: ${({ $active }) => ($active ? "#2563eb" : "#ffffff")};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#64748b")};
 `;
 
 const EmptyMsg = styled.div`
@@ -195,7 +195,29 @@ const EmptyMsg = styled.div`
     line-height: 1.6;
 `;
 
-const SLOT_NAMES: (keyof SlotRow)[] = ["조조", "오전", "오후", "저녁", "심야"];
+const CmpText = styled.span`
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #dc2626;
+    margin-top: 2px;
+`;
+
+/* 전주 대비 표기: ▲/▼ + 증감(비율) — 보고서 규칙과 동일하게 빨간색 */
+const cmpTxt = (c: CmpNum | undefined, unit: string) => {
+    if (!c) return null;
+    const arrow = c.diff >= 0 ? "▲" : "▼";
+    const rate = c.rate != null ? ` (${c.rate >= 0 ? "+" : ""}${c.rate.toFixed(1)}%)` : "";
+    return `${arrow} ${c.diff >= 0 ? "+" : ""}${Math.round(c.diff).toLocaleString("ko-KR")}${unit}${rate}`;
+};
+
+type MetricKey = "total_seats" | "sold_seats" | "occupancy" | "shows";
+const METRICS: { key: MetricKey; label: string; unit: string }[] = [
+    { key: "total_seats", label: "총 좌석수", unit: "석" },
+    { key: "sold_seats", label: "예매좌석수", unit: "석" },
+    { key: "occupancy", label: "좌석점유율", unit: "%" },
+    { key: "shows", label: "회차수", unit: "회" },
+];
 
 /* ── 컴포넌트 ── */
 export function TimeTablePage() {
@@ -215,13 +237,13 @@ export function TimeTablePage() {
     /* 검색 결과 */
     const [data, setData] = useState<TimetableData | null>(null);
 
-    /* A001: 엑셀 다운로드 / A003: 요약보고서 모달 */
+    /* 엑셀/PDF 다운로드 */
     const [excelBusy, setExcelBusy] = useState(false);
-    const [showReportModal, setShowReportModal] = useState(false);
+    const [pdfBusy, setPdfBusy] = useState(false);
 
-    /* 차트 클릭 popover */
-    const [popover, setPopover] = useState<{ x: number; y: number; date: string; value: number } | null>(null);
-    /* 선택된 영화 정보 */
+    /* 상영일자 추이 지표 선택 */
+    const [metric, setMetric] = useState<MetricKey>("total_seats");
+
     const selectedMovie = useMemo(
         () => moviesList.find(m => m.id.toString() === movieId) ?? null,
         [moviesList, movieId]
@@ -272,27 +294,33 @@ export function TimeTablePage() {
         setFieldErrors(e => ({ ...e, movie: false }));
     };
 
-    /* 검색 */
-    const handleSearch = useCallback(() => {
+    const validate = () => {
         const errs = { movie: !movieId, dateFrom: !dateFrom, dateTo: !dateTo };
         setFieldErrors(errs);
-        if (Object.values(errs).some(Boolean)) return;
+        return !Object.values(errs).some(Boolean);
+    };
 
+    /* 검색 */
+    const handleSearch = useCallback(() => {
+        if (!validate()) return;
         setLoading(true);
-        setPopover(null);
         AxiosGet("score/timetable/", {
             params: { movie_id: movieId, date_from: dateFrom, date_to: dateTo },
         })
             .then(res => setData(res.data))
-            .catch(err => toast.error(handleBackendErrors(err)))
+            .catch(err => {
+                // 조회 실패 시 이전 결과를 지운다 — 남겨두면 헤더의 조사기간과
+                // 표의 내용이 어긋나 다른 조건의 데이터로 오인하게 된다
+                setData(null);
+                toast.error(handleBackendErrors(err));
+            })
             .finally(() => setLoading(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieId, dateFrom, dateTo, toast]);
 
-    /* A001: 현재 조회 조건 그대로 엑셀 다운로드 (그래프 제외) */
+    /* 엑셀: 화면 그대로 (그래프 제외) + 로고 */
     const handleExcel = useCallback(async () => {
-        const errs = { movie: !movieId, dateFrom: !dateFrom, dateTo: !dateTo };
-        setFieldErrors(errs);
-        if (Object.values(errs).some(Boolean)) return;
+        if (!validate()) return;
         setExcelBusy(true);
         try {
             await downloadTimetableExcel(
@@ -306,141 +334,174 @@ export function TimeTablePage() {
         } finally {
             setExcelBusy(false);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieId, dateFrom, dateTo, selectedMovie, toast]);
 
-    /* 차트 클릭 처리 */
-    const handleChartClick = (chartData: any, event: any) => {
-        if (chartData?.activePayload?.length > 0) {
-            setPopover({
-                x: event?.clientX ?? 0,
-                y: event?.clientY ?? 0,
-                date: chartData.activeLabel ?? "",
-                value: chartData.activePayload[0]?.value ?? 0,
+    /* PDF: 화면 그대로 (그래프 제외) + 로고 */
+    const handlePdf = useCallback(async () => {
+        if (!validate()) return;
+        setPdfBusy(true);
+        try {
+            const response: any = await AxiosGet("score/timetable-pdf/", {
+                params: { movie_id: movieId, date_from: dateFrom, date_to: dateTo },
+                responseType: "blob",
             });
-        } else {
-            setPopover(null);
+            const blob = new Blob([response.data], { type: "application/pdf" });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            let filename = `집계작 시간표_${selectedMovie?.title_ko ?? ""}.pdf`;
+            const cd = response.headers?.["content-disposition"];
+            if (cd) {
+                const star = cd.match(/filename\*=(?:utf-8'')?([^;]+)/i);
+                const plain = cd.match(/filename="?([^";]+)"?/);
+                if (star?.[1]) filename = decodeURIComponent(star[1]);
+                else if (plain?.[1]) filename = decodeURIComponent(plain[1]);
+            }
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            toast.success("PDF 보고서가 다운로드 되었습니다.");
+        } catch (err: any) {
+            toast.error(handleBackendErrors(err));
+        } finally {
+            setPdfBusy(false);
         }
-    };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [movieId, dateFrom, dateTo, selectedMovie, toast]);
 
-    /* 화면 클릭으로 popover 닫기 */
-    useEffect(() => {
-        if (!popover) return;
-        const close = () => setPopover(null);
-        window.addEventListener("click", close);
-        return () => window.removeEventListener("click", close);
-    }, [popover]);
+    const minDate = availableDates[0] ?? "";
+    const maxDate = availableDates[availableDates.length - 1] ?? "";
 
-    /* ── 공통 데이터 테이블 렌더 ── */
-    const StatTable = ({ rows, firstColLabel }: { rows: StatRow[]; firstColLabel: string }) => (
-        <Tbl>
-            <thead>
-                <tr>
-                    <th>{firstColLabel}</th>
-                    <th>극장수</th>
-                    <th>상영회차</th>
-                    <th>평균회차</th>
-                    <th>상영관수</th>
-                    <th>총좌석수</th>
-                    <th>평균좌석수</th>
-                    <th>판매좌석수</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows.map((r, i) => (
-                    <tr key={i} className={r.is_total ? "total-row" : ""}>
-                        <td style={{ textAlign: "left", fontWeight: r.is_total ? 700 : 400 }}>{r.label}</td>
-                        <td>{fmt(r.theater_count)}</td>
-                        <td>{fmt(r.show_count)}</td>
-                        <td>{fmtD(r.avg_shows)}</td>
-                        <td>{fmt(r.screen_count)}</td>
-                        <td>{fmt(r.total_seats)}</td>
-                        <td>{fmtD(r.avg_seats)}</td>
-                        <td>{fmt(r.sold_seats)}</td>
-                    </tr>
-                ))}
-                {rows.length === 0 && (
-                    <tr><td colSpan={8}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
-                )}
-            </tbody>
-        </Tbl>
+    const hasData = !!data && data.key_summary.total.total_seats > 0;
+
+    /* 추이 차트 데이터 */
+    const metricConf = METRICS.find(m => m.key === metric)!;
+    const chartData = useMemo(() => {
+        if (!data) return [];
+        return data.trend.points.map(p => ({
+            label: p.label,
+            금주: p.cur ? p.cur[metric] : null,
+            전주: p.prev ? p.prev[metric] : null,
+        }));
+    }, [data, metric]);
+
+    const chartValueFmt = (v: number | null | undefined) =>
+        v == null ? "-" : metric === "occupancy" ? `${Number(v).toFixed(1)}%` : `${Math.round(v).toLocaleString("ko-KR")}${metricConf.unit}`;
+
+    /* ── KEY SUMMARY 렌더 ── */
+    const KeySummary = ({ ks }: { ks: TimetableData["key_summary"] }) => (
+        <SectionCard>
+            <SectionTitle>KEY SUMMARY</SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <th>지표</th>
+                            <th>총 좌석수</th>
+                            <th>예매좌석수</th>
+                            <th>좌석점유율</th>
+                            <th>총 회차</th>
+                            <th>총 극장수</th>
+                            <th>총 스크린수</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr className="total-row">
+                            <td>{ks.total.label}</td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmt(ks.total.total_seats)}석</b>
+                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.total_seats, "석")}</CmpText>}
+                            </td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmt(ks.total.sold_seats)}석</b>
+                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.sold_seats, "석")}</CmpText>}
+                            </td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmtPct(ks.total.occupancy)}</b>
+                                {ks.total.cmp && (
+                                    <CmpText>
+                                        {ks.total.cmp.occupancy.diff >= 0 ? "▲" : "▼"} {Math.abs(ks.total.cmp.occupancy.diff).toFixed(1)}%p
+                                    </CmpText>
+                                )}
+                            </td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmt(ks.total.shows)}회</b>
+                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.shows, "회")}</CmpText>}
+                            </td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmt(ks.total.theaters)}개</b>
+                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.theaters, "개")}</CmpText>}
+                            </td>
+                            <td>
+                                <b style={{ fontSize: 13 }}>{fmt(ks.total.screens)}개</b>
+                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.screens, "개")}</CmpText>}
+                            </td>
+                        </tr>
+                        {ks.days.map(d => (
+                            <tr key={d.date}>
+                                <td style={{ fontWeight: 600 }}>{d.label}</td>
+                                <td>{fmt(d.total_seats)}석</td>
+                                <td>{fmt(d.sold_seats)}석</td>
+                                <td>{fmtPct(d.occupancy)}</td>
+                                <td>{fmt(d.shows)}회</td>
+                                <td>{fmt(d.theaters)}개</td>
+                                <td>{fmt(d.screens)}개</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
     );
 
-    /* ── 포맷별 테이블 ── */
-    const FormatTable = ({ rows }: { rows: FormatRow[] }) => (
-        <Tbl>
-            <thead>
-                <tr>
-                    <th>계열사</th>
-                    <th>포맷</th>
-                    <th>구분</th>
-                    <th>극장수</th>
-                    <th>상영회차</th>
-                    <th>평균회차</th>
-                    <th>상영관수</th>
-                    <th>총좌석수</th>
-                    <th>평균좌석수</th>
-                    <th>판매좌석수</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows.map((r, i) => (
-                    <tr key={i} className={r.is_total ? "total-row" : ""}>
-                        <td style={{ textAlign: "left", fontWeight: r.is_total ? 700 : 400 }}>{r.label}</td>
-                        <td>{r.format}</td>
-                        <td>{r.classification}</td>
-                        <td>{fmt(r.theater_count)}</td>
-                        <td>{fmt(r.show_count)}</td>
-                        <td>{fmtD(r.avg_shows)}</td>
-                        <td>{fmt(r.screen_count)}</td>
-                        <td>{fmt(r.total_seats)}</td>
-                        <td>{fmtD(r.avg_seats)}</td>
-                        <td>{fmt(r.sold_seats)}</td>
-                    </tr>
-                ))}
-                {rows.length === 0 && (
-                    <tr><td colSpan={10}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
-                )}
-            </tbody>
-        </Tbl>
-    );
-
-    /* ── 시간대 회차 테이블 ── */
-    const SlotTable = ({ rows, title }: { rows: SlotRow[]; title: string }) => (
+    /* ── 지역별/포맷별 상세 표 ── */
+    const DetailTable = ({ title, detail }: { title: string; detail: DetailBlock }) => (
         <SectionCard>
             <SectionTitle>{title}</SectionTitle>
             <TableWrap>
                 <Tbl>
                     <thead>
                         <tr>
-                            <th>계열사</th>
-                            <th>조조<br /><span style={{ fontWeight: 400, fontSize: 11 }}>05:00~10:00</span></th>
-                            <th>오전<br /><span style={{ fontWeight: 400, fontSize: 11 }}>10:01~12:00</span></th>
-                            <th>오후<br /><span style={{ fontWeight: 400, fontSize: 11 }}>12:01~17:00</span></th>
-                            <th>저녁<br /><span style={{ fontWeight: 400, fontSize: 11 }}>17:01~21:00</span></th>
-                            <th>심야<br /><span style={{ fontWeight: 400, fontSize: 11 }}>21:01~23:59</span></th>
-                            {"total" in (rows[0] ?? {}) ? <th>상영회차</th> : null}
+                            <th rowSpan={2}>구분</th>
+                            {detail.labels.map(lb => (
+                                <th key={lb} colSpan={2}>{lb}</th>
+                            ))}
+                            <th colSpan={2}>합계 ({detail.labels.length}일)</th>
+                            <th rowSpan={2}>{detail.count_label}</th>
+                            <th rowSpan={2}>회차수<br /><span style={{ fontWeight: 400, fontSize: 11 }}>({detail.labels.length}일 합계)</span></th>
+                        </tr>
+                        <tr>
+                            {detail.labels.map(lb => (
+                                <React.Fragment key={lb}>
+                                    <th>총 좌석수</th>
+                                    <th>비중</th>
+                                </React.Fragment>
+                            ))}
+                            <th>총 좌석수</th>
+                            <th>비중</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((r, i) => {
-                            const hasTotal = "total" in r;
-                            const isCount = hasTotal;
-                            return (
-                                <tr key={i} className={r.is_total ? "total-row" : ""}>
-                                    <td style={{ textAlign: "left", fontWeight: r.is_total ? 700 : 400 }}>{r.label}</td>
-                                    {SLOT_NAMES.map(sl => (
-                                        <td key={sl}>
-                                            {isCount
-                                                ? fmt(r[sl] as number)
-                                                : fmtPct(r[sl] as number)}
-                                        </td>
-                                    ))}
-                                    {hasTotal ? <td style={{ fontWeight: 600 }}>{fmt(r.total)}</td> : null}
-                                </tr>
-                            );
-                        })}
-                        {rows.length === 0 && (
-                            <tr><td colSpan={7}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
+                        {detail.rows.map((r, i) => (
+                            <tr key={i} className={r.is_total ? "total-row" : ""}>
+                                <td style={{ fontWeight: r.is_total ? 700 : 600 }}>{r.label}</td>
+                                {r.days.map((d, di) => (
+                                    <React.Fragment key={di}>
+                                        <td>{fmt(d.seats)}석</td>
+                                        <td className={r.is_total ? "" : "share-cell"}>{fmtPct(d.share)}</td>
+                                    </React.Fragment>
+                                ))}
+                                <td style={{ fontWeight: 700 }}>{fmt(r.total_seats)}석</td>
+                                <td className={r.is_total ? "" : "share-cell"}>{fmtPct(r.total_share)}</td>
+                                <td>{fmt(r.count)}</td>
+                                <td>{fmt(r.shows)}</td>
+                            </tr>
+                        ))}
+                        {detail.rows.length === 0 && (
+                            <tr><td colSpan={2 * detail.labels.length + 5}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
                         )}
                     </tbody>
                 </Tbl>
@@ -448,11 +509,8 @@ export function TimeTablePage() {
         </SectionCard>
     );
 
-    const minDate = availableDates[0] ?? "";
-    const maxDate = availableDates[availableDates.length - 1] ?? "";
-
     return (
-        <PageWrapper onClick={() => setPopover(null)}>
+        <PageWrapper>
             {/* ── 탭 네비게이션 ── */}
             <PageNavTabs tabs={TIME_TABLE_TABS} />
 
@@ -463,22 +521,21 @@ export function TimeTablePage() {
                         <SearchBtn onClick={handleSearch} disabled={loading}>
                             {loading ? "조회 중…" : "검색"}
                         </SearchBtn>
-                        {/* A001: 엑셀 다운로드 */}
                         <SearchBtn
                             onClick={handleExcel}
                             disabled={excelBusy}
                             style={{ background: "#16a34a" }}
-                            title="현재 조회 조건의 데이터를 엑셀로 다운로드 (그래프 제외)"
+                            title="화면에 보이는 표 그대로 엑셀 다운로드 (그래프 제외 · 캐스팅라인 로고 포함)"
                         >
                             {excelBusy ? "생성 중…" : "엑셀"}
                         </SearchBtn>
-                        {/* A003: 요약보고서(PDF) 다운로드 */}
                         <SearchBtn
-                            onClick={() => setShowReportModal(true)}
+                            onClick={handlePdf}
+                            disabled={pdfBusy}
                             style={{ background: "#dc2626" }}
-                            title="요약보고서(PDF) 다운로드 — 출력 유형 선택"
+                            title="화면에 보이는 표 그대로 PDF 보고서 (그래프 제외 · 캐스팅라인 로고 포함)"
                         >
-                            PDF 보고서
+                            {pdfBusy ? "생성 중…" : "PDF 보고서"}
                         </SearchBtn>
                     </>
                 }>
@@ -546,110 +603,94 @@ export function TimeTablePage() {
             {/* ── 검색 결과 ── */}
             {data && (
                 <>
-                    {/* 영화 제목 + 개봉일 표시 */}
+                    {/* 영화 제목 + 조사기간 표시 */}
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b" }}>
-                        {data.meta.movie_title}
+                        작품명 {data.meta.movie_title}
+                        <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 12 }}>
+                            조사기간 {data.meta.date_from} ~ {data.meta.date_to}
+                        </span>
+                        <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 12 }}>
+                            전주 {data.meta.prev_from} ~ {data.meta.prev_to}
+                        </span>
                         {data.meta.release_date && (
-                            <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 10 }}>
-                                개봉일: {data.meta.release_date}
+                            <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 12 }}>
+                                개봉일 {data.meta.release_date}
                             </span>
                         )}
-                        {data.meta.distributor_name && (
-                            <span style={{ fontWeight: 400, fontSize: 13, color: "#64748b", marginLeft: 16 }}>
-                                배급사: {data.meta.distributor_name}
-                            </span>
-                        )}
-                        {/* V002: '날짜 To' 상영일 데이터의 마지막 수집 일시 */}
-                        <span style={{ fontWeight: 700, fontSize: 13, color: "#1e293b", marginLeft: 16 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "#1e293b", marginLeft: 12 }}>
                             수집 완료 시간: {data.meta.last_crawled_at ?? "-"}
                         </span>
                     </div>
 
-                    {/* 계열사별 + 상영시간 회차 비율 (나란히) */}
-                    <TwoColGrid>
-                        <SectionCard>
-                            <SectionTitle>계열사별</SectionTitle>
-                            <TableWrap>
-                                <StatTable rows={data.by_chain} firstColLabel="계열사" />
-                            </TableWrap>
-                        </SectionCard>
+                    {hasData ? (
+                        <>
+                            <KeySummary ks={data.key_summary} />
+                            <DetailTable title="지역별 상세 현황" detail={data.region_detail} />
+                            <DetailTable title="포맷별 상세 현황" detail={data.format_detail} />
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                            {data.time_slots.count_rows.length > 0 && (
-                                <SlotTable rows={data.time_slots.count_rows} title="상영 시간 회차 비율 (회차)" />
-                            )}
-                            {data.time_slots.pct_rows.length > 0 && (
-                                <SlotTable rows={data.time_slots.pct_rows} title="상영 시간 회차 비율 (%)" />
-                            )}
-                        </div>
-                    </TwoColGrid>
-
-                    {/* 지역별 */}
-                    <SectionCard>
-                        <SectionTitle>지역별</SectionTitle>
-                        <TableWrap>
-                            <StatTable rows={data.by_region} firstColLabel="지역" />
-                        </TableWrap>
-                    </SectionCard>
-
-                    {/* 포맷별 */}
-                    <SectionCard>
-                        <SectionTitle>포맷별</SectionTitle>
-                        <TableWrap>
-                            <FormatTable rows={data.by_format} />
-                        </TableWrap>
-                    </SectionCard>
-
-                    {/* 꺾은선 차트 */}
-                    {data.daily_chart.length > 0 && (
-                        <ChartSection>
-                            <SectionTitle>총좌석수 상영일자 추이</SectionTitle>
-                            <div
-                                style={{ padding: "16px 8px 8px" }}
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <ResponsiveContainer width="100%" height={280}>
-                                    <LineChart
-                                        data={data.daily_chart}
-                                        onClick={handleChartClick}
-                                        style={{ cursor: "pointer" }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                        <XAxis
-                                            dataKey="date"
-                                            tick={{ fontSize: 11, fill: "#64748b" }}
-                                            tickLine={false}
-                                        />
-                                        <YAxis
-                                            tick={{ fontSize: 11, fill: "#64748b" }}
-                                            tickLine={false}
-                                            axisLine={false}
-                                            tickFormatter={(v: number) => v.toLocaleString("ko-KR")}
-                                            width={70}
-                                        />
-                                        <Tooltip
-                                            formatter={(value) => [Number(value ?? 0).toLocaleString("ko-KR"), "총좌석수"]}
-                                            labelStyle={{ color: "#1e293b", fontWeight: 600 }}
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="total_seats"
-                                            stroke="#2563eb"
-                                            strokeWidth={2}
-                                            dot={{ r: 3, fill: "#2563eb" }}
-                                            activeDot={{ r: 5 }}
-                                        />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                                <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 4 }}>
-                                    그래프를 클릭하면 해당 날짜의 총좌석수가 표시됩니다
+                            {/* ── 상영일자 추이 ── */}
+                            <SectionCard>
+                                <SectionTitle>상영일자 추이</SectionTitle>
+                                <div style={{ padding: "12px 14px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                                    <div style={{ display: "flex", gap: 6 }}>
+                                        {METRICS.map(m => (
+                                            <MetricBtn key={m.key} $active={metric === m.key} onClick={() => setMetric(m.key)}>
+                                                {m.label}
+                                            </MetricBtn>
+                                        ))}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "#64748b", display: "flex", gap: 14 }}>
+                                        <span><span style={{ color: "#2563eb", fontWeight: 700 }}>━</span> 금주 ({data.meta.date_from}~{data.meta.date_to})</span>
+                                        <span><span style={{ color: "#94a3b8", fontWeight: 700 }}>┅</span> 전주 ({data.meta.prev_from}~{data.meta.prev_to})</span>
+                                    </div>
                                 </div>
-                            </div>
-                        </ChartSection>
-                    )}
-
-                    {/* 데이터 없음 안내 */}
-                    {data.by_chain.length === 0 && data.by_region.length === 0 && (
+                                <div style={{ padding: "8px 8px 4px" }}>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <LineChart data={chartData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} />
+                                            <YAxis
+                                                tick={{ fontSize: 11, fill: "#64748b" }}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickFormatter={(v: number) =>
+                                                    metric === "occupancy" ? `${v}%` : v.toLocaleString("ko-KR")}
+                                                width={70}
+                                            />
+                                            <Tooltip
+                                                formatter={(value: any, name: any) => [chartValueFmt(value), name]}
+                                                labelStyle={{ color: "#1e293b", fontWeight: 600 }}
+                                            />
+                                            <Legend wrapperStyle={{ fontSize: 12 }} />
+                                            {/* 전주: 점선 */}
+                                            <Line
+                                                type="monotone"
+                                                dataKey="전주"
+                                                stroke="#94a3b8"
+                                                strokeWidth={2}
+                                                strokeDasharray="6 4"
+                                                dot={{ r: 3, fill: "#94a3b8" }}
+                                                connectNulls
+                                            />
+                                            {/* 금주: 실선 */}
+                                            <Line
+                                                type="monotone"
+                                                dataKey="금주"
+                                                stroke="#2563eb"
+                                                strokeWidth={2.5}
+                                                dot={{ r: 4, fill: "#2563eb" }}
+                                                activeDot={{ r: 6 }}
+                                                connectNulls
+                                            />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                    <div style={{ fontSize: 11, color: "#94a3b8", padding: "0 8px 10px" }}>
+                                        ※ 전주 동일요일 기준 비교 ({data.trend.compare_note})
+                                    </div>
+                                </div>
+                            </SectionCard>
+                        </>
+                    ) : (
                         <SectionCard>
                             <EmptyMsg>
                                 선택한 기간에 해당하는 집계작 시간표 데이터가 없습니다.
@@ -666,23 +707,6 @@ export function TimeTablePage() {
                         연도와 영화를 선택한 후 날짜 범위를 지정하고 검색 버튼을 눌러주세요.
                     </EmptyMsg>
                 </SectionCard>
-            )}
-
-            {/* 차트 클릭 Popover */}
-            {popover && (
-                <PopoverBox $x={popover.x} $y={popover.y}>
-                    {popover.date} &nbsp;|&nbsp; 총좌석수: {popover.value.toLocaleString("ko-KR")}석
-                </PopoverBox>
-            )}
-
-            {/* A003: 요약보고서(PDF) 다운로드 모달 */}
-            {showReportModal && (
-                <TimetableReportModal
-                    movieTitle={selectedMovie?.title_ko ?? null}
-                    defaultStart={dateFrom}
-                    defaultEnd={dateTo}
-                    onClose={() => setShowReportModal(false)}
-                />
             )}
         </PageWrapper>
     );

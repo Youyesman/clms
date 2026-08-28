@@ -551,7 +551,42 @@ export const CrawlerPage = () => {
         {
             key: "created_at",
             label: "시작",
-            renderCell: (val: string) => <span style={{ fontSize: '12px' }}>{formatDateTime(val)}</span>
+            renderCell: (val: string, item: ICrawlerHistory) => {
+                // C001(0827): 시작 시각 옆에 이번 실행이 수집한 '대상 날짜'를 함께 표기
+                // - 수동(기간): crawlStartDate~crawlEndDate
+                // - 수동(특정 날짜 다중): crawlDates 나열
+                // - 자동: configuration.target_dates(YYYYMMDD 목록) → 범위로 표기
+                const conf = item.configuration || {};
+                const toDash = (s: string) => {
+                    const t = String(s).replace(/-/g, '');
+                    return t.length === 8 ? `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}` : String(s);
+                };
+                let target = '';
+                if (Array.isArray(conf.crawlDates) && conf.crawlDates.length > 0) {
+                    const ds = [...conf.crawlDates].map(toDash).sort();
+                    target = ds.length > 3 ? `${ds[0]} 외 ${ds.length - 1}일` : ds.join(', ');
+                } else if (conf.crawlStartDate) {
+                    const s = toDash(conf.crawlStartDate);
+                    const e = toDash(conf.crawlEndDate || conf.crawlStartDate);
+                    target = s === e ? s : `${s}~${e}`;
+                } else if (Array.isArray(conf.target_dates) && conf.target_dates.length > 0) {
+                    const ds = [...conf.target_dates].map(toDash).sort();
+                    target = ds.length === 1 ? ds[0] : `${ds[0]}~${ds[ds.length - 1]}`;
+                } else if (Array.isArray(item.result_summary?.target_dates) && item.result_summary.target_dates.length > 0) {
+                    const ds = [...item.result_summary.target_dates].map(toDash).sort();
+                    target = ds.length === 1 ? ds[0] : `${ds[0]}~${ds[ds.length - 1]}`;
+                }
+                return (
+                    <span style={{ fontSize: '12px' }}>
+                        {formatDateTime(val)}
+                        {target && (
+                            <span style={{ display: 'block', fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>
+                                ({target} 대상 크롤링)
+                            </span>
+                        )}
+                    </span>
+                );
+            }
         },
         {
             key: "duration",
@@ -1118,8 +1153,8 @@ export const CrawlerPage = () => {
                             {/* M002: 크롤 대상 영화에서 체크한 영화만 크롤링 안내 */}
                             <div style={{ padding: '8px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: selectedTargetIds.length > 0 ? '#fef9c3' : '#f1f5f9', color: selectedTargetIds.length > 0 ? '#a16207' : '#64748b' }}>
                                 {selectedTargetIds.length > 0
-                                    ? `체크한 ${selectedTargetIds.length}개 영화만 크롤링합니다. (미체크 영화의 기존 데이터는 유지)`
-                                    : "크롤 대상 영화 전체를 크롤링합니다. (특정 영화만 원하면 목록에서 체크 후 실행)"}
+                                    ? `체크한 ${selectedTargetIds.length}개 영화만 크롤링합니다. (크롤한 날짜의 기존 데이터는 모두 지워지고 이번 영화만 남습니다)`
+                                    : "크롤 대상 영화 전체를 크롤링합니다. (특정 영화만 원하면 목록에서 체크 후 실행 · 크롤한 날짜의 기존 데이터는 새 데이터로 교체)"}
                             </div>
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>

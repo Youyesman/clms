@@ -214,6 +214,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
         if (isOpen) {
             setExportStartDate(startDate);
             setExportEndDate(endDate || startDate);
+            // C003(0827): 창을 닫았다 다시 열면 경쟁작 선택은 항상 초기화(=모두 미선택)
+            setSelectedCompetitorIds([]);
             // 크롤 대상 영화 목록 로드
             AxiosGet("crawler/targets")
                 .then((res: any) => setCrawlTargets(res.data || []))

@@ -47,12 +47,10 @@ const Tab = styled.button<{ $active: boolean }>`
 
 /* ── 탭 목록 상수 ── */
 
+/* T002(0827): 주요작 좌석수·상영관수·스크린수·상영회차수 메뉴 삭제, '경쟁작' 신설 */
 export const TIME_TABLE_TABS: TabItem[] = [
     { to: "/time_table", label: "집계작 시간표" },
-    { to: "/time_table/seat-count", label: "주요작 좌석수(좌점율)" },
-    { to: "/time_table/theater-count", label: "주요작 상영관수" },
-    { to: "/time_table/screen-count", label: "주요작 스크린수" },
-    { to: "/time_table/show-count", label: "주요작 상영회차수" },
+    { to: "/time_table/competitor", label: "경쟁작" },
 ];
 
 export const SCORE_TABS: TabItem[] = [

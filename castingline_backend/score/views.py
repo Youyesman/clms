@@ -2109,20 +2109,15 @@ def score_timetable_dates(request):
     return Response({"dates": [d.strftime("%Y-%m-%d") for d in dates]})
 
 
-# ── 집계작 시간표 집계 API ──
+# ── 집계작 시간표 집계 API (T001: 0827 개편) ──
 @api_view(["GET"])
 def score_timetable(request):
     """
-    GET /Api/score/timetable/?movie_id=1&date_from=2026-01-01&date_to=2026-01-31
-    집계작 시간표 데이터를 계열사별/지역별/포맷별/시간대별로 집계하여 반환합니다.
+    GET /Api/score/timetable/?movie_id=1&date_from=2026-08-28&date_to=2026-08-30
+    T001(0827): KEY SUMMARY(합계+일별) / 지역별·포맷별 상세(일별+비중) /
+    상영일자 추이(금주 vs 전주) 데이터를 반환한다. 집계는 timetable_agg 모듈이 담당.
     """
-    import re
-    from crawler.models import MovieSchedule
-    from client.models import Client
-    # V001: 일반극장(KOBIS) 좌석수·지역 보강은 크롤러 엑셀과 같은 인덱스를 쓴다
-    from crawler.utils.excel_exporter import (
-        _build_normal_theater_index, _resolve_normal_theater,
-    )
+    from .timetable_agg import build_timetable_data
 
     movie_id = request.query_params.get("movie_id")
     date_from_str = request.query_params.get("date_from")
@@ -2141,299 +2136,126 @@ def score_timetable(request):
         d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
     except ValueError:
         return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
+    if d_to < d_from:
+        return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=400)
 
-    def normalize_str(s):
-        return re.sub(r'[^a-zA-Z0-9가-힣]', '', s).lower()
+    return Response(build_timetable_data(movie, d_from, d_to))
 
-    clean_target = normalize_str(movie.title_ko)
 
-    # 매칭 제목 목록 추출
-    all_titles = list(MovieSchedule.objects.values_list('movie_title', flat=True).distinct())
-    matched_titles = [t for t in all_titles if clean_target in normalize_str(t)]
+# ── T003(0827): 경쟁작 화면 API ──
+def _parse_competitor_params(request):
+    """경쟁작 화면 공통 파라미터 파싱 → (d_from, d_to, titles, brands)."""
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not date_from_str or not date_to_str:
+        raise ValueError("date_from, date_to가 필요합니다.")
+    d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+    d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    titles_str = request.query_params.get("titles") or ""
+    titles = [t.strip() for t in titles_str.split("|") if t.strip()] or None
+    brands_str = request.query_params.get("brands") or ""
+    brands = [b.strip() for b in brands_str.split(",") if b.strip()] or None
+    return d_from, d_to, titles, brands
 
-    if not matched_titles:
-        return Response({
-            "meta": {
-                "movie_title": movie.title_ko,
-                "release_date": str(movie.release_date) if movie.release_date else None,
-                "distributor_name": movie.distributor.client_name if movie.distributor else None,
-                "last_crawled_at": None,
-            },
-            "by_chain": [], "by_region": [], "by_format": [],
-            "time_slots": {"count_rows": [], "pct_rows": []},
-            "daily_chart": [],
-        })
 
-    # 데이터 조회
-    schedules = list(
-        MovieSchedule.objects.filter(
-            movie_title__in=matched_titles,
-            play_date__gte=d_from,
-            play_date__lte=d_to,
-        ).values(
-            'brand', 'theater_name', 'screen_name',
-            'start_time', 'play_date', 'total_seats', 'remaining_seats', 'tags'
-        )
+@api_view(["GET"])
+def score_competitor_timetable_options(request):
+    """T003: '경쟁작 선택' 목록 + 데이터가 있는 날짜 범위."""
+    from crawler.models import MovieSchedule
+    from .timetable_agg import competitor_movie_options
+
+    dates = list(
+        MovieSchedule.objects.filter(play_date__isnull=False)
+        .values_list("play_date", flat=True).distinct().order_by("play_date")
     )
-
-    # 지역/구분 매핑 테이블 구성 (Client 모델 기반)
-    clients = list(Client.objects.values(
-        'theater_kind', 'excel_theater_name', 'excel_theater_name2', 'theater_name',
-        'region_code', 'classification'
-    ))
-
-    region_map = {}
-    classif_map = {}
-
-    def norm_brand(kind):
-        if not kind: return None
-        k = kind.upper()
-        if 'CGV' in k: return 'CGV'
-        if 'LOTTE' in k or '롯데' in k: return 'LOTTE'
-        if 'MEGA' in k or '메가' in k: return 'MEGABOX'
-        return None
-
-    for c in clients:
-        b = norm_brand(c['theater_kind'])
-        if not b: continue
-        region = c['region_code']
-        cls = c['classification'] or '-'
-        for field in ('excel_theater_name', 'excel_theater_name2', 'theater_name'):
-            name = c.get(field)
-            if name:
-                key = (b, name.replace(' ', ''))
-                if region:
-                    region_map[key] = region
-                classif_map[key] = cls
-
-    def strip_prefix(s):
-        return (s.replace("CGV", "").replace("롯데시네마", "").replace("롯데", "")
-                  .replace("메가박스", "").replace("씨네큐", "").replace(" ", ""))
-
-    def get_client_info(brand, theater):
-        clean = theater.replace(" ", "")
-        r = region_map.get((brand, clean))
-        cl = classif_map.get((brand, clean))
-        if r and cl:
-            return r, cl
-        crawl_pure = strip_prefix(theater)
-        for (mb, mn), mr in region_map.items():
-            if mb != brand: continue
-            cp = strip_prefix(mn)
-            if crawl_pure == cp or (len(cp) >= 2 and len(crawl_pure) >= 2 and
-                                    (cp in crawl_pure or crawl_pure in cp)):
-                return mr, classif_map.get((mb, mn), '-')
-        return '기타', '-'
-
-    def get_format(tags):
-        for t in (tags or []):
-            tu = str(t).upper()
-            if "IMAX" in tu: return "IMAX"
-            if "4DX" in tu: return "4DX"
-            if "SCREENX" in tu or "SCREEN X" in tu: return "SCREENX"
-            if "DOLBY" in tu or "ATMOS" in tu: return "DOLBY"
-        return "일반"
-
-    def get_slot(start_time):
-        m = start_time.hour * 60 + start_time.minute
-        if 300 <= m <= 600: return "조조"
-        if 601 <= m <= 720: return "오전"
-        if 721 <= m <= 1020: return "오후"
-        if 1021 <= m <= 1260: return "저녁"
-        if 1261 <= m <= 1439: return "심야"
-        return None
-
-    BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스',
-                     '일반극장': '일반극장', 'OTHER': '일반'}
-    CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반극장', '일반']
-    SLOT_NAMES = ["조조", "오전", "오후", "저녁", "심야"]
-
-    def empty_agg():
-        return {'theaters': set(), 'screens': set(), 'shows': 0, 'total_seats': 0, 'sold_seats': 0}
-
-    chain_agg = defaultdict(empty_agg)
-    region_agg = defaultdict(empty_agg)
-    format_agg = defaultdict(empty_agg)
-    slot_agg = defaultdict(lambda: defaultdict(int))
-    daily_agg = defaultdict(int)
-
-    # V001: 일반극장 매칭 인덱스 (영진위극장명→Client, 관명→좌석수)
-    normal_index = _build_normal_theater_index()
-
-    for s in schedules:
-        brand = s['brand']
-        bd = BRAND_DISPLAY.get(brand, brand)
-        theater = s['theater_name']
-        screen = s['screen_name']
-        ts = s['total_seats'] or 0
-        rem = s['remaining_seats'] or 0
-        # 좌석 정보가 없는 회차는 잔여좌석을 모르므로 판매좌석수는 0 (엑셀과 동일)
-        sold = max(0, ts - rem) if ts > 0 else 0
-        tags = s['tags'] or []
-        fmt = get_format(tags)
-        if brand == '일반극장':
-            # V001: 엑셀과 동일하게 영진위극장명/극장명 매칭으로 지역·좌석수 보강
-            info = _resolve_normal_theater(theater, screen, normal_index)
-            if info:
-                region = info['region'] if info['region'] in REGION_ORDER else '기타'
-                if ts <= 0 and info['seat']:
-                    ts = info['seat']
-            else:
-                region = '기타'
-            cls = '-'
-        else:
-            region, cls = get_client_info(brand, theater)
-        play_date = s['play_date']
-        start_time = s['start_time']
-
-        # 계열사별
-        chain_agg[bd]['theaters'].add(theater)
-        chain_agg[bd]['screens'].add((theater, screen))
-        chain_agg[bd]['shows'] += 1
-        chain_agg[bd]['total_seats'] += ts
-        chain_agg[bd]['sold_seats'] += sold
-
-        # 지역별
-        region_agg[region]['theaters'].add((brand, theater))
-        region_agg[region]['screens'].add((brand, theater, screen))
-        region_agg[region]['shows'] += 1
-        region_agg[region]['total_seats'] += ts
-        region_agg[region]['sold_seats'] += sold
-
-        # 포맷별 (계열사+포맷+구분)
-        fk = (bd, fmt, cls)
-        format_agg[fk]['theaters'].add(theater)
-        format_agg[fk]['screens'].add((theater, screen))
-        format_agg[fk]['shows'] += 1
-        format_agg[fk]['total_seats'] += ts
-        format_agg[fk]['sold_seats'] += sold
-
-        # 시간대별
-        if start_time:
-            slot = get_slot(start_time)
-            if slot:
-                slot_agg[bd][slot] += 1
-
-        # 일별 차트
-        if play_date:
-            ds = play_date.strftime("%Y-%m-%d") if hasattr(play_date, 'strftime') else str(play_date)
-            daily_agg[ds] += ts
-
-    def make_row(label, d):
-        tc = len(d['theaters'])
-        sc = len(d['screens'])
-        sh = d['shows']
-        tot = d['total_seats']
-        sold = d['sold_seats']
-        return {
-            "label": label,
-            "theater_count": tc,
-            "show_count": sh,
-            "avg_shows": round(sh / tc, 1) if tc > 0 else 0,
-            "screen_count": sc,
-            "total_seats": tot,
-            "avg_seats": round(tot / sh, 1) if sh > 0 else 0,
-            "sold_seats": sold,
-        }
-
-    def total_of(dicts):
-        t = empty_agg()
-        for d in dicts:
-            t['theaters'].update(d['theaters'])
-            t['screens'].update(d['screens'])
-            t['shows'] += d['shows']
-            t['total_seats'] += d['total_seats']
-            t['sold_seats'] += d['sold_seats']
-        return t
-
-    # 계열사별
-    by_chain = []
-    included_c = []
-    for ch in CHAIN_ORDER:
-        if ch in chain_agg:
-            by_chain.append(make_row(ch, chain_agg[ch]))
-            included_c.append(chain_agg[ch])
-    if by_chain:
-        by_chain.append({**make_row("합계", total_of(included_c)), "is_total": True})
-
-    # 지역별
-    by_region = []
-    included_r = []
-    for rg in REGION_ORDER:
-        if rg in region_agg:
-            by_region.append(make_row(rg, region_agg[rg]))
-            included_r.append(region_agg[rg])
-    if '기타' in region_agg:
-        by_region.append(make_row('기타', region_agg['기타']))
-        included_r.append(region_agg['기타'])
-    if by_region:
-        by_region.append({**make_row("합계", total_of(included_r)), "is_total": True})
-
-    # 포맷별
-    by_format = []
-    included_f = []
-    fkeys = sorted(format_agg.keys(),
-                   key=lambda x: (CHAIN_ORDER.index(x[0]) if x[0] in CHAIN_ORDER else 99, x[1], x[2]))
-    for (bd, fmt, cls) in fkeys:
-        d = format_agg[(bd, fmt, cls)]
-        row = make_row(bd, d)
-        row['format'] = fmt
-        row['classification'] = cls
-        by_format.append(row)
-        included_f.append(d)
-    if by_format:
-        tr = make_row("합계", total_of(included_f))
-        tr['format'] = ""
-        tr['classification'] = ""
-        tr['is_total'] = True
-        by_format.append(tr)
-
-    # 시간대별
-    count_rows = []
-    pct_rows = []
-    grand_shows = 0
-    total_slots = defaultdict(int)
-    for ch in CHAIN_ORDER:
-        if ch not in slot_agg: continue
-        slots = slot_agg[ch]
-        ch_total = sum(slots.get(s, 0) for s in SLOT_NAMES)
-        if ch_total == 0: continue
-        grand_shows += ch_total
-        cr = {"label": ch, "total": ch_total}
-        pr = {"label": ch}
-        for sl in SLOT_NAMES:
-            cnt = slots.get(sl, 0)
-            cr[sl] = cnt
-            pr[sl] = round(cnt / ch_total * 100, 1) if ch_total > 0 else 0.0
-            total_slots[sl] += cnt
-        count_rows.append(cr)
-        pct_rows.append(pr)
-    if count_rows:
-        tcr = {"label": "합계", "total": grand_shows, "is_total": True}
-        tpr = {"label": "합계", "is_total": True}
-        for sl in SLOT_NAMES:
-            cnt = total_slots[sl]
-            tcr[sl] = cnt
-            tpr[sl] = round(cnt / grand_shows * 100, 1) if grand_shows > 0 else 0.0
-        count_rows.append(tcr)
-        pct_rows.append(tpr)
-
-    daily_chart = [{"date": d, "total_seats": v} for d, v in sorted(daily_agg.items())]
-
     return Response({
-        "meta": {
-            "movie_title": movie.title_ko,
-            "release_date": str(movie.release_date) if movie.release_date else None,
-            "distributor_name": movie.distributor.client_name if movie.distributor else None,
-            # V002: '날짜 To' 상영일 데이터의 마지막 수집 일시
-            "last_crawled_at": _last_crawled_str(d_to, titles=matched_titles),
-        },
-        "by_chain": by_chain,
-        "by_region": by_region,
-        "by_format": by_format,
-        "time_slots": {"count_rows": count_rows, "pct_rows": pct_rows},
-        "daily_chart": daily_chart,
+        "movies": competitor_movie_options(),
+        "dates": [d.strftime("%Y-%m-%d") for d in dates],
     })
+
+
+@api_view(["GET"])
+def score_competitor_timetable(request):
+    """
+    GET /Api/score/competitor-timetable/?date_from=..&date_to=..&titles=a|b&brands=CGV,LOTTE
+    T003: 경쟁작 기간 합산 + 일별 탭 데이터 (최대 7일).
+    """
+    from .timetable_agg import build_competitor_data
+
+    try:
+        d_from, d_to, titles, brands = _parse_competitor_params(request)
+        return Response(build_competitor_data(d_from, d_to, titles=titles, brands=brands))
+    except ValueError as e:
+        return Response({"error": str(e) or "날짜 형식 오류"}, status=400)
+
+
+def _file_response(content, filename, content_type):
+    from urllib.parse import quote
+    from django.http import HttpResponse
+
+    resp = HttpResponse(content, content_type=content_type)
+    resp["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(filename)
+    return resp
+
+
+@api_view(["GET"])
+def score_competitor_timetable_excel(request):
+    """T003: 경쟁작 화면 그대로 엑셀 다운로드 (캐스팅라인 로고 포함)."""
+    from .timetable_agg import build_competitor_data
+    from .timetable_export import competitor_excel_bytes
+
+    try:
+        d_from, d_to, titles, brands = _parse_competitor_params(request)
+        data = build_competitor_data(d_from, d_to, titles=titles, brands=brands)
+    except ValueError as e:
+        return Response({"error": str(e) or "날짜 형식 오류"}, status=400)
+    filename = f"경쟁작_{d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}.xlsx"
+    return _file_response(
+        competitor_excel_bytes(data), filename,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@api_view(["GET"])
+def score_competitor_timetable_pdf(request):
+    """T003: 경쟁작 화면 그대로 PDF 보고서 (캐스팅라인 로고 포함)."""
+    from .timetable_agg import build_competitor_data
+    from .timetable_export import competitor_pdf_bytes
+
+    try:
+        d_from, d_to, titles, brands = _parse_competitor_params(request)
+        data = build_competitor_data(d_from, d_to, titles=titles, brands=brands)
+    except ValueError as e:
+        return Response({"error": str(e) or "날짜 형식 오류"}, status=400)
+    filename = f"경쟁작_{d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}.pdf"
+    return _file_response(competitor_pdf_bytes(data), filename, "application/pdf")
+
+
+@api_view(["GET"])
+def score_timetable_pdf(request):
+    """T001: 집계작 시간표 화면 그대로 PDF 보고서 (그래프 제외, 로고 포함)."""
+    from .timetable_agg import build_timetable_data
+    from .timetable_export import timetable_pdf_bytes
+
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to가 필요합니다."}, status=400)
+    try:
+        movie = Movie.objects.select_related("distributor").get(id=movie_id)
+    except Movie.DoesNotExist:
+        return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
+
+    import re as _re
+    data = build_timetable_data(movie, d_from, d_to)
+    safe = _re.sub(r'[\\/*?:"<>|]', "", movie.title_ko).replace(" ", "")
+    filename = f"집계작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).pdf"
+    return _file_response(timetable_pdf_bytes(data), filename, "application/pdf")
 
 
 # ============================
@@ -4208,194 +4030,39 @@ def verify_kofic_score(request):
 # ============================
 @api_view(["GET"])
 def score_timetable_excel(request):
-    """A001: 시간표 조회의 각 탭 데이터를 엑셀로 다운로드 (그래프 제외).
+    """T001(0827): 집계작 시간표 화면 그대로 엑셀 다운로드.
 
-    GET /Api/score/timetable-excel/?tab=timetable|seats|theaters|screens|shows
-    나머지 파라미터는 각 탭 조회 API와 동일하게 받아 그대로 위임한다 —
-    화면과 완전히 같은 숫자가 담긴다.
+    GET /Api/score/timetable-excel/?tab=timetable&movie_id=..&date_from=..&date_to=..
+    화면과 같은 timetable_agg 데이터로 KEY SUMMARY / 지역별 / 포맷별 표를 담고
+    (그래프 제외), 우측 상단에 캐스팅라인 로고를 넣는다.
+    (구 주요작 좌석수·상영관수·스크린수·상영회차수 탭은 T002로 메뉴 삭제됨)
     """
-    from urllib.parse import quote
-    from django.http import HttpResponse
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
+    import re as _re
+    from .timetable_agg import build_timetable_data
+    from .timetable_export import timetable_excel_bytes
 
     tab = request.query_params.get("tab", "timetable")
-    tab_fns = {
-        "timetable": score_timetable,
-        "seats": score_competitor_seats,
-        "theaters": score_competitor_theaters,
-        "screens": score_competitor_screens,
-        "shows": score_competitor_shows,
-    }
-    fn = tab_fns.get(tab)
-    if fn is None:
-        return Response({"error": f"알 수 없는 tab: {tab}"}, status=400)
-    resp = fn(request._request)
-    if resp.status_code != 200:
-        return resp
-    data = resp.data
+    if tab != "timetable":
+        return Response({"error": f"지원하지 않는 tab: {tab} (주요작 탭은 삭제되었습니다)"}, status=400)
 
-    # ---- 공통 스타일/헬퍼 ----
-    _side = Side(style="thin", color="BFBFBF")
-    xl_border = Border(left=_side, right=_side, top=_side, bottom=_side)
-    head_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    total_fill = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")
-    bold_font = Font(name="맑은 고딕", size=10, bold=True)
-    norm_font = Font(name="맑은 고딕", size=10)
-    center = Alignment(horizontal="center", vertical="center")
+    movie_id = request.query_params.get("movie_id")
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to")
+    if not movie_id or not date_from_str or not date_to_str:
+        return Response({"error": "movie_id, date_from, date_to가 필요합니다."}, status=400)
+    try:
+        movie = Movie.objects.select_related("distributor").get(id=movie_id)
+    except Movie.DoesNotExist:
+        return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
 
-    def w_row(ws, r, values, bold=False, fill=None, pct_cols=()):
-        for ci, v in enumerate(values, 1):
-            c = ws.cell(row=r, column=ci, value=v)
-            c.border = xl_border
-            c.alignment = center
-            c.font = bold_font if bold else norm_font
-            if fill:
-                c.fill = fill
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                c.number_format = "0.0%" if ci in pct_cols else "#,##0"
-        return r + 1
-
-    def autow(ws):
-        for i, col in enumerate(ws.columns, 1):
-            m = 0
-            for c in col:
-                if c.value is None:
-                    continue
-                v = str(c.value)
-                m = max(m, sum(2 if ord(ch) > 127 else 1 for ch in v))
-            ws.column_dimensions[get_column_letter(i)].width = min(max((m + 1) * 1.05, 7), 32)
-
-    date_from = request.query_params.get("date_from") or ""
-    date_to = request.query_params.get("date_to") or ""
-
-    def _mmdd(x):
-        return f"{x[5:7]}.{x[8:10]}" if len(x) >= 10 else x
-
-    period_part = f"{_mmdd(date_from)}~{_mmdd(date_to)}" if date_from else ""
-
-    wb = Workbook()
-    wb.remove(wb.active)
-
-    if tab == "timetable":
-        meta = data.get("meta") or {}
-        ws = wb.create_sheet("집계작 시간표")
-        r = w_row(ws, 1, [meta.get("movie_title") or "", "개봉일", meta.get("release_date") or "-",
-                          "배급사", meta.get("distributor_name") or "-",
-                          "수집 완료", meta.get("last_crawled_at") or "-"], bold=True)
-        r += 1
-        stat_headers = ["구분", "극장수", "상영회차수", "평균회차", "스크린수",
-                        "총좌석수", "평균좌석수", "판매좌석수"]
-
-        def stat_vals(row, label=None):
-            return [label if label is not None else row.get("label", ""),
-                    row.get("theater_count"), row.get("show_count"), row.get("avg_shows"),
-                    row.get("screen_count"), row.get("total_seats"), row.get("avg_seats"),
-                    row.get("sold_seats")]
-
-        for title, rows in [("계열사별", data.get("by_chain") or []),
-                            ("지역별", data.get("by_region") or [])]:
-            r = w_row(ws, r, [title], bold=True)
-            r = w_row(ws, r, stat_headers, bold=True, fill=head_fill)
-            for row in rows:
-                r = w_row(ws, r, stat_vals(row),
-                          bold=bool(row.get("is_total")),
-                          fill=total_fill if row.get("is_total") else None)
-            r += 1
-
-        fmt_rows = data.get("by_format") or []
-        if fmt_rows:
-            r = w_row(ws, r, ["포맷별"], bold=True)
-            r = w_row(ws, r, ["계열사", "포맷", "구분"] + stat_headers[1:], bold=True, fill=head_fill)
-            for row in fmt_rows:
-                vals = [row.get("label", ""), row.get("format", ""), row.get("classification", "")]
-                vals += stat_vals(row)[1:]
-                r = w_row(ws, r, vals, bold=bool(row.get("is_total")),
-                          fill=total_fill if row.get("is_total") else None)
-            r += 1
-
-        slots = data.get("time_slots") or {}
-        slot_names = ["조조", "오전", "오후", "저녁", "심야"]
-        if slots.get("count_rows"):
-            r = w_row(ws, r, ["시간대별 상영회차"], bold=True)
-            r = w_row(ws, r, ["구분"] + slot_names + ["합계"], bold=True, fill=head_fill)
-            for row in slots["count_rows"]:
-                r = w_row(ws, r, [row.get("label")] + [row.get(s, 0) for s in slot_names]
-                          + [row.get("total", 0)],
-                          bold=bool(row.get("is_total")),
-                          fill=total_fill if row.get("is_total") else None)
-            r += 1
-            r = w_row(ws, r, ["시간대별 비중(%)"], bold=True)
-            r = w_row(ws, r, ["구분"] + slot_names, bold=True, fill=head_fill)
-            for row in slots["pct_rows"]:
-                r = w_row(ws, r, [row.get("label")] + [row.get(s, 0) for s in slot_names],
-                          bold=bool(row.get("is_total")),
-                          fill=total_fill if row.get("is_total") else None)
-        autow(ws)
-        base_name = f"집계작 시간표_{meta.get('movie_title') or ''}"
-    else:
-        dates = data.get("dates") or []
-        movies = data.get("movies") or []
-        grand = data.get("grand") or {}
-        # 탭별 지표 필드명
-        conf = {
-            "seats": ("주요작 좌석수(좌점율)", "총 좌석수", "total_seats", "lw_total_seats",
-                      "period_total", "lw_period_total"),
-            "theaters": ("주요작 상영관수", "상영관수", "theaters", "lw_theaters",
-                         "period_theaters", "lw_period_theaters"),
-            "screens": ("주요작 스크린수", "스크린수", "screens", "lw_screens",
-                        "period_screens", "lw_period_screens"),
-            "shows": ("주요작 상영회차수", "상영회차수", "shows", "lw_shows",
-                      "period_shows", "lw_period_shows"),
-        }[tab]
-        tab_label, metric_label, cur_key, lw_key, period_key, lw_period_key = conf
-
-        ws = wb.create_sheet(f"일자별 {metric_label}")
-        header = ["영화명"]
-        for d in dates:
-            header += [f"{d} 전주", f"{d} {metric_label}"]
-        header += ["합계 전주", f"합계 {metric_label}"]
-        r = w_row(ws, 1, header, bold=True, fill=head_fill)
-        for m in movies:
-            vals = [m.get("title")]
-            for d in dates:
-                cell = (m.get("daily") or {}).get(d) or {}
-                vals += [cell.get(lw_key, 0), cell.get(cur_key, 0)]
-            vals += [m.get(lw_period_key, 0), m.get(period_key, 0)]
-            r = w_row(ws, r, vals)
-        # 합계 행
-        g_daily = grand.get("daily") or {}
-        vals = ["합계"]
-        for d in dates:
-            cell = g_daily.get(d) or {}
-            vals += ["-", cell.get(cur_key, 0)]
-        vals += ["-", grand.get(period_key, 0)]
-        w_row(ws, r, vals, bold=True, fill=total_fill)
-        autow(ws)
-
-        # 좌석수 탭은 화면의 '실시간 예매율/좌점율 현황' 표도 함께 담는다
-        if tab == "seats":
-            ws2 = wb.create_sheet("실시간 예매율·좌점율")
-            r2 = w_row(ws2, 1, ["영화명", "총 좌석수", "판매좌석수", "실시간 예매율", "좌점율"],
-                       bold=True, fill=head_fill)
-            g_total = grand.get("period_total") or 0
-            g_sold = grand.get("period_sold") or 0
-            for m in movies:
-                r2 = w_row(ws2, r2, [
-                    m.get("title"), m.get("period_total", 0), m.get("period_sold", 0),
-                    (m.get("period_sold", 0) / g_sold) if g_sold else 0,
-                    (m.get("period_total", 0) / g_total) if g_total else 0,
-                ], pct_cols=(4, 5))
-            w_row(ws2, r2, ["합계", g_total, g_sold, 1, 1],
-                  bold=True, fill=total_fill, pct_cols=(4, 5))
-            autow(ws2)
-        base_name = f"{tab_label}_{period_part}" if period_part else tab_label
-
-    filename = f"{base_name}.xlsx"
-    response = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    response["Content-Disposition"] = (
-        "attachment; filename*=UTF-8''" + quote(filename))
-    wb.save(response)
-    return response
+    data = build_timetable_data(movie, d_from, d_to)
+    safe = _re.sub(r'[\/*?:"<>|]', "", movie.title_ko).replace(" ", "")
+    filename = f"집계작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).xlsx"
+    return _file_response(
+        timetable_excel_bytes(data), filename,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

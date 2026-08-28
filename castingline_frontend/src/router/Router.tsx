@@ -13,10 +13,7 @@ import { SettlementAggregatePage } from "../customer/domain/settlement/pages/Set
 import { TheaterTotalPage } from "../customer/domain/settlement/pages/TheaterTotalPage";
 import { SupplyPricePage } from "../customer/domain/settlement/pages/SupplyPricePage";
 import { TimeTablePage } from "../customer/domain/time_table/pages/TimeTablePage";
-import { SeatCountPage } from "../customer/domain/time_table/pages/SeatCountPage";
-import { TheaterCountPage } from "../customer/domain/time_table/pages/TheaterCountPage";
-import { ScreenCountPage } from "../customer/domain/time_table/pages/ScreenCountPage";
-import { ShowCountPage } from "../customer/domain/time_table/pages/ShowCountPage";
+import { CompetitorPage } from "../customer/domain/time_table/pages/CompetitorPage";
 import LandingPage from "../domain/landing/pages/LandingPage";
 import { CustomerDashboard } from "../customer/domain/dashboard/pages/CustomerDashboard";
 import { MyProfile } from "../domain/auth/pages/MyProfile";
@@ -55,10 +52,8 @@ const router = createBrowserRouter([
             { path: "settlement/theater-total", element: <TheaterTotalPage /> },
             { path: "settlement/supply-price", element: <SupplyPricePage /> },
             { path: "time_table", element: <TimetableGuard><TimeTablePage /></TimetableGuard> },
-            { path: "time_table/seat-count", element: <TimetableGuard><SeatCountPage /></TimetableGuard> },
-            { path: "time_table/theater-count", element: <TimetableGuard><TheaterCountPage /></TimetableGuard> },
-            { path: "time_table/screen-count", element: <TimetableGuard><ScreenCountPage /></TimetableGuard> },
-            { path: "time_table/show-count", element: <TimetableGuard><ShowCountPage /></TimetableGuard> },
+            // T002(0827): 주요작 좌석수·상영관수·스크린수·상영회차수 메뉴 삭제, '경쟁작' 신설
+            { path: "time_table/competitor", element: <TimetableGuard><CompetitorPage /></TimetableGuard> },
 
             // ── 관리자(superuser) 전용 ──
             // catch-all: /manage 이하 모든 경로를 PrivateRouter가 받음

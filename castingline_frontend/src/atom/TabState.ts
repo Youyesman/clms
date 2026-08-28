@@ -63,10 +63,8 @@ export const PATH_TO_TAB_LABEL: Record<string, string> = {
     "/manage/settlement/theater-total": "극장별 합계",
     "/manage/settlement/supply-price": "공급가 조회",
     "/manage/time_table": "시간표 조회",
-    "/manage/time_table/seat-count": "좌석수(좌점율)",
-    "/manage/time_table/theater-count": "극장수",
-    "/manage/time_table/screen-count": "스크린수",
-    "/manage/time_table/show-count": "상영횟수",
+    // T002(0827): 주요작 4개 탭 삭제, '경쟁작' 신설
+    "/manage/time_table/competitor": "경쟁작",
     "/manage/dashboard/score": "스코어 개요",
     "/manage/dashboard/ranking": "누적 순위",
 };

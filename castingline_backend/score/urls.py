@@ -68,9 +68,23 @@ urlpatterns = [
     path('score/timetable/', score_timetable,
          name='score-timetable'),
 
-    # 11-1. A001: 시간표 조회 전 탭 엑셀 다운로드
+    # 11-1. A001: 시간표 조회 엑셀 다운로드 (T001: 0827 개편 — 화면 그대로 + 로고)
     path('score/timetable-excel/', score_timetable_excel,
          name='score-timetable-excel'),
+
+    # 11-2. T001(0827): 집계작 시간표 PDF 보고서 (그래프 제외 + 로고)
+    path('score/timetable-pdf/', score_timetable_pdf,
+         name='score-timetable-pdf'),
+
+    # 11-3. T003(0827): 경쟁작 화면 데이터 / 옵션 / 엑셀 / PDF
+    path('score/competitor-timetable/', score_competitor_timetable,
+         name='score-competitor-timetable'),
+    path('score/competitor-timetable/options/', score_competitor_timetable_options,
+         name='score-competitor-timetable-options'),
+    path('score/competitor-timetable-excel/', score_competitor_timetable_excel,
+         name='score-competitor-timetable-excel'),
+    path('score/competitor-timetable-pdf/', score_competitor_timetable_pdf,
+         name='score-competitor-timetable-pdf'),
 
     # 12. 상세 부금 조회 API (배급사용)
     path('score/settlement/', score_settlement_detail,

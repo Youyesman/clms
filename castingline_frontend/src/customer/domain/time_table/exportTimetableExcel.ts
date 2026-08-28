@@ -1,9 +1,10 @@
-// A001: [배급사뷰] 시간표 조회 전 탭 엑셀 다운로드 공용 헬퍼
-// 백엔드 score/timetable-excel/ 이 화면과 같은 조회 로직으로 엑셀을 생성한다 (그래프 제외)
+// A001: [배급사뷰] 집계작 시간표 엑셀 다운로드 공용 헬퍼
+// 백엔드 score/timetable-excel/ 이 화면과 같은 집계로 엑셀을 생성한다
+// (T001: 그래프 제외 화면 그대로 + 캐스팅라인 로고 / T002로 주요작 탭 4종은 삭제됨)
 import { AxiosGet } from "../../../axios/Axios";
 
 export async function downloadTimetableExcel(
-    tab: "timetable" | "seats" | "theaters" | "screens" | "shows",
+    tab: "timetable",
     params: Record<string, string>,
     fallbackName: string
 ) {

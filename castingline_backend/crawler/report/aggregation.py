@@ -98,11 +98,15 @@ class _Agg:
         return (self.sold / self.total * 100) if self.total > 0 else 0.0
 
 
-def _movie_units(main_title=None):
+def _movie_units(main_title=None, competitors=None):
     """크롤 대상 영화 → 보고서 작품 단위 목록.
 
     같은 작품이 주요작/경쟁작으로 중복 등록돼 있어도(§5) 정규화 제목 기준으로
     한 번만 집계한다. 주요작(main_title)이 지정되면 목록 맨 앞에 둔다.
+
+    C004(0827): competitors(경쟁작 다중 선택 제목 목록)가 주어지면 활성 크롤
+    대상 중 그 작품들만 집계 단위로 삼는다 (엑셀 다운로드의 경쟁작 선택과 동일).
+    미지정이면 기존처럼 활성 크롤 대상 전체.
     """
     units = []       # [{key, title}]
     seen = set()
@@ -115,9 +119,22 @@ def _movie_units(main_title=None):
         seen.add(key)
         units.append({"key": key, "title": clean})
 
+    comp_keys = None
+    if competitors:
+        comp_keys = set()
+        for c in competitors:
+            clean, _ = MovieSchedule.parse_and_normalize_title(c)
+            k = MovieSchedule.normalize_title(clean)
+            if k:
+                comp_keys.add(k)
+
     if main_title:
         push(main_title)
     for t in CrawlTargetMovie.objects.filter(is_active=True).order_by("id"):
+        if comp_keys is not None:
+            clean, _ = MovieSchedule.parse_and_normalize_title(t.title)
+            if MovieSchedule.normalize_title(clean) not in comp_keys:
+                continue
         push(t.title)
 
     main_key = None
@@ -272,13 +289,16 @@ def _movie_summary(key, title, agg, is_main=False):
     }
 
 
-def build_report_data(start_date, end_date, main_title=None, brands=None, dates=None):
+def build_report_data(start_date, end_date, main_title=None, brands=None, dates=None,
+                      competitors=None):
     """보고서 ViewModel 생성. main_title이 없으면 '주요작 없음' 모드.
 
     brands: 엑셀 다운로드와 같은 계열사 필터(["CGV","LOTTE","MEGABOX","일반극장"]).
             None이면 전체.
     dates:  C008 — 특정 날짜(비연속 다중 선택) 목록. 지정 시 그 날짜들만 집계하고
             전주 비교도 각 날짜의 정확히 7일 전(같은 요일)으로 잡는다.
+    competitors: C004(0827) — 경쟁작 다중 선택 제목 목록. 지정 시 그 작품(+주요작)만
+            집계, 미지정이면 활성 크롤 대상 전체.
     """
     from crawler.utils.excel_exporter import _build_region_map, _build_normal_theater_index
 
@@ -291,7 +311,7 @@ def build_report_data(start_date, end_date, main_title=None, brands=None, dates=
     prev_dates = [d - timedelta(days=7) for d in cur_dates]
     prev_start, prev_end = prev_dates[0], prev_dates[-1]
 
-    units, main_key = _movie_units(main_title)
+    units, main_key = _movie_units(main_title, competitors=competitors)
     if not units:
         raise ValueError("크롤 대상 영화가 없습니다. [크롤러 관리]에서 먼저 등록하세요.")
 

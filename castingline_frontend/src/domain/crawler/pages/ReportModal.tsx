@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { AxiosPost } from "../../../axios/Axios";
+import { AxiosPost, AxiosGet } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { X, FilePdf, FileXls, Spinner } from "@phosphor-icons/react";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
@@ -161,11 +161,19 @@ export const ReportModal: React.FC<ReportModalProps> = ({
     // C008: 특정 날짜(비연속 다중 선택)로 보고서 생성
     const [useSpecificDates, setUseSpecificDates] = useState(false);
     const [specificDates, setSpecificDates] = useState<string[]>([]);
+    // C004(0827): 경쟁작 다중 선택 — 미선택 시 활성 크롤 대상 전체 (엑셀 다운로드와 동일)
+    const [crawlTargets, setCrawlTargets] = useState<CrawlTarget[]>([]);
+    const [selectedCompetitorIds, setSelectedCompetitorIds] = useState<number[]>([]);
 
     React.useEffect(() => {
         if (isOpen) {
             setReportStart(startDate);
             setReportEnd(endDate || startDate);
+            // C003과 동일: 창을 다시 열면 경쟁작 선택 초기화(=모두 미선택)
+            setSelectedCompetitorIds([]);
+            AxiosGet("crawler/targets")
+                .then((res: any) => setCrawlTargets(res.data || []))
+                .catch(() => setCrawlTargets([]));
         }
     }, [isOpen, startDate, endDate]);
 
@@ -198,6 +206,10 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             toast.warning("계열사를 하나 이상 선택해주세요.");
             return;
         }
+        // C004(0827): 선택한 경쟁작만 집계 (미선택 시 전체)
+        const competitorTitles = crawlTargets
+            .filter((m) => selectedCompetitorIds.includes(m.id))
+            .map((m) => m.clean_title || m.title);
         setIsBusy(true);
         try {
             toast.success("보고서 생성 중... 잠시만 기다려주세요.");
@@ -211,6 +223,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     mode,
                     main_title: mode === "main" && mainMovie ? mainMovie.clean_title || mainMovie.title : undefined,
                     brands: brands.length < 4 ? brands : undefined,
+                    // C004: 경쟁작 다중 선택 — 미선택이면 미전송(전체)
+                    competitors: competitorTitles.length > 0 ? competitorTitles : undefined,
                     format,
                 },
                 { responseType: "blob" }
@@ -296,6 +310,43 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                         <CustomCheckbox label="Lotte" checked={brandFilter.lotte} onChange={() => setBrandFilter((p) => ({ ...p, lotte: !p.lotte }))} />
                         <CustomCheckbox label="Megabox" checked={brandFilter.mega} onChange={() => setBrandFilter((p) => ({ ...p, mega: !p.mega }))} />
                         <CustomCheckbox label="일반극장" checked={brandFilter.normal} onChange={() => setBrandFilter((p) => ({ ...p, normal: !p.normal }))} />
+                    </div>
+                </div>
+
+                {/* C004(0827): 경쟁작 다중 선택 — 엑셀 다운로드와 동일 UI */}
+                <div>
+                    <SectionLabel>경쟁작 선택 (다중 선택 · 미선택 시 전체)</SectionLabel>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                        {crawlTargets.filter((m) => m.movie_type === "competitor" && m.is_active).map((m) => {
+                            const active = selectedCompetitorIds.includes(m.id);
+                            return (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() =>
+                                        setSelectedCompetitorIds((prev) =>
+                                            prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                                        )
+                                    }
+                                    style={{
+                                        padding: "3px 10px",
+                                        borderRadius: 999,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        fontFamily: "SUIT, sans-serif",
+                                        cursor: "pointer",
+                                        border: `1px solid ${active ? "#2563eb" : "#cbd5e1"}`,
+                                        background: active ? "#eff6ff" : "#ffffff",
+                                        color: active ? "#1d4ed8" : "#64748b",
+                                    }}
+                                >
+                                    {m.title}
+                                </button>
+                            );
+                        })}
+                        {crawlTargets.filter((m) => m.movie_type === "competitor" && m.is_active).length === 0 && (
+                            <span style={{ fontSize: 12, color: "#94a3b8" }}>등록된 경쟁작이 없습니다.</span>
+                        )}
                     </div>
                 </div>
 

@@ -1026,6 +1026,14 @@ def _build_order_changes(valid_data):
             ):
                 order.last_screening_date = dates["max"]
                 changed = True
+            # 0827 O001: 종영일 이후 스코어가 새로 잡히면 종영일도 함께 연장하고
+            # 빨간 강조 플래그를 켠다 (recalc 경로와 동일 규칙 — 이 경로만
+            # 마지막 상영일을 먼저 올려두면 이후 recalc가 연장을 건너뛰게 된다)
+            if (order.last_screening_date and order.end_date
+                    and order.last_screening_date > order.end_date):
+                order.end_date = order.last_screening_date
+                order.end_date_auto_updated = True
+                changed = True
             if changed:
                 orders_to_update.append(order)
         else:
@@ -1054,7 +1062,9 @@ def _apply_order_changes(ols_to_create, orders_to_create, orders_to_update):
     if orders_to_update:
         Order.objects.bulk_update(
             orders_to_update,
-            ["release_date", "start_date", "last_screening_date"],
+            # 0827 O001: 종영일 자동 연장분(end_date·강조 플래그)도 함께 저장
+            ["release_date", "start_date", "last_screening_date",
+             "end_date", "end_date_auto_updated"],
         )
 
 

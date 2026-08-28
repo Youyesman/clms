@@ -100,6 +100,19 @@ def _fmt_number(n):
 
 def _auto_width(ws, min_row=1):
     """Auto-adjust column widths based on content."""
+    import re as _re
+
+    def _fmt_suffix_width(number_format):
+        """C005: 표시 서식에 붙는 리터럴 텍스트('#,##0" 극장"'의 ' 극장' 등)의
+        표시 폭. 숫자 자릿수만으로 폭을 잡으면 접미어가 붙은 '합' 라인 수치가
+        ######으로 잘리므로, 따옴표 안 리터럴의 폭을 더한다."""
+        if not number_format or number_format in ("General",):
+            return 0
+        w = 0
+        for lit in _re.findall(r'"([^"]*)"', str(number_format)):
+            w += sum(2 if ord(c) > 127 else 1 for c in lit)
+        return w
+
     for i, col_cells in enumerate(ws.columns, 1):
         max_len = 0
         for cell in col_cells:
@@ -115,8 +128,10 @@ def _auto_width(ws, min_row=1):
                     continue
                 if isinstance(v, float):
                     width = 7  # 0.0% / #,##0 표시 서식 기준
+                    width += _fmt_suffix_width(cell.number_format)
                 elif isinstance(v, int):
                     width = len(f"{v:,}")
+                    width += _fmt_suffix_width(cell.number_format)
                 else:
                     val = str(v)
                     width = sum(2 if ord(c) > 127 else 1 for c in val)
@@ -124,8 +139,9 @@ def _auto_width(ws, min_row=1):
             except:
                 pass
         # M004: 페이지가 한눈에 들어오게 — 여유는 살리되 과하게 넓어지지 않게 조정
-        adj = (max_len + 1) * 1.05
-        ws.column_dimensions[get_column_letter(i)].width = min(max(adj, 6), 32)
+        # C005: 굵은 글씨·서식 여유분으로 한 글자만큼 더 준다 (#### 방지)
+        adj = (max_len + 2) * 1.08
+        ws.column_dimensions[get_column_letter(i)].width = min(max(adj, 6), 36)
 
 
 def _build_region_map():
