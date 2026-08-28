@@ -382,9 +382,13 @@ class MovieSchedule(models.Model):
                 special_event_tags = cls.extract_special_event_tags(
                     item.get("videoAddexpCdNm"), item.get("videoAddexpCont")
                 )
-                is_special_event = bool(special_event_tags)
 
-                # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
+                # [Filtering Logic] 크롤 대상 영화만 수집.
+                # 0828: 예전에는 '특수상영(무대인사·GV)이면 대상이 아니어도 수집'했으나,
+                # 체크한 영화만 크롤해도 다른 영화의 GV 회차가 딸려 들어와 비교표에
+                # 1극장·1회짜리로 나타났다. 대상 영화의 특수상영은 어차피 제목이
+                # 일치하므로 그대로 수집되고, 특수상영 다운로드도 크롤 대상 영화에서만
+                # 고르게 되어 있어 잃는 기능이 없다.
                 if target_titles:
                     is_target = False
                     matched_target = None
@@ -396,7 +400,7 @@ class MovieSchedule(models.Model):
                              break
                     if is_target and matched_target != movie_title:
                         print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
-                    if not is_target and not is_special_event:
+                    if not is_target:
                         continue
                 
                 screen_name = cls.normalize_screen_name(item.get("scnsNm"))
@@ -1028,10 +1032,10 @@ class MovieSchedule(models.Model):
         for movie in movie_list:
             movie_title = cls.decode_html_entities(movie.get("movieNm", "제목없음"))
 
-            # 메가박스 특수상영은 제목 대괄호([무대인사],[메가토크] 등)로 표기됨
-            is_special_event = bool(cls.extract_special_event_tags(movie_title))
+            # 메가박스 특수상영은 제목 대괄호([무대인사],[메가토크] 등)로 표기되며,
+            # 아래 parse_and_normalize_title 이 태그로 분리한다.
 
-            # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
+            # [Filtering Logic] 크롤 대상 영화만 수집 (0828 — CGV 쪽과 동일 규칙)
             if target_titles:
                 is_target = False
                 matched_target = None
@@ -1042,7 +1046,7 @@ class MovieSchedule(models.Model):
                             break
                 if is_target and matched_target != movie_title:
                     print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
-                if not is_target and not is_special_event:
+                if not is_target:
                     continue
 
             # 메가박스 필드명 추정: 
@@ -1246,9 +1250,8 @@ class MovieSchedule(models.Model):
 
                 # 롯데 특수상영(무대인사·관객시사회 등)은 AccompanyTypeNameKR 필드에 표기됨
                 special_event_tags = cls.extract_special_event_tags(item.get("AccompanyTypeNameKR"))
-                is_special_event = bool(special_event_tags)
 
-                # [Filtering Logic] 등록 영화이거나, 특수상영(이벤트)이면 수집
+                # [Filtering Logic] 크롤 대상 영화만 수집 (0828 — CGV 쪽과 동일 규칙)
                 if target_titles:
                     is_target = False
                     matched_target = None
@@ -1259,7 +1262,7 @@ class MovieSchedule(models.Model):
                                 break
                     if is_target and matched_target != movie_title:
                         print(f"      [Title Match] \"{movie_title}\" <- target: \"{matched_target}\"")
-                    if not is_target and not is_special_event:
+                    if not is_target:
                         continue
 
                 # 시간 파싱
