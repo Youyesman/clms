@@ -7,12 +7,13 @@ import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../../components/common/CustomCheckbox";
+import { SortTh, SortHint, useTableSort } from "../../../../components/common/SortableTable";
 
 /* T003(0827): [시간표 조회] - 경쟁작 화면.
-   크롤링한 경쟁작 데이터를 기간 합산 + 일별 탭(최대 7일)으로 보여준다.
+   크롤링한 경쟁작 데이터를 일별 탭(최대 7일)으로 보여준다. (B003: 기간 합산 탭 삭제)
    - ① 경쟁작 성과 종합 요약  ② 서울·주요 권역별 좌석 점유  ③ 골든타임(14~21시) 집중도
    - ④ 특별관(IMAX/4DX/Dolby)  ⑤ 계열사별 세부 현황
-   디자인은 집계작 시간표(T001)와 동일 계열. 상단 엑셀/PDF는 화면 그대로 + 캐스팅라인 로고 */
+   디자인은 주요작 시간표(T001)와 동일 계열. 상단 엑셀/PDF는 화면 그대로 + 캐스팅라인 로고 */
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -163,6 +164,228 @@ const TwoColGrid = styled.div`
     @media (max-width: 1100px) { grid-template-columns: 1fr; }
 `;
 
+/* ── B004(0829): 컬럼 헤더 클릭 정렬을 쓰는 표 컴포넌트들 ──
+   훅을 쓰려면 표마다 컴포넌트로 분리해야 한다. ★(1위) 표시는 행 위치가 아니라
+   정렬 전 원래 1위 작품을 기준으로 붙여, 정렬해도 표시가 따라 움직이지 않는다. */
+
+const sortNote = "* 클릭 시 정렬가능";
+
+function SummaryTable({ rows, label }: { rows: SummaryRow[]; label: string }) {
+    const { sorted, sort } = useTableSort(rows);
+    const topTitle = rows[0]?.title;
+    return (
+        <SectionCard>
+            <SectionTitle>
+                {rows.length}개 경쟁작 성과 종합 요약 {`(${label})`}
+                <SortHint>★ = 총 좌석수 1위 · {sortNote}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="rank" sort={sort}>순위</SortTh>
+                            <SortTh sortKey="title" sort={sort}>영화명</SortTh>
+                            <SortTh sortKey="total_seats" sort={sort}>총 좌석수</SortTh>
+                            <SortTh sortKey="occupancy" sort={sort}>평균 좌석점유율</SortTh>
+                            <SortTh sortKey="shows" sort={sort}>총 상영회차</SortTh>
+                            <SortTh sortKey="screens" sort={sort}>스크린수</SortTh>
+                            <SortTh sortKey="theaters" sort={sort}>총 극장수</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((s) => (
+                            <tr key={s.title} className={s.title === topTitle ? "top-row" : ""}>
+                                <td>{s.rank}</td>
+                                <td style={{ textAlign: "left", fontWeight: 600 }}>
+                                    {s.title === topTitle ? "★ " : ""}{s.title}
+                                </td>
+                                <td>{fmt(s.total_seats)}석</td>
+                                <td>{fmtPct(s.occupancy)}</td>
+                                <td>{fmt(s.shows)}회</td>
+                                <td>{fmt(s.screens)}개</td>
+                                <td>{fmt(s.theaters)}개</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+function RegionTable({ rows, label }: { rows: RegionRow[]; label: string }) {
+    const { sorted, sort } = useTableSort(rows);
+    const topTitle = rows[0]?.title;
+    return (
+        <SectionCard>
+            <SectionTitle>
+                서울 및 주요 권역별 좌석 점유 현황 {`(${label})`}
+                <SortHint>{sortNote}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="title" sort={sort} rowSpan={2}>영화명</SortTh>
+                            <th colSpan={3}>서울 권역</th>
+                            <th colSpan={2}>수도권(경강) 권역</th>
+                            <th colSpan={2}>그 외 지방도시</th>
+                        </tr>
+                        <tr>
+                            <SortTh sortKey="seoul.seats" sort={sort}>좌석수</SortTh>
+                            <SortTh sortKey="seoul.occupancy" sort={sort}>좌점율</SortTh>
+                            <SortTh sortKey="seoul.share" sort={sort}>비중</SortTh>
+                            <SortTh sortKey="metro.seats" sort={sort}>좌석수</SortTh>
+                            <SortTh sortKey="metro.occupancy" sort={sort}>좌점율</SortTh>
+                            <SortTh sortKey="local.seats" sort={sort}>좌석수</SortTh>
+                            <SortTh sortKey="local.occupancy" sort={sort}>좌점율</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((r) => (
+                            <tr key={r.title} className={r.title === topTitle ? "top-row" : ""}>
+                                <td style={{ textAlign: "left", fontWeight: 600 }}>{r.title === topTitle ? "★ " : ""}{r.title}</td>
+                                <td>{fmt(r.seoul.seats)}석</td>
+                                <td>{fmtPct(r.seoul.occupancy)}</td>
+                                <td className="share-cell">{fmtPct(r.seoul.share)}</td>
+                                <td>{fmt(r.metro.seats)}석</td>
+                                <td>{fmtPct(r.metro.occupancy)}</td>
+                                <td>{fmt(r.local.seats)}석</td>
+                                <td>{fmtPct(r.local.occupancy)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+function GoldenTable({ rows }: { rows: GoldenRow[] }) {
+    const { sorted, sort } = useTableSort(rows);
+    const topTitle = rows[0]?.title;
+    const rankOf = new Map(rows.map((g, i) => [g.title, i + 1]));
+    return (
+        <SectionCard>
+            <SectionTitle>
+                골든타임(14~21시) 집중도
+                <SortHint>{sortNote}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <th>순위</th>
+                            <SortTh sortKey="title" sort={sort}>영화명</SortTh>
+                            <SortTh sortKey="seats" sort={sort}>골든타임 좌석수</SortTh>
+                            <SortTh sortKey="occupancy" sort={sort}>골든타임 점유율</SortTh>
+                            <SortTh sortKey="share" sort={sort}>골든타임 비중</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((g) => (
+                            <tr key={g.title} className={g.title === topTitle ? "top-row" : ""}>
+                                <td>{rankOf.get(g.title)}</td>
+                                <td style={{ textAlign: "left", fontWeight: 600 }}>{g.title === topTitle ? "★ " : ""}{g.title}</td>
+                                <td>{fmt(g.seats)}석</td>
+                                <td>{fmtPct(g.occupancy)}</td>
+                                <td>{fmtPct(g.share)}</td>
+                            </tr>
+                        ))}
+                        {sorted.length === 0 && (
+                            <tr><td colSpan={5}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
+                        )}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+function SpecialTable({ rows }: { rows: SpecialRow[] }) {
+    const { sorted, sort } = useTableSort(rows);
+    const topTitle = rows[0]?.title;
+    return (
+        <SectionCard>
+            <SectionTitle>
+                특별관 (IMAX/4DX/Dolby)
+                <SortHint>{sortNote}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="title" sort={sort}>영화명</SortTh>
+                            <SortTh sortKey="shows" sort={sort}>특별관 회차</SortTh>
+                            <SortTh sortKey="seats" sort={sort}>특별관 좌석수</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((s) => (
+                            <tr key={s.title} className={s.title === topTitle ? "top-row" : ""}>
+                                <td style={{ textAlign: "left", fontWeight: 600 }}>{s.title === topTitle ? "★ " : ""}{s.title}</td>
+                                <td>{fmt(s.shows)}회</td>
+                                <td>{fmt(s.seats)}석</td>
+                            </tr>
+                        ))}
+                        {sorted.length === 0 && (
+                            <tr><td colSpan={3}><EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg></td></tr>
+                        )}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+function BrandTable({ block, label }: { block: BrandBlock; label: string }) {
+    // 행=계열사 / 열=작품. 작품 열을 누르면 그 작품의 좌석수 기준으로 계열사가 정렬된다.
+    const { sorted, sort } = useTableSort(block.rows);
+    return (
+        <SectionCard>
+            <SectionTitle>
+                계열사별 세부 현황 {`(${label})`}
+                <SortHint>
+                    * 오른쪽으로 스크롤하여 전체 영화 확인 가능 · 괄호 안은 각 작품 내 계열사 비중 · {sortNote}
+                </SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="brand" sort={sort} style={{ position: "sticky", left: 0, zIndex: 2 }}>구분</SortTh>
+                            {block.movies.map((m, mi) => (
+                                <SortTh key={m} sortKey={`cells.${mi}.seats`} sort={sort}>{m}</SortTh>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((r) => (
+                            <tr key={r.brand}>
+                                <td style={{ fontWeight: 700, position: "sticky", left: 0, background: "#f8fafc", zIndex: 1 }}>{r.brand}</td>
+                                {r.cells.map((c, ci) => (
+                                    <td key={ci}>
+                                        {c.seats > 0 ? (
+                                            <>
+                                                <span style={{ fontWeight: ci === 0 ? 700 : 400, color: ci === 0 ? "#dc2626" : undefined }}>
+                                                    {fmt(c.seats)}석
+                                                </span>
+                                                <span className="share-cell"> ({fmtPct(c.share)})</span>
+                                            </>
+                                        ) : (
+                                            <span className="share-cell">0석 (0.0%)</span>
+                                        )}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
 /* ── 컴포넌트 ── */
 export function CompetitorPage() {
     const toast = useToast();
@@ -180,7 +403,8 @@ export function CompetitorPage() {
 
     /* 결과 */
     const [data, setData] = useState<CompetitorData | null>(null);
-    const [activeTab, setActiveTab] = useState("sum");
+    // B003(0829): 기간 합산 탭 삭제 — 첫 일자 뷰가 기본 선택
+    const [activeTab, setActiveTab] = useState("");
 
     /* 옵션 로드 */
     useEffect(() => {
@@ -245,7 +469,7 @@ export function CompetitorPage() {
         AxiosGet("score/competitor-timetable/", { params: buildParams() })
             .then(res => {
                 setData(res.data);
-                setActiveTab("sum");
+                setActiveTab(res.data?.tabs?.[0]?.key ?? "");
             })
             .catch(err => {
                 // 조회 실패 시 이전 결과를 지운다 — 남겨두면 헤더의 조사기간과
@@ -423,11 +647,11 @@ export function CompetitorPage() {
                         </span>
                     </div>
 
-                    {/* 기간 합산 / 일별 탭 (최대 7일) */}
+                    {/* 일별 탭 (최대 7일 · B003으로 기간 합산 탭 삭제) */}
                     <div style={{ display: "flex", gap: 4, borderBottom: "2px solid #2563eb", flexWrap: "wrap" }}>
                         {data.tabs.map(t => (
-                            <DayTab key={t.key} $active={activeTab === t.key} onClick={() => setActiveTab(t.key)}>
-                                {t.key === "sum" ? t.label : `${t.label} 뷰`}
+                            <DayTab key={t.key} $active={tab.key === t.key} onClick={() => setActiveTab(t.key)}>
+                                {`${t.label} 뷰`}
                             </DayTab>
                         ))}
                     </div>
@@ -439,189 +663,20 @@ export function CompetitorPage() {
                     ) : (
                         <>
                             {/* ① 종합 요약 */}
-                            <SectionCard>
-                                <SectionTitle>
-                                    {tab.summary.length}개 경쟁작 성과 종합 요약 {tab.key === "sum" ? "(합산)" : `(${tab.label})`}
-                                    <span style={{ fontWeight: 400, fontSize: 11, color: "#94a3b8", marginLeft: 10 }}>
-                                        ★ = 총 좌석수 1위
-                                    </span>
-                                </SectionTitle>
-                                <TableWrap>
-                                    <Tbl>
-                                        <thead>
-                                            <tr>
-                                                <th>순위</th>
-                                                <th>영화명</th>
-                                                <th>총 좌석수</th>
-                                                <th>평균 좌석점유율</th>
-                                                <th>총 상영회차</th>
-                                                <th>스크린수</th>
-                                                <th>총 극장수</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {tab.summary.map((s, i) => (
-                                                <tr key={s.title} className={i === 0 ? "top-row" : ""}>
-                                                    <td>{s.rank}</td>
-                                                    <td style={{ textAlign: "left", fontWeight: 600 }}>
-                                                        {i === 0 ? "★ " : ""}{s.title}
-                                                    </td>
-                                                    <td>{fmt(s.total_seats)}석</td>
-                                                    <td>{fmtPct(s.occupancy)}</td>
-                                                    <td>{fmt(s.shows)}회</td>
-                                                    <td>{fmt(s.screens)}개</td>
-                                                    <td>{fmt(s.theaters)}개</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </Tbl>
-                                </TableWrap>
-                            </SectionCard>
+                            <SummaryTable rows={tab.summary} label={tab.label} />
 
                             {/* ② 권역별 */}
-                            <SectionCard>
-                                <SectionTitle>서울 및 주요 권역별 좌석 점유 현황 {tab.key === "sum" ? "(합산)" : `(${tab.label})`}</SectionTitle>
-                                <TableWrap>
-                                    <Tbl>
-                                        <thead>
-                                            <tr>
-                                                <th rowSpan={2}>영화명</th>
-                                                <th colSpan={3}>서울 권역</th>
-                                                <th colSpan={2}>수도권(경강) 권역</th>
-                                                <th colSpan={2}>그 외 지방도시</th>
-                                            </tr>
-                                            <tr>
-                                                <th>좌석수</th>
-                                                <th>좌점율</th>
-                                                <th>비중</th>
-                                                <th>좌석수</th>
-                                                <th>좌점율</th>
-                                                <th>좌석수</th>
-                                                <th>좌점율</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {tab.regions.map((r, i) => (
-                                                <tr key={r.title} className={i === 0 ? "top-row" : ""}>
-                                                    <td style={{ textAlign: "left", fontWeight: 600 }}>{i === 0 ? "★ " : ""}{r.title}</td>
-                                                    <td>{fmt(r.seoul.seats)}석</td>
-                                                    <td>{fmtPct(r.seoul.occupancy)}</td>
-                                                    <td className="share-cell">{fmtPct(r.seoul.share)}</td>
-                                                    <td>{fmt(r.metro.seats)}석</td>
-                                                    <td>{fmtPct(r.metro.occupancy)}</td>
-                                                    <td>{fmt(r.local.seats)}석</td>
-                                                    <td>{fmtPct(r.local.occupancy)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </Tbl>
-                                </TableWrap>
-                            </SectionCard>
+                            <RegionTable rows={tab.regions} label={tab.label} />
 
                             {/* ③ 골든타임 + ④ 특별관 */}
                             <TwoColGrid>
-                                <SectionCard>
-                                    <SectionTitle>골든타임(14~21시) 집중도</SectionTitle>
-                                    <TableWrap>
-                                        <Tbl>
-                                            <thead>
-                                                <tr>
-                                                    <th>순위</th>
-                                                    <th>영화명</th>
-                                                    <th>골든타임 좌석수</th>
-                                                    <th>골든타임 점유율</th>
-                                                    <th>골든타임 비중</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {tab.golden.map((g, i) => (
-                                                    <tr key={g.title} className={i === 0 ? "top-row" : ""}>
-                                                        <td>{i + 1}</td>
-                                                        <td style={{ textAlign: "left", fontWeight: 600 }}>{i === 0 ? "★ " : ""}{g.title}</td>
-                                                        <td>{fmt(g.seats)}석</td>
-                                                        <td>{fmtPct(g.occupancy)}</td>
-                                                        <td>{fmtPct(g.share)}</td>
-                                                    </tr>
-                                                ))}
-                                                {tab.golden.length === 0 && (
-                                                    <tr><td colSpan={5}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
-                                                )}
-                                            </tbody>
-                                        </Tbl>
-                                    </TableWrap>
-                                </SectionCard>
-
-                                <SectionCard>
-                                    <SectionTitle>특별관 (IMAX/4DX/Dolby)</SectionTitle>
-                                    <TableWrap>
-                                        <Tbl>
-                                            <thead>
-                                                <tr>
-                                                    <th>영화명</th>
-                                                    <th>특별관 회차</th>
-                                                    <th>특별관 좌석수</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {tab.special.map((s, i) => (
-                                                    <tr key={s.title} className={i === 0 ? "top-row" : ""}>
-                                                        <td style={{ textAlign: "left", fontWeight: 600 }}>{i === 0 ? "★ " : ""}{s.title}</td>
-                                                        <td>{fmt(s.shows)}회</td>
-                                                        <td>{fmt(s.seats)}석</td>
-                                                    </tr>
-                                                ))}
-                                                {tab.special.length === 0 && (
-                                                    <tr><td colSpan={3}><EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg></td></tr>
-                                                )}
-                                            </tbody>
-                                        </Tbl>
-                                    </TableWrap>
-                                </SectionCard>
+                                <GoldenTable rows={tab.golden} />
+                                <SpecialTable rows={tab.special} />
                             </TwoColGrid>
 
                             {/* ⑤ 계열사별 세부 현황 */}
                             {tab.by_brand.movies.length > 0 && (
-                                <SectionCard>
-                                    <SectionTitle>
-                                        계열사별 세부 현황 {tab.key === "sum" ? "(합산)" : `(${tab.label})`}
-                                        <span style={{ fontWeight: 400, fontSize: 11, color: "#94a3b8", marginLeft: 10 }}>
-                                            * 오른쪽으로 스크롤하여 전체 영화 확인 가능 · 괄호 안은 각 작품 내 계열사 비중
-                                        </span>
-                                    </SectionTitle>
-                                    <TableWrap>
-                                        <Tbl>
-                                            <thead>
-                                                <tr>
-                                                    <th style={{ position: "sticky", left: 0, zIndex: 2 }}>구분</th>
-                                                    {tab.by_brand.movies.map(m => (
-                                                        <th key={m}>{m}</th>
-                                                    ))}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {tab.by_brand.rows.map(r => (
-                                                    <tr key={r.brand}>
-                                                        <td style={{ fontWeight: 700, position: "sticky", left: 0, background: "#f8fafc", zIndex: 1 }}>{r.brand}</td>
-                                                        {r.cells.map((c, ci) => (
-                                                            <td key={ci}>
-                                                                {c.seats > 0 ? (
-                                                                    <>
-                                                                        <span style={{ fontWeight: ci === 0 ? 700 : 400, color: ci === 0 ? "#dc2626" : undefined }}>
-                                                                            {fmt(c.seats)}석
-                                                                        </span>
-                                                                        <span className="share-cell"> ({fmtPct(c.share)})</span>
-                                                                    </>
-                                                                ) : (
-                                                                    <span className="share-cell">0석 (0.0%)</span>
-                                                                )}
-                                                            </td>
-                                                        ))}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </Tbl>
-                                    </TableWrap>
-                                </SectionCard>
+                                <BrandTable block={tab.by_brand} label={tab.label} />
                             )}
                         </>
                     )}

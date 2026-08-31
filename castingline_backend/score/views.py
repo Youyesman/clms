@@ -2068,7 +2068,7 @@ def _last_crawled_str(date_to, brands=None, titles=None):
     return dj_tz.localtime(last).strftime("%Y-%m-%d %H:%M") if last else None
 
 
-# ── 집계작 시간표 날짜 목록 API ──
+# ── 주요작 시간표 날짜 목록 API ──
 @api_view(["GET"])
 def score_timetable_dates(request):
     """
@@ -2109,7 +2109,7 @@ def score_timetable_dates(request):
     return Response({"dates": [d.strftime("%Y-%m-%d") for d in dates]})
 
 
-# ── 집계작 시간표 집계 API (T001: 0827 개편) ──
+# ── 주요작 시간표 집계 API (T001: 0827 개편) ──
 @api_view(["GET"])
 def score_timetable(request):
     """
@@ -2139,7 +2139,11 @@ def score_timetable(request):
     if d_to < d_from:
         return Response({"error": "종료일이 시작일보다 빠릅니다."}, status=400)
 
-    return Response(build_timetable_data(movie, d_from, d_to))
+    try:
+        # B002: 기간이 7일을 넘으면 집계기가 ValueError 로 알린다 (일자별 탭 최대 7개)
+        return Response(build_timetable_data(movie, d_from, d_to))
+    except ValueError as e:
+        return Response({"error": str(e) or "조회 조건 오류"}, status=400)
 
 
 # ── T003(0827): 경쟁작 화면 API ──
@@ -2232,7 +2236,7 @@ def score_competitor_timetable_pdf(request):
 
 @api_view(["GET"])
 def score_timetable_pdf(request):
-    """T001: 집계작 시간표 화면 그대로 PDF 보고서 (그래프 제외, 로고 포함)."""
+    """T001: 주요작 시간표 화면 그대로 PDF 보고서 (그래프 제외, 로고 포함)."""
     from .timetable_agg import build_timetable_data
     from .timetable_export import timetable_pdf_bytes
 
@@ -2252,9 +2256,12 @@ def score_timetable_pdf(request):
         return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
 
     import re as _re
-    data = build_timetable_data(movie, d_from, d_to)
+    try:
+        data = build_timetable_data(movie, d_from, d_to)
+    except ValueError as e:
+        return Response({"error": str(e) or "조회 조건 오류"}, status=400)
     safe = _re.sub(r'[\\/*?:"<>|]', "", movie.title_ko).replace(" ", "")
-    filename = f"집계작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).pdf"
+    filename = f"주요작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).pdf"
     return _file_response(timetable_pdf_bytes(data), filename, "application/pdf")
 
 
@@ -4030,7 +4037,7 @@ def verify_kofic_score(request):
 # ============================
 @api_view(["GET"])
 def score_timetable_excel(request):
-    """T001(0827): 집계작 시간표 화면 그대로 엑셀 다운로드.
+    """T001(0827): 주요작 시간표 화면 그대로 엑셀 다운로드.
 
     GET /Api/score/timetable-excel/?tab=timetable&movie_id=..&date_from=..&date_to=..
     화면과 같은 timetable_agg 데이터로 KEY SUMMARY / 지역별 / 포맷별 표를 담고
@@ -4060,9 +4067,12 @@ def score_timetable_excel(request):
     except ValueError:
         return Response({"error": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}, status=400)
 
-    data = build_timetable_data(movie, d_from, d_to)
+    try:
+        data = build_timetable_data(movie, d_from, d_to)
+    except ValueError as e:
+        return Response({"error": str(e) or "조회 조건 오류"}, status=400)
     safe = _re.sub(r'[\/*?:"<>|]', "", movie.title_ko).replace(" ", "")
-    filename = f"집계작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).xlsx"
+    filename = f"주요작 시간표_{safe}({d_from.strftime('%m.%d')}~{d_to.strftime('%m.%d')}).xlsx"
     return _file_response(
         timetable_excel_bytes(data), filename,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

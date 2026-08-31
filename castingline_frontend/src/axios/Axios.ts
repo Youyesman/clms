@@ -107,24 +107,26 @@ function showSessionExpiredModal() {
 
 const axiosInstance = axios.create();
 
+// skipLoading: true 를 넘긴 요청은 전역 로딩(프로그레스 바·오버레이)을 건드리지 않는다.
+// 주기 폴링(크롤 이력 5초, 메모장 동기화 등)이 매번 화면을 깜빡이게 하는 것을 막기 위함.
 axiosInstance.interceptors.request.use(
-    (config) => {
-        updateLoadingState(1);
+    (config: any) => {
+        if (!config.skipLoading) updateLoadingState(1);
         return config;
     },
     (error) => {
-        updateLoadingState(-1);
+        if (!error.config?.skipLoading) updateLoadingState(-1);
         return Promise.reject(error);
     }
 );
 
 axiosInstance.interceptors.response.use(
     (response) => {
-        updateLoadingState(-1);
+        if (!(response.config as any)?.skipLoading) updateLoadingState(-1);
         return response;
     },
     (error) => {
-        updateLoadingState(-1);
+        if (!error.config?.skipLoading) updateLoadingState(-1);
         if (error.response && error.response.status === 401) {
             if (!isUnauthorized) {
                 //인터셉터가 여러 번 호출되는 것을 방지하기 위한 실행플래그 값 설정

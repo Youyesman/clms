@@ -83,7 +83,7 @@ export default function SharedMemo() {
     // 폴링: 다른 사용자의 변경을 가져온다(로컬 미저장 편집 중이면 덮어쓰지 않음).
     const poll = useCallback(async () => {
         try {
-            const res = await AxiosGet("dashboard/memo/");
+            const res = await AxiosGet("dashboard/memo/", { skipLoading: true });
             const data = res.data;
             const dirty = contentRef.current !== lastSyncedContentRef.current;
             if (data.updated_at !== lastServerAtRef.current && !dirty) {

@@ -60,11 +60,11 @@ urlpatterns = [
     path('score/ranking/', score_ranking,
          name='score-ranking'),
 
-    # 10. 집계작 시간표 날짜 목록 API
+    # 10. 주요작 시간표 날짜 목록 API
     path('score/timetable/dates/', score_timetable_dates,
          name='score-timetable-dates'),
 
-    # 11. 집계작 시간표 집계 API
+    # 11. 주요작 시간표 집계 API
     path('score/timetable/', score_timetable,
          name='score-timetable'),
 
@@ -72,7 +72,7 @@ urlpatterns = [
     path('score/timetable-excel/', score_timetable_excel,
          name='score-timetable-excel'),
 
-    # 11-2. T001(0827): 집계작 시간표 PDF 보고서 (그래프 제외 + 로고)
+    # 11-2. T001(0827): 주요작 시간표 PDF 보고서 (그래프 제외 + 로고)
     path('score/timetable-pdf/', score_timetable_pdf,
          name='score-timetable-pdf'),
 

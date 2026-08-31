@@ -12,7 +12,7 @@ V001/V002(0828) 이후 원칙: **숫자는 [크롤러 관리] 엑셀·보고서�
 - 일반극장 극장명·지역 매칭, 더빙/자막 분리
 
 집계 단위도 엑셀과 맞춘다:
-- T001(집계작 시간표)은 [크롤러 관리] **보고서**(crawler/report/aggregation.py)와 같은 정의
+- T001(주요작 시간표)은 [크롤러 관리] **보고서**(crawler/report/aggregation.py)와 같은 정의
   → 극장수 = 기간 전체 고유 (브랜드,극장) / 스크린수 = 일자별 고유 (극장+관)의 합
 - T003(경쟁작)은 엑셀 **비교표**(_calc_summary)와 같은 정의
   → 극장수 = 고유 (브랜드,극장) / 스크린수 = 행 수(더빙·자막 분리 포함)
@@ -23,7 +23,7 @@ from datetime import timedelta
 
 from castingline_backend.utils.ordering import REGION_ORDER
 
-# 계열사 표기·순서 (기존 집계작 시간표와 동일)
+# 계열사 표기·순서 (기존 주요작 시간표와 동일)
 BRAND_DISPLAY = {'CGV': 'CGV', 'LOTTE': '롯데', 'MEGABOX': '메가박스',
                  '일반극장': '일반극장', 'OTHER': '일반'}
 CHAIN_ORDER = ['CGV', '롯데', '메가박스', '일반극장', '일반']
@@ -115,8 +115,31 @@ def _occ(sold, seats):
 
 
 # =====================================================================
-# T001: 집계작 시간표
+# T001: 주요작 시간표 (B002/0829 개편 — 일자별 탭)
 # =====================================================================
+#
+# 화면 구성(요청 B002):
+#   일자별 탭(최대 7일) → 각 탭마다
+#     ① KEY SUMMARY (해당 일자 + 전일比 / 전주比 증감)
+#     ② 멀티사별 상세 현황   ③ 포맷별 상세 현황
+#     ④ 시간대별 상세 현황   ⑤ 지역별 상세 현황
+#     ⑥ 주요작 vs 경쟁작 (동시 상영 경쟁작 TOP 10 순위)
+#   그리고 기간 전체를 관통하는 '상영일자 추이' 그래프.
+#
+# 전일比는 '해당 일자 - 1일', 전주比는 '해당 일자 - 7일'(같은 요일)과 비교한다.
+# 그래서 집계 대상 날짜는 조회 기간 + 각 날짜의 -1일 · -7일을 모두 포함한다.
+
+# B002: 시간대 구분 (회차 시작시각 기준). 자정 이후 새벽 회차는 심야로 본다.
+TIME_SLOTS = [
+    ('조조 (06:00~10:00)', lambda h: 6 <= h < 10),
+    ('프라임 (13:00~19:00)', lambda h: 13 <= h < 19),
+    ('일반 (10:00~13:00, 19:00~23:00)', lambda h: 10 <= h < 13 or 19 <= h < 23),
+    ('심야 (23:00 이후)', lambda h: h >= 23 or h < 6),
+]
+
+# 시간표 조회 기간 상한 (경쟁작 화면과 동일 — 일자별 탭이 최대 7개)
+MAX_TIMETABLE_DAYS = 7
+
 
 def _kpis(b):
     """보고서(aggregation.py)와 같은 정의로 KPI 산출."""
@@ -135,133 +158,317 @@ def _cmp_num(cur, prev):
     return {'diff': diff, 'rate': round(diff / prev * 100, 1) if prev else None}
 
 
-def _collect_timetable(titles, dates, maps):
-    """기간 하나(금주 또는 전주)의 집계 묶음."""
-    rows_by_date = _rows_by_date(titles, dates, maps)
+def _format_label(fmt):
+    """포맷 표기: 2D는 '2D (일반관)', 나머지(IMAX/4DX/DOLBY 등)는 태그 그대로."""
+    f = (str(fmt or '').strip() or '2D')
+    return '2D (일반관)' if f.upper() == '2D' else f
 
-    total = _empty()
-    by_day = defaultdict(_empty)
-    by_region = defaultdict(_empty)
-    by_region_day = defaultdict(int)
-    by_brand = defaultdict(_empty)
-    by_brand_day = defaultdict(int)
 
+def _empty_day():
+    return {
+        'total': _empty(),
+        'by_multi': defaultdict(_empty),
+        'by_format': defaultdict(_empty),
+        'by_region': defaultdict(_empty),
+        'by_slot': [{'shows': 0, 'seats': 0, 'sold': 0} for _ in TIME_SLOTS],
+    }
+
+
+def _slot_index(hour):
+    for i, (_, test) in enumerate(TIME_SLOTS):
+        if test(hour):
+            return i
+    return len(TIME_SLOTS) - 1
+
+
+def _collect_days(titles, dates, maps, brands=None):
+    """{상영일: 그 날의 집계 묶음} — 멀티사·포맷·지역·시간대까지 한 번에 센다."""
+    rows_by_date = _rows_by_date(titles, dates, maps, brands=brands)
+
+    out = {}
     for d, rows in rows_by_date.items():
+        bucket = _empty_day()
         for r in rows:
-            region = _region_of(r)
-            bd = BRAND_DISPLAY.get(r['brand'], r['brand'])
-            _acc(total, r, d)
-            _acc(by_day[d], r, d)
-            _acc(by_region[region], r, d)
-            by_region_day[(region, d)] += r['total_seats']
-            _acc(by_brand[bd], r, d)
-            by_brand_day[(bd, d)] += r['total_seats']
+            _acc(bucket['total'], r, d)
+            _acc(bucket['by_multi'][BRAND_DISPLAY.get(r['brand'], r['brand'])], r, d)
+            _acc(bucket['by_format'][_format_label(r.get('format'))], r, d)
+            _acc(bucket['by_region'][_region_of(r)], r, d)
+            # 회차 단위 지표는 전처리가 준 회차별 상세로만 계산한다 (자체 계산 금지)
+            for sh in r.get('shows', []):
+                s = bucket['by_slot'][_slot_index(sh['hour'])]
+                s['shows'] += 1
+                s['seats'] += sh['seats']
+                s['sold'] += sh['sold']
+        out[d] = bucket
+    return out
 
-    return {'total': total, 'by_day': by_day,
-            'by_region': by_region, 'by_region_day': by_region_day,
-            'by_brand': by_brand, 'by_brand_day': by_brand_day}
+
+def _diff_or_none(cur, prev_bucket, getter):
+    """전일/전주 데이터가 아예 없으면 None(화면에서 '-')을 돌려준다."""
+    if prev_bucket is None:
+        return None
+    return {'diff': cur - getter(prev_bucket)}
+
+
+def _detail_rows(by_key, prev_map, week_map, order, day_total_seats, count_field):
+    """② 멀티사별 / ③ 포맷별 / ⑤ 지역별 공통 행 생성.
+
+    각 행: 총 좌석수 · 비율 · 전일比 좌석 증감 · 전주比 좌석 증감 · 극장(또는 스크린)수 · 회차수
+    """
+    keys = [k for k in order if k in by_key]
+    keys += sorted((k for k in by_key if k not in order),
+                   key=lambda k: -by_key[k]['seats'])
+
+    rows = []
+    for k in keys:
+        b = by_key[k]
+        rows.append({
+            'label': k,
+            'total_seats': b['seats'],
+            'share': round(b['seats'] / day_total_seats * 100, 1) if day_total_seats else 0.0,
+            'prev_day_cmp': _diff_or_none(b['seats'], prev_map,
+                                          lambda m, k=k: m.get(k, {}).get('seats', 0)),
+            'prev_week_cmp': _diff_or_none(b['seats'], week_map,
+                                           lambda m, k=k: m.get(k, {}).get('seats', 0)),
+            'count': (len(b['theaters']) if count_field == 'theaters'
+                      else len(b['day_screens'])),
+            'shows': b['shows'],
+        })
+    return rows
+
+
+def _slot_rows(cur_slots, prev_slots, week_slots):
+    """④ 시간대별 상세 현황 — 점유율 차이는 %p."""
+    rows = []
+    for i, (label, _) in enumerate(TIME_SLOTS):
+        s = cur_slots[i]
+        occ = _occ(s['sold'], s['seats'])
+        row = {
+            'label': label,
+            'shows': s['shows'],
+            'total_seats': s['seats'],
+            'sold_seats': s['sold'],
+            'occupancy': occ,
+            'prev_day_cmp': None,
+            'prev_week_cmp': None,
+        }
+        if prev_slots is not None:
+            p = prev_slots[i]
+            row['prev_day_cmp'] = {'diff': round(occ - _occ(p['sold'], p['seats']), 1)}
+        if week_slots is not None:
+            w = week_slots[i]
+            row['prev_week_cmp'] = {'diff': round(occ - _occ(w['sold'], w['seats']), 1)}
+        rows.append(row)
+    return rows
+
+
+def _competitor_units(main_title):
+    """⑥ 동시 상영 경쟁작 TOP 10 대상 — 활성 크롤 대상 전체 + 조회 중인 주요작."""
+    from crawler.models import CrawlTargetMovie, MovieSchedule
+
+    units, seen = [], set()
+
+    def push(raw_title):
+        clean, _ = MovieSchedule.parse_and_normalize_title(raw_title)
+        key = MovieSchedule.normalize_title(clean)
+        if not key or key in seen:
+            return key
+        seen.add(key)
+        units.append({'key': key, 'title': clean or raw_title})
+        return key
+
+    main_key = push(main_title) if main_title else None
+    for t in CrawlTargetMovie.objects.filter(is_active=True).order_by('id'):
+        push(t.title)
+    return units, main_key
+
+
+def _competitor_by_day(units, dates, maps):
+    """{상영일: {작품키: {seats, sold, shows}}} — 엑셀과 같은 전처리로 집계."""
+    from crawler.models import MovieSchedule
+
+    all_titles = list(MovieSchedule.objects.filter(play_date__in=list(dates))
+                      .values_list('movie_title', flat=True).distinct())
+
+    out = defaultdict(dict)
+    for u in units:
+        matched = [t for t in all_titles if MovieSchedule.title_matches(u['title'], t)]
+        if not matched:
+            continue
+        for d, rows in _rows_by_date(matched, dates, maps).items():
+            b = {'seats': 0, 'sold': 0, 'shows': 0}
+            for r in rows:
+                b['seats'] += r['total_seats']
+                b['sold'] += r['sold_seats']
+                b['shows'] += r['show_count']
+            if b['seats'] or b['shows']:
+                out[d][u['key']] = b
+    return out
+
+
+def _ranks_of(day_map):
+    """그 날의 총 좌석수 내림차순 순위 (동률은 RANK — 1,2,2,4)."""
+    ranks, prev_val, prev_rank = {}, None, 0
+    for i, (key, b) in enumerate(sorted(day_map.items(), key=lambda kv: -kv[1]['seats']), 1):
+        rank = prev_rank if b['seats'] == prev_val else i
+        ranks[key] = rank
+        prev_val, prev_rank = b['seats'], rank
+    return ranks
+
+
+def _competitor_top(day_map, prev_map, week_map, title_of, main_key, top_n=10):
+    """⑥ 동시 상영 경쟁작 TOP 10 (+ TOP10 밖이면 주요작 행을 덧붙인다)."""
+    if not day_map:
+        return []
+    ranks = _ranks_of(day_map)
+    prev_ranks = _ranks_of(prev_map) if prev_map else {}
+    week_ranks = _ranks_of(week_map) if week_map else {}
+
+    ordered = sorted(day_map.items(), key=lambda kv: -kv[1]['seats'])
+    picked = ordered[:top_n]
+    if main_key and main_key in day_map and all(k != main_key for k, _ in picked):
+        picked = picked + [(main_key, day_map[main_key])]
+
+    def rank_move(prev_rank, cur_rank):
+        # 순위가 오르면 양수(▲), 내리면 음수(▼). 비교 대상이 없으면 None → '-'
+        return None if prev_rank is None else prev_rank - cur_rank
+
+    rows = []
+    for key, b in picked:
+        rows.append({
+            'rank': ranks[key],
+            'title': title_of.get(key, key),
+            'is_main': key == main_key,
+            'total_seats': b['seats'],
+            'occupancy': _occ(b['sold'], b['seats']),
+            'shows': b['shows'],
+            'prev_day_move': rank_move(prev_ranks.get(key), ranks[key]),
+            'prev_week_move': rank_move(week_ranks.get(key), ranks[key]),
+        })
+    return rows
 
 
 def build_timetable_data(movie, d_from, d_to):
-    """T001: 집계작 시간표 화면 데이터 (KEY SUMMARY / 지역별 / 포맷별 / 추이)."""
-    cur_dates = [d_from + timedelta(days=i) for i in range((d_to - d_from).days + 1)]
-    prev_dates = [d - timedelta(days=7) for d in cur_dates]
+    """T001(B002): 주요작 시간표 화면 데이터 — 일자별 탭 + 상영일자 추이."""
+    n_days = (d_to - d_from).days + 1
+    if n_days < 1:
+        raise ValueError("종료일이 시작일보다 빠릅니다.")
+    if n_days > MAX_TIMETABLE_DAYS:
+        raise ValueError(
+            f"시간표 조회 기간은 최대 {MAX_TIMETABLE_DAYS}일까지 지정할 수 있습니다.")
+
+    cur_dates = [d_from + timedelta(days=i) for i in range(n_days)]
+    prev_day_of = {d: d - timedelta(days=1) for d in cur_dates}
+    prev_week_of = {d: d - timedelta(days=7) for d in cur_dates}
+    # 전일比·전주比를 위해 -1일, -7일 데이터도 함께 집계한다
+    all_dates = sorted(set(cur_dates)
+                       | set(prev_day_of.values())
+                       | set(prev_week_of.values()))
 
     matched_titles = _match_titles(movie.title_ko)
     maps = _build_maps()
 
-    cur = _collect_timetable(matched_titles, cur_dates, maps)
-    prev = _collect_timetable(matched_titles, prev_dates, maps)
-    has_prev = prev['total']['shows'] > 0
+    days = _collect_days(matched_titles, all_dates, maps)
 
-    # ---- KEY SUMMARY ----
-    total_kpi = _kpis(cur['total'])
-    cmp_ = None
-    if has_prev:
-        p = _kpis(prev['total'])
-        cmp_ = {
-            'total_seats': _cmp_num(total_kpi['total_seats'], p['total_seats']),
-            'sold_seats': _cmp_num(total_kpi['sold_seats'], p['sold_seats']),
-            'occupancy': {'diff': round(total_kpi['occupancy'] - p['occupancy'], 1)},
-            'shows': _cmp_num(total_kpi['shows'], p['shows']),
-            'theaters': _cmp_num(total_kpi['theaters'], p['theaters']),
-            'screens': _cmp_num(total_kpi['screens'], p['screens']),
+    # ⑥ 동시 상영 경쟁작 순위 (주요작 포함 — 같은 전처리라 숫자가 어긋나지 않는다)
+    units, main_key = _competitor_units(movie.title_ko)
+    title_of = {u['key']: u['title'] for u in units}
+    comp_days = _competitor_by_day(units, all_dates, maps)
+
+    # 주요작 행은 화면의 다른 표와 **같은 매칭 규칙**(_match_titles)으로 낸 수치로 덮어쓴다.
+    # 경쟁작 순위는 title_matches(정확 일치)로 집계하는데, 두 규칙이 갈리는 제목이면
+    # 같은 화면 안에서 주요작 좌석수가 표마다 달라 보이기 때문이다.
+    if main_key:
+        for d in all_dates:
+            b = days.get(d)
+            if b and b['total']['seats']:
+                comp_days[d][main_key] = {'seats': b['total']['seats'],
+                                          'sold': b['total']['sold'],
+                                          'shows': b['total']['shows']}
+            else:
+                comp_days.get(d, {}).pop(main_key, None)
+
+    tabs = []
+    for d in cur_dates:
+        cur = days.get(d)
+        prev = days.get(prev_day_of[d])
+        week = days.get(prev_week_of[d])
+
+        cur_total = cur['total'] if cur else _empty()
+        kpi = _kpis(cur_total)
+        summary = {
+            'date': str(d),
+            'label': _date_label(d),
+            'prev_day': str(prev_day_of[d]),
+            'prev_week': str(prev_week_of[d]),
+            **kpi,
+            'prev_day_cmp': None,
+            'prev_week_cmp': None,
         }
-    key_summary = {
-        'total': {'label': f"합계 ({len(cur_dates)}일)", **total_kpi, 'cmp': cmp_},
-        'days': [{'date': str(d), 'label': _date_label(d), **_kpis(cur['by_day'][d])}
-                 for d in cur_dates],
-    }
+        for slot, other in (('prev_day_cmp', prev), ('prev_week_cmp', week)):
+            if not other:
+                continue
+            p = _kpis(other['total'])
+            summary[slot] = {
+                'total_seats': _cmp_num(kpi['total_seats'], p['total_seats']),
+                'sold_seats': _cmp_num(kpi['sold_seats'], p['sold_seats']),
+                'occupancy': {'diff': round(kpi['occupancy'] - p['occupancy'], 1)},
+                'shows': _cmp_num(kpi['shows'], p['shows']),
+                'theaters': _cmp_num(kpi['theaters'], p['theaters']),
+                'screens': _cmp_num(kpi['screens'], p['screens']),
+            }
 
-    # ---- 지역별 / 포맷별(계열사) 상세 ----
-    day_totals = {d: cur['by_day'][d]['seats'] for d in cur_dates}
-    grand_seats = cur['total']['seats']
-
-    def detail_rows(by_key, by_key_day, order, count_field):
-        keys = [k for k in order if k in by_key]
-        keys += sorted(k for k in by_key if k not in order)
-        rows = []
-        for k in keys:
-            b = by_key[k]
-            days = []
-            for d in cur_dates:
-                seats = by_key_day.get((k, d), 0)
-                dt = day_totals.get(d, 0)
-                days.append({'seats': seats,
-                             'share': round(seats / dt * 100, 1) if dt else 0.0})
-            rows.append({
-                'label': k,
-                'days': days,
-                'total_seats': b['seats'],
-                'total_share': round(b['seats'] / grand_seats * 100, 1) if grand_seats else 0.0,
-                'count': (len(b['theaters']) if count_field == 'theaters'
-                          else len(b['day_screens'])),
-                'shows': b['shows'],
-            })
-        if rows:
-            rows.append({
-                'label': '합계',
-                'days': [{'seats': day_totals.get(d, 0),
-                          'share': 100.0 if day_totals.get(d, 0) else 0.0}
-                         for d in cur_dates],
-                'total_seats': grand_seats,
-                'total_share': 100.0 if grand_seats else 0.0,
-                'count': (len(cur['total']['theaters']) if count_field == 'theaters'
-                          else len(cur['total']['day_screens'])),
-                'shows': cur['total']['shows'],
-                'is_total': True,
-            })
-        return rows
-
-    region_detail = {
-        'dates': [str(d) for d in cur_dates],
-        'labels': [_date_label(d) for d in cur_dates],
-        'count_label': '극장수',
-        'rows': detail_rows(cur['by_region'], cur['by_region_day'],
-                            REGION_DISPLAY_ORDER, 'theaters'),
-    }
-    format_detail = {
-        'dates': [str(d) for d in cur_dates],
-        'labels': [_date_label(d) for d in cur_dates],
-        'count_label': '스크린수',
-        'rows': detail_rows(cur['by_brand'], cur['by_brand_day'], CHAIN_ORDER, 'screens'),
-    }
+        day_seats = cur_total['seats']
+        empty_bucket = {}
+        tabs.append({
+            'key': str(d),
+            'label': _date_label(d),
+            'key_summary': summary,
+            'multi_detail': _detail_rows(
+                cur['by_multi'] if cur else empty_bucket,
+                prev['by_multi'] if prev else None,
+                week['by_multi'] if week else None,
+                CHAIN_ORDER, day_seats, 'theaters'),
+            'format_detail': _detail_rows(
+                cur['by_format'] if cur else empty_bucket,
+                prev['by_format'] if prev else None,
+                week['by_format'] if week else None,
+                ['2D (일반관)'], day_seats, 'screens'),
+            'time_detail': _slot_rows(
+                cur['by_slot'] if cur else _empty_day()['by_slot'],
+                prev['by_slot'] if prev else None,
+                week['by_slot'] if week else None),
+            'region_detail': _detail_rows(
+                cur['by_region'] if cur else empty_bucket,
+                prev['by_region'] if prev else None,
+                week['by_region'] if week else None,
+                REGION_DISPLAY_ORDER, day_seats, 'theaters'),
+            'competitor_top': _competitor_top(
+                comp_days.get(d, {}),
+                comp_days.get(prev_day_of[d], {}),
+                comp_days.get(prev_week_of[d], {}),
+                title_of, main_key),
+        })
 
     # ---- 상영일자 추이 (금주 실선 / 전주 점선) ----
+    has_prev = any(days.get(prev_week_of[d]) for d in cur_dates)
     points = []
-    for d, pd_ in zip(cur_dates, prev_dates):
-        cur_k = _kpis(cur['by_day'][d]) if d in cur['by_day'] else _kpis(_empty())
-        prev_k = (_kpis(prev['by_day'][pd_])
-                  if has_prev and pd_ in prev['by_day'] else None)
-        points.append({'date': str(d), 'label': _date_label(d), 'prev_date': str(pd_),
-                       'cur': cur_k, 'prev': prev_k})
+    for d in cur_dates:
+        cur = days.get(d)
+        week = days.get(prev_week_of[d])
+        points.append({
+            'date': str(d), 'label': _date_label(d),
+            'prev_date': str(prev_week_of[d]),
+            'cur': _kpis(cur['total']) if cur else _kpis(_empty()),
+            'prev': _kpis(week['total']) if week else None,
+        })
     trend = {
         'dates': [str(d) for d in cur_dates],
-        'prev_dates': [str(d) for d in prev_dates],
+        'prev_dates': [str(prev_week_of[d]) for d in cur_dates],
         'points': points,
         'compare_note': ', '.join(
-            f"{d.month}/{d.day}↔{pd_.month}/{pd_.day}"
-            for d, pd_ in zip(cur_dates, prev_dates)),
+            f"{d.month}/{d.day}↔{prev_week_of[d].month}/{prev_week_of[d].day}"
+            for d in cur_dates),
     }
 
     from .views import _last_crawled_str
@@ -273,12 +480,11 @@ def build_timetable_data(movie, d_from, d_to):
             'distributor_name': movie.distributor.client_name if movie.distributor else None,
             'last_crawled_at': _last_crawled_str(d_to, titles=matched_titles),
             'date_from': str(d_from), 'date_to': str(d_to),
-            'prev_from': str(prev_dates[0]), 'prev_to': str(prev_dates[-1]),
+            'prev_from': str(prev_week_of[cur_dates[0]]),
+            'prev_to': str(prev_week_of[cur_dates[-1]]),
             'has_prev': has_prev,
         },
-        'key_summary': key_summary,
-        'region_detail': region_detail,
-        'format_detail': format_detail,
+        'tabs': tabs,
         'trend': trend,
     }
 
@@ -418,7 +624,7 @@ def _competitor_sections(buckets, title_of):
 
 
 def build_competitor_data(d_from, d_to, titles=None, brands=None):
-    """T003: 경쟁작 기간 합산 + 일별 탭 데이터 (최대 7일).
+    """T003: 경쟁작 일별 탭 데이터 (최대 7일 · B003으로 기간 합산 탭 제거).
 
     숫자는 엑셀 비교표와 동일해야 하므로 작품별로 _process_to_rows 를 거친다.
     """
@@ -469,8 +675,8 @@ def build_competitor_data(d_from, d_to, titles=None, brands=None):
 
     empty_tab = {'summary': [], 'regions': [], 'golden': [], 'special': [],
                  'by_brand': {'movies': [], 'rows': []}}
-    tabs = [{'key': 'sum', 'label': f"기간 합산 ({n_days}일)",
-             **_competitor_sections(sum_buckets, title_of)}]
+    # B003(0829): '기간 합산' 탭 삭제 — 각 일자별 뷰만 남긴다
+    tabs = []
     for d in cur_dates:
         b = day_buckets.get(d, {})
         tabs.append({'key': str(d), 'label': _date_label(d),

@@ -7,8 +7,8 @@ import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { SpecificDatesPicker } from "./SpecificDatesPicker";
 
 /* P001: 영화 상영현황 보고서(PDF/엑셀) 생성 모달
-   [시간표 수집] DB의 기준기간 + 전주(-7일) 데이터를 집계해
-   A4 가로 3페이지 보고서를 내려받는다. */
+   [시간표 수집] DB의 기준기간 + 전주(-7일) 데이터를 집계해 A4 가로 보고서를 내려받는다.
+   A001(0829): 주요작 있음 3장 / 주요작 없음 = 요약 1장 + 조회 일자마다 상세 1장. */
 
 interface CrawlTarget {
     id: number;
@@ -296,10 +296,10 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 <div>
                     <SectionLabel>보고서 유형</SectionLabel>
                     <ModeItem $selected={mode === "main"} onClick={() => setMode("main")}>
-                        주요작 있음 — 주요작 상영 현황 / 주요작 vs 경쟁작 / 전체 경쟁작
+                        주요작 있음 — 주요작 상영 현황 / 주요작 상세 현황 / 주요작 vs 경쟁작
                     </ModeItem>
                     <ModeItem $selected={mode === "none"} onClick={() => setMode("none")}>
-                        주요작 없음 — 경쟁작 전체 요약 / 경쟁 현황 / 전체 경쟁작
+                        주요작 없음 — 경쟁작 전체 상영 요약 / 일자별 상세 현황(하루 한 장)
                     </ModeItem>
                 </div>
 

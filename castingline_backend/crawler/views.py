@@ -1053,8 +1053,8 @@ class CrawlerReportView(APIView):
     P001: 영화 상영현황 보고서 생성 (PDF/엑셀).
     Body: start_date, end_date, format('pdf'|'excel'),
           mode('main'|'none'), main_title(mode='main'일 때 필수)
-    [시간표 수집] DB에서 기준기간·전주(-7일) 데이터를 집계해 A4 가로 3페이지
-    보고서를 만든다. (개발요청서 '시간표_보고서_최종개발요청서' 기준)
+    [시간표 수집] DB에서 기준기간·전주(-7일) 데이터를 집계해 A4 가로 보고서를 만든다.
+    A001(0829): 주요작 있음 3장 / 주요작 없음 = 요약 1장 + 조회 일자마다 상세 1장.
     """
     def post(self, request):
         import re as _re
@@ -1068,8 +1068,8 @@ class CrawlerReportView(APIView):
         fmt = (request.data.get('format') or 'pdf').lower()
         mode = request.data.get('mode') or 'main'
         main_title = (request.data.get('main_title') or '').strip()
-        # A003: 출력 범위 — 'main_only'(주요작 상세 1P) / 'main_comp'(1P+경쟁작 비교 2P)
-        #       / 'comp_only'(경쟁작 Top20 요약 1P) / 미지정(기존 전체 페이지)
+        # A003 시절의 출력 범위 옵션. A001(0829) 개편으로 페이지 구성이 바뀌어
+        # 더 이상 의미가 없지만, 예전 호출을 깨뜨리지 않도록 받기만 하고 넘긴다.
         scope = (request.data.get('scope') or '').strip() or None
         # W002: 엑셀 다운로드와 같은 계열사 범위로 집계해야 숫자가 일치한다
         brands = request.data.get('brands')

@@ -63,8 +63,19 @@
       "PowerShell(git diff stash@{0} -- .claude/settings.local.json | Select-Object -First 40)",
       "Skill(run)",
       "PowerShell(git pull *)",
-      "PowerShell(git add *)"
+      "PowerShell(git add *)",
+      "WebFetch(domain:www.kobis.or.kr)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(git fetch *)",
+      "PowerShell(Get-ChildItem C:\\\\clms\\\\castingline_backend -Name -Directory; Write-Output \"--- venv? ---\"; Test-Path C:\\\\clms\\\\castingline_backend\\\\venv; Test-Path C:\\\\clms\\\\venv; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell(git *)",
+      "PowerShell(Get-ChildItem C:\\\\clms\\\\castingline_frontend -Force | Where-Object { $_.Name -in @\\('package.json','node_modules','yarn.lock','.env','vite.config.ts'\\) } | Select-Object Name, Mode)",
+      "PowerShell(python --version; python -c \"import django; print\\(django.__version__\\)\")",
+      "Skill(update-config)",
+      "PowerShell(\\(Get-Content C:\\\\clms\\\\.claude\\\\settings.local.json -Raw | ConvertFrom-Json\\).permissions.defaultMode)",
+      "PowerShell($j = Get-Content C:\\\\clms\\\\.claude\\\\settings.local.json -Raw | ConvertFrom-Json; if \\($null -eq $j.permissions.defaultMode\\) { \"MISSING\" } else { $j.permissions.defaultMode })"
     ],
+    "defaultMode": "bypassPermissions",
     "additionalDirectories": [
       "C:\\clms\\castingline_frontend\\src\\domain\\auth\\pages",
       "C:\\Users\\yyw02\\.claude\\projects\\c--clms\\memory",

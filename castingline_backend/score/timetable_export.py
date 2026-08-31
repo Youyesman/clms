@@ -87,104 +87,131 @@ def _cmp_txt(c, unit=""):
 
 PCT = '0.0"%"'
 
+# =====================================================================
+# T001: 주요작 시간표 엑셀 (B002/0829 — 일자별 탭 = 시트 1개)
+# =====================================================================
 
-# =====================================================================
-# T001: 집계작 시간표 엑셀
-# =====================================================================
+def _cmp_seat_txt(c):
+    """전일比/전주比 좌석 증감 — 비교 대상이 없으면 '-'."""
+    if not c:
+        return "-"
+    d = c["diff"]
+    return f"{'▲' if d >= 0 else '▼'} {d:+,d}석"
+
+
+def _cmp_pp_txt(c):
+    """점유율 차이 — %p 표기."""
+    if not c:
+        return "-"
+    d = c["diff"]
+    return f"{'▲' if d >= 0 else '▼'} {abs(d):.1f}%p"
+
+
+def _cmp_kpi_txt(c, unit):
+    if not c:
+        return "-"
+    return _cmp_txt(c, unit)
+
+
+def _move_txt(v):
+    """순위 변동 — 양수면 상승(▲), 음수면 하락(▼), 0이면 '-'."""
+    if v is None:
+        return "-"
+    if v == 0:
+        return "-"
+    return f"{'▲' if v > 0 else '▼'} {abs(v)}"
+
 
 def timetable_excel_bytes(data):
     meta = data["meta"]
-    ks = data["key_summary"]
     wb = Workbook()
-    ws = wb.active
-    ws.title = "집계작 시간표"
-    ws.sheet_view.showGridLines = False
+    wb.remove(wb.active)
 
-    n_days = len(data["region_detail"]["dates"])
-    last_col = max(7, 2 * n_days + 5)
-    _put(ws, 1, 1, f"집계작 시간표 — {meta['movie_title']}", font=TITLE_FONT, border=False)
-    _put(ws, 2, 1,
-         f"조사기간 {meta['date_from']} ~ {meta['date_to']}  |  전주 {meta['prev_from']} ~ {meta['prev_to']}"
-         f"  |  개봉일 {meta.get('release_date') or '-'}  |  수집 완료 {meta.get('last_crawled_at') or '-'}",
-         font=NORM, border=False)
-    _logo(ws, last_col)
+    for tab in data["tabs"]:
+        ks = tab["key_summary"]
+        ws = wb.create_sheet(tab["label"].replace("/", ".")[:28])
+        ws.sheet_view.showGridLines = False
 
-    r = 4
-    # ---- KEY SUMMARY ----
-    r = _row(ws, r, ["KEY SUMMARY"], font=BOLD)
-    headers = ["지표", "총 좌석수", "예매좌석수", "좌석점유율", "총 회차", "총 극장수", "총 스크린수"]
-    r = _row(ws, r, headers, font=BOLD, fill=HEAD_FILL)
-    t = ks["total"]
+        _put(ws, 1, 1, f"주요작 시간표 — {meta['movie_title']} · {tab['label']}",
+             font=TITLE_FONT, border=False)
+        _put(ws, 2, 1,
+             f"조사기간 {meta['date_from']} ~ {meta['date_to']}"
+             f"  |  전일 {ks['prev_day']}  |  전주 {ks['prev_week']}"
+             f"  |  개봉일 {meta.get('release_date') or '-'}"
+             f"  |  배급사 {meta.get('distributor_name') or '-'}"
+             f"  |  수집 완료 {meta.get('last_crawled_at') or '-'}",
+             font=NORM, border=False)
+        _logo(ws, 7)
 
-    def kpi_vals(row):
-        return [row["total_seats"], row["sold_seats"], row["occupancy"],
-                row["shows"], row["theaters"], row["screens"]]
-
-    fmts = {2: "#,##0", 3: "#,##0", 4: PCT, 5: "#,##0", 6: "#,##0", 7: "#,##0"}
-    r = _row(ws, r, [t["label"]] + kpi_vals(t), font=BOLD, fill=TOTAL_FILL, fmts=fmts)
-    if t.get("cmp"):
-        c = t["cmp"]
-        vals = ["전주 대비",
-                _cmp_txt(c["total_seats"], "석"), _cmp_txt(c["sold_seats"], "석"),
-                ("▲" if c["occupancy"]["diff"] >= 0 else "▼") + f" {abs(c['occupancy']['diff']):.1f}%p",
-                _cmp_txt(c["shows"], "회"), _cmp_txt(c["theaters"], "개"), _cmp_txt(c["screens"], "개")]
-        for i, v in enumerate(vals, 1):
-            _put(ws, r, i, v, font=RED_BOLD if i > 1 else BOLD)
+        r = 4
+        # ---- ① KEY SUMMARY ----
+        r = _row(ws, r, ["KEY SUMMARY"], font=BOLD)
+        r = _row(ws, r, ["구분", "총 좌석수", "예매좌석수", "좌석점유율",
+                         "총 회차수", "총 극장수", "총 스크린수"], font=BOLD, fill=HEAD_FILL)
+        r = _row(ws, r, [ks["label"], ks["total_seats"], ks["sold_seats"], ks["occupancy"],
+                         ks["shows"], ks["theaters"], ks["screens"]],
+                 font=BOLD, fill=TOTAL_FILL,
+                 fmts={2: "#,##0", 3: "#,##0", 4: PCT, 5: "#,##0", 6: "#,##0", 7: "#,##0"})
+        for label, key in (("증감 (전일比)", "prev_day_cmp"), ("증감 (전주比)", "prev_week_cmp")):
+            c = ks.get(key)
+            vals = [label]
+            if c:
+                vals += [_cmp_kpi_txt(c["total_seats"], "석"), _cmp_kpi_txt(c["sold_seats"], "석"),
+                         _cmp_pp_txt(c["occupancy"]), _cmp_kpi_txt(c["shows"], "회"),
+                         _cmp_kpi_txt(c["theaters"], "개"), _cmp_kpi_txt(c["screens"], "개")]
+            else:
+                vals += ["-"] * 6
+            for i, v in enumerate(vals, 1):
+                _put(ws, r, i, v, font=RED_BOLD if i > 1 else BOLD)
+            r += 1
         r += 1
-    for day in ks["days"]:
-        r = _row(ws, r, [day["label"]] + kpi_vals(day), fmts=fmts)
-    r += 1
 
-    # ---- 지역별 / 포맷별 상세 ----
-    def detail_block(r, title, detail):
-        r = _row(ws, r, [title], font=BOLD)
-        labels = detail["labels"]
-        head1 = ["구분"]
-        for lb in labels:
-            head1 += [lb, ""]
-        head1 += ["합계", "", detail["count_label"], f"회차수\n({len(labels)}일 합계)"]
-        head2 = [""]
-        for _ in labels:
-            head2 += ["총 좌석수", "비중"]
-        head2 += ["총 좌석수", "비중", "", ""]
-        hr1, hr2 = r, r + 1
-        for i, v in enumerate(head1, 1):
-            _put(ws, hr1, i, v, font=BOLD, fill=HEAD_FILL)
-        for i, v in enumerate(head2, 1):
-            _put(ws, hr2, i, v, font=BOLD, fill=HEAD_FILL)
-        # 헤더 병합: 구분/극장수/회차수 세로, 날짜·합계 가로
-        ws.merge_cells(start_row=hr1, start_column=1, end_row=hr2, end_column=1)
-        col = 2
-        for _ in labels:
-            ws.merge_cells(start_row=hr1, start_column=col, end_row=hr1, end_column=col + 1)
-            col += 2
-        ws.merge_cells(start_row=hr1, start_column=col, end_row=hr1, end_column=col + 1)
-        ws.merge_cells(start_row=hr1, start_column=col + 2, end_row=hr2, end_column=col + 2)
-        ws.merge_cells(start_row=hr1, start_column=col + 3, end_row=hr2, end_column=col + 3)
-        r = hr2 + 1
-        for row in detail["rows"]:
-            vals = [row["label"]]
-            fmts_d = {}
-            ci = 2
-            for d in row["days"]:
-                vals += [d["seats"], d["share"]]
-                fmts_d[ci] = "#,##0"
-                fmts_d[ci + 1] = PCT
-                ci += 2
-            vals += [row["total_seats"], row["total_share"], row["count"], row["shows"]]
-            fmts_d[ci] = "#,##0"
-            fmts_d[ci + 1] = PCT
-            fmts_d[ci + 2] = "#,##0"
-            fmts_d[ci + 3] = "#,##0"
-            is_total = bool(row.get("is_total"))
-            r = _row(ws, r, vals, font=BOLD if is_total else NORM,
-                     fill=TOTAL_FILL if is_total else None, fmts=fmts_d)
-        return r + 1
+        # ---- ②③⑤ 멀티사별 / 포맷별 / 지역별 ----
+        def detail_block(r, title, rows, count_label):
+            r = _row(ws, r, [title], font=BOLD)
+            r = _row(ws, r, ["구분", "총 좌석수", "비율", "전일比 좌석 증감",
+                             "전주比 좌석 증감", count_label, "회차수"],
+                     font=BOLD, fill=HEAD_FILL)
+            for row in rows:
+                r = _row(ws, r, [row["label"], row["total_seats"], row["share"],
+                                 _cmp_seat_txt(row["prev_day_cmp"]),
+                                 _cmp_seat_txt(row["prev_week_cmp"]),
+                                 row["count"], row["shows"]],
+                         fmts={2: "#,##0", 3: PCT, 6: "#,##0", 7: "#,##0"})
+            return r + 1
 
-    r = detail_block(r, "지역별 상세 현황", data["region_detail"])
-    r = detail_block(r, "포맷별 상세 현황", data["format_detail"])
+        r = detail_block(r, "멀티사별 상세 현황", tab["multi_detail"], "총 극장수")
+        r = detail_block(r, "포맷별 상세 현황", tab["format_detail"], "스크린수")
 
-    _autow(ws)
+        # ---- ④ 시간대별 ----
+        r = _row(ws, r, ["시간대별 상세 현황"], font=BOLD)
+        r = _row(ws, r, ["시간대 구분", "상영 회차수", "총 좌석수", "예매 좌석수",
+                         "좌석 점유율", "전일比 점유율 차이", "전주比 점유율 차이"],
+                 font=BOLD, fill=HEAD_FILL)
+        for row in tab["time_detail"]:
+            r = _row(ws, r, [row["label"], row["shows"], row["total_seats"], row["sold_seats"],
+                             row["occupancy"], _cmp_pp_txt(row["prev_day_cmp"]),
+                             _cmp_pp_txt(row["prev_week_cmp"])],
+                     fmts={2: "#,##0", 3: "#,##0", 4: "#,##0", 5: PCT})
+        r += 1
+
+        r = detail_block(r, "지역별 상세 현황", tab["region_detail"], "총 극장수")
+
+        # ---- ⑥ 주요작 vs 경쟁작 ----
+        r = _row(ws, r, [f"주요작 vs 경쟁작 — 동시 상영 경쟁작 TOP 10 순위 ({tab['label']})"], font=BOLD)
+        r = _row(ws, r, ["순위", "영화명", "총 좌석수", "좌석 점유율", "상영 회차수",
+                         "전일比 순위변동", "전주比 순위변동"], font=BOLD, fill=HEAD_FILL)
+        for row in tab["competitor_top"]:
+            r = _row(ws, r,
+                     [f"{row['rank']} (★당사)" if row["is_main"] else row["rank"],
+                      row["title"], row["total_seats"], row["occupancy"], row["shows"],
+                      _move_txt(row["prev_day_move"]), _move_txt(row["prev_week_move"])],
+                     font=BOLD if row["is_main"] else NORM,
+                     fill=TOTAL_FILL if row["is_main"] else None,
+                     fmts={3: "#,##0", 4: PCT, 5: "#,##0"})
+
+        _autow(ws)
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -364,116 +391,148 @@ def _fpct(v):
 
 
 # =====================================================================
-# T001: 집계작 시간표 PDF
+# T001: 주요작 시간표 PDF (B002/0829 — 일자별 탭 = 페이지 1장)
 # =====================================================================
 
 def timetable_pdf_bytes(data):
     from reportlab.lib import colors
-    from reportlab.platypus import Spacer
+    from reportlab.platypus import PageBreak, Spacer
 
     _ensure_pdf_fonts()
     meta = data["meta"]
-    ks = data["key_summary"]
     RED = colors.HexColor("#D83A34")
+    BLUE = colors.HexColor("#1D4ED8")
+
+    def cmp_cell(txt, size=8):
+        """증감 셀 — 증가는 빨강, 감소는 파랑 (화면과 같은 규칙)."""
+        if txt == "-":
+            return _pp("-", size=size)
+        color = RED if txt.startswith("▲") else BLUE
+        return _pp(txt, size=size, bold=True, color=color)
 
     buf = io.BytesIO()
-    doc, content_w = _pdf_doc(buf, f"집계작 시간표 — {meta['movie_title']}")
+    doc, content_w = _pdf_doc(buf, f"주요작 시간표 — {meta['movie_title']}")
     story = []
 
-    story.append(_pp(f"집계작 시간표 — {meta['movie_title']}", size=16, bold=True, align="LEFT"))
-    story.append(Spacer(1, 3))
-    story.append(_pp(
-        f"조사기간 {meta['date_from']} ~ {meta['date_to']}  |  전주 {meta['prev_from']} ~ {meta['prev_to']}"
-        f"  |  개봉일 {meta.get('release_date') or '-'}  |  배급사 {meta.get('distributor_name') or '-'}"
-        f"  |  수집 완료 {meta.get('last_crawled_at') or '-'}",
-        size=8.5, align="LEFT"))
-    story.append(Spacer(1, 10))
+    for ti, tab in enumerate(data["tabs"]):
+        if ti > 0:
+            story.append(PageBreak())
+        ks = tab["key_summary"]
 
-    # ---- KEY SUMMARY ----
-    story.append(_pp("KEY SUMMARY", size=11, bold=True, align="LEFT"))
-    story.append(Spacer(1, 4))
-    head = [_pp(h, bold=True) for h in
-            ["지표", "총 좌석수", "예매좌석수", "좌석점유율", "총 회차", "총 극장수", "총 스크린수"]]
-    rows = [head]
-    t = ks["total"]
+        story.append(_pp(f"주요작 시간표 — {meta['movie_title']} · {tab['label']}",
+                         size=15, bold=True, align="LEFT"))
+        story.append(Spacer(1, 3))
+        story.append(_pp(
+            f"조사기간 {meta['date_from']} ~ {meta['date_to']}"
+            f"  |  전일 {ks['prev_day']}  |  전주 {ks['prev_week']}"
+            f"  |  개봉일 {meta.get('release_date') or '-'}"
+            f"  |  배급사 {meta.get('distributor_name') or '-'}"
+            f"  |  수집 완료 {meta.get('last_crawled_at') or '-'}",
+            size=8.5, align="LEFT"))
+        story.append(Spacer(1, 9))
 
-    def kpi_cells(row, bold=False):
-        return [_pp(_fnum(row["total_seats"]) + "석", bold=bold),
-                _pp(_fnum(row["sold_seats"]) + "석", bold=bold),
+        # ---- ① KEY SUMMARY ----
+        story.append(_pp("KEY SUMMARY", size=11, bold=True, align="LEFT"))
+        story.append(Spacer(1, 4))
+        head = [_pp(h, bold=True) for h in
+                ["구분", "총 좌석수", "예매좌석수", "좌석점유율",
+                 "총 회차수", "총 극장수", "총 스크린수"]]
+        rows = [head, [
+            _pp(ks["label"], bold=True),
+            _pp(_fnum(ks["total_seats"]) + "석", bold=True),
+            _pp(_fnum(ks["sold_seats"]) + "석", bold=True),
+            _pp(_fpct(ks["occupancy"]), bold=True),
+            _pp(_fnum(ks["shows"]) + "회", bold=True),
+            _pp(_fnum(ks["theaters"]) + "개", bold=True),
+            _pp(_fnum(ks["screens"]) + "개", bold=True),
+        ]]
+        for label, key in (("증감 (전일比)", "prev_day_cmp"), ("증감 (전주比)", "prev_week_cmp")):
+            c = tab["key_summary"].get(key)
+            if c:
+                cells = [cmp_cell(_cmp_kpi_txt(c["total_seats"], "석")),
+                         cmp_cell(_cmp_kpi_txt(c["sold_seats"], "석")),
+                         cmp_cell(_cmp_pp_txt(c["occupancy"])),
+                         cmp_cell(_cmp_kpi_txt(c["shows"], "회")),
+                         cmp_cell(_cmp_kpi_txt(c["theaters"], "개")),
+                         cmp_cell(_cmp_kpi_txt(c["screens"], "개"))]
+            else:
+                cells = [_pp("-") for _ in range(6)]
+            rows.append([_pp(label, bold=True)] + cells)
+        w0 = content_w * 0.14
+        wn = (content_w - w0) / 6
+        story.append(_pdf_table(rows, [w0] + [wn] * 6, total_rows=[1]))
+        story.append(Spacer(1, 11))
+
+        # ---- ②③⑤ 멀티사별 / 포맷별 / 지역별 ----
+        def detail_table(title, detail_rows, count_label):
+            story.append(_pp(title, size=11, bold=True, align="LEFT"))
+            story.append(Spacer(1, 4))
+            rows = [[_pp(h, bold=True) for h in
+                     ["구분", "총 좌석수", "비율", "전일比 좌석 증감",
+                      "전주比 좌석 증감", count_label, "회차수"]]]
+            for row in detail_rows:
+                rows.append([
+                    _pp(row["label"], bold=True),
+                    _pp(_fnum(row["total_seats"]) + "석"),
+                    _pp(_fpct(row["share"])),
+                    cmp_cell(_cmp_seat_txt(row["prev_day_cmp"])),
+                    cmp_cell(_cmp_seat_txt(row["prev_week_cmp"])),
+                    _pp(_fnum(row["count"])),
+                    _pp(_fnum(row["shows"])),
+                ])
+            w = content_w / 7
+            story.append(_pdf_table(rows, [w * 1.3] + [w * 0.95] * 6))
+            story.append(Spacer(1, 11))
+
+        detail_table("멀티사별 상세 현황", tab["multi_detail"], "총 극장수")
+        detail_table("포맷별 상세 현황", tab["format_detail"], "스크린수")
+
+        # ---- ④ 시간대별 ----
+        story.append(_pp("시간대별 상세 현황", size=11, bold=True, align="LEFT"))
+        story.append(Spacer(1, 4))
+        rows = [[_pp(h, bold=True) for h in
+                 ["시간대 구분", "상영 회차수", "총 좌석수", "예매 좌석수",
+                  "좌석 점유율", "전일比 점유율 차이", "전주比 점유율 차이"]]]
+        for row in tab["time_detail"]:
+            rows.append([
+                _pp(row["label"], bold=True),
+                _pp(_fnum(row["shows"]) + "회"),
+                _pp(_fnum(row["total_seats"]) + "석"),
+                _pp(_fnum(row["sold_seats"]) + "석"),
+                _pp(_fpct(row["occupancy"])),
+                cmp_cell(_cmp_pp_txt(row["prev_day_cmp"])),
+                cmp_cell(_cmp_pp_txt(row["prev_week_cmp"])),
+            ])
+        w = content_w / 7
+        story.append(_pdf_table(rows, [w * 1.6] + [w * 0.9] * 6))
+        story.append(Spacer(1, 11))
+
+        detail_table("지역별 상세 현황", tab["region_detail"], "총 극장수")
+
+        # ---- ⑥ 주요작 vs 경쟁작 ----
+        story.append(_pp(f"주요작 vs 경쟁작 — 동시 상영 경쟁작 TOP 10 순위 ({tab['label']})",
+                         size=11, bold=True, align="LEFT"))
+        story.append(Spacer(1, 4))
+        rows = [[_pp(h, bold=True) for h in
+                 ["순위", "영화명", "총 좌석수", "좌석 점유율", "상영 회차수",
+                  "전일比 순위변동", "전주比 순위변동"]]]
+        main_rows = []
+        for i, row in enumerate(tab["competitor_top"], 1):
+            bold = row["is_main"]
+            rows.append([
+                _pp(f"{row['rank']} (★당사)" if bold else row["rank"], bold=bold),
+                _pp(row["title"], bold=bold, align="LEFT"),
+                _pp(_fnum(row["total_seats"]) + "석", bold=bold),
                 _pp(_fpct(row["occupancy"]), bold=bold),
                 _pp(_fnum(row["shows"]) + "회", bold=bold),
-                _pp(_fnum(row["theaters"]) + "개", bold=bold),
-                _pp(_fnum(row["screens"]) + "개", bold=bold)]
-
-    rows.append([_pp(t["label"], bold=True)] + kpi_cells(t, bold=True))
-    total_rows = [1]
-    if t.get("cmp"):
-        c = t["cmp"]
-        occ_d = c["occupancy"]["diff"]
-        rows.append([
-            _pp("전주 대비", bold=True),
-            _pp(_cmp_txt(c["total_seats"], "석"), color=RED, bold=True),
-            _pp(_cmp_txt(c["sold_seats"], "석"), color=RED, bold=True),
-            _pp(("▲" if occ_d >= 0 else "▼") + f" {abs(occ_d):.1f}%p", color=RED, bold=True),
-            _pp(_cmp_txt(c["shows"], "회"), color=RED, bold=True),
-            _pp(_cmp_txt(c["theaters"], "개"), color=RED, bold=True),
-            _pp(_cmp_txt(c["screens"], "개"), color=RED, bold=True),
-        ])
-    for day in ks["days"]:
-        rows.append([_pp(day["label"])] + kpi_cells(day))
-    w0 = content_w * 0.14
-    wn = (content_w - w0) / 6
-    story.append(_pdf_table(rows, [w0] + [wn] * 6, total_rows=total_rows))
-    story.append(Spacer(1, 12))
-
-    # ---- 지역별 / 포맷별 ----
-    def detail_table(title, detail):
-        story.append(_pp(title, size=11, bold=True, align="LEFT"))
-        story.append(Spacer(1, 4))
-        labels = detail["labels"]
-        head1 = [_pp("구분", bold=True)]
-        head2 = [_pp("", bold=True)]
-        for lb in labels:
-            head1 += [_pp(lb, bold=True), _pp("", bold=True)]
-            head2 += [_pp("총 좌석수", bold=True), _pp("비중", bold=True)]
-        head1 += [_pp("합계", bold=True), _pp("", bold=True),
-                  _pp(detail["count_label"], bold=True), _pp("회차수", bold=True)]
-        head2 += [_pp("총 좌석수", bold=True), _pp("비중", bold=True), _pp("", bold=True), _pp("", bold=True)]
-        rows = [head1, head2]
-        total_rows = []
-        for i, row in enumerate(detail["rows"]):
-            bold = bool(row.get("is_total"))
-            cells = [_pp(row["label"], bold=bold)]
-            for d in row["days"]:
-                cells += [_pp(_fnum(d["seats"]) + "석", bold=bold), _pp(_fpct(d["share"]), bold=bold)]
-            cells += [_pp(_fnum(row["total_seats"]) + "석", bold=bold),
-                      _pp(_fpct(row["total_share"]), bold=bold),
-                      _pp(_fnum(row["count"]), bold=bold),
-                      _pp(_fnum(row["shows"]), bold=bold)]
-            rows.append(cells)
-            if row.get("is_total"):
-                total_rows.append(2 + i)
-        n_cols = 1 + 2 * len(labels) + 4
-        w0 = content_w * 0.09
-        wn = (content_w - w0) / (n_cols - 1)
-        from reportlab.platypus import Table, TableStyle
-        from reportlab.lib import colors as _c
-        tbl = _pdf_table(rows, [w0] + [wn] * (n_cols - 1), header_rows=2, total_rows=total_rows)
-        # 날짜·합계 가로 병합, 구분·극장수·회차수 세로 병합
-        spans = [("SPAN", (0, 0), (0, 1))]
-        col = 1
-        for _ in labels:
-            spans.append(("SPAN", (col, 0), (col + 1, 0)))
-            col += 2
-        spans.append(("SPAN", (col, 0), (col + 1, 0)))
-        spans.append(("SPAN", (col + 2, 0), (col + 2, 1)))
-        spans.append(("SPAN", (col + 3, 0), (col + 3, 1)))
-        tbl.setStyle(TableStyle(spans))
-        story.append(tbl)
-        story.append(Spacer(1, 12))
-
-    detail_table("지역별 상세 현황", data["region_detail"])
-    detail_table("포맷별 상세 현황", data["format_detail"])
+                cmp_cell(_move_txt(row["prev_day_move"])),
+                cmp_cell(_move_txt(row["prev_week_move"])),
+            ])
+            if bold:
+                main_rows.append(i)
+        w = content_w / 7
+        story.append(_pdf_table(rows, [w * 0.75, w * 1.8] + [w * 0.89] * 5,
+                                total_rows=main_rows))
 
     doc.build(story)
     return buf.getvalue()

@@ -6,6 +6,7 @@ import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 
 // 공통 컴포넌트
 import { CustomInput } from "../../../components/common/CustomInput";
+import { EMAIL_RE, splitEmails } from "../../../components/common/MultiEmailInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 
 // 도메인 컴포넌트
@@ -177,8 +178,15 @@ export function ManageClient() {
 
         // 3. 형식 검사 (이메일 등)
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (formData.settlement_email && !emailRegex.test(formData.settlement_email)) {
-            toast.warning("부금담당자 메일의 형식이 올바르지 않습니다.");
+        // S001(0829): 부금담당자 메일은 ','/';' 로 최대 3개까지 — 주소별로 따로 검증한다
+        const settlementEmails = splitEmails(formData.settlement_email);
+        if (settlementEmails.length > 3) {
+            toast.warning("부금담당자 메일은 최대 3개까지 입력할 수 있습니다.");
+            return false;
+        }
+        const badSettlementEmail = settlementEmails.find((e) => !EMAIL_RE.test(e));
+        if (badSettlementEmail) {
+            toast.warning(`부금담당자 메일의 형식이 올바르지 않습니다: ${badSettlementEmail}`);
             return false;
         }
         if (formData.invoice_email_address && !emailRegex.test(formData.invoice_email_address)) {

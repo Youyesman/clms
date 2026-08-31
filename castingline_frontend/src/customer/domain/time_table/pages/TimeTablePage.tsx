@@ -12,12 +12,13 @@ import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { downloadTimetableExcel } from "../exportTimetableExcel"; // A001
+import { SortTh, SortHint, useTableSort } from "../../../../components/common/SortableTable";
 
-/* T001(0827): 집계작 시간표 화면 개편
-   - KEY SUMMARY: 합계(전주 대비) + 일별 행
-   - 지역별/포맷별 상세 현황: 일별 컬럼 + 비중(%)
-   - 상영일자 추이: 4개 지표 버튼, 금주 실선 vs 전주 점선
-   - 상단 엑셀/PDF: 그래프 제외 화면 그대로 + 캐스팅라인 로고 */
+/* B002(0829): 주요작 시간표 화면 개편 — 일자별 탭(최대 7일)
+   각 탭: KEY SUMMARY(전일比·전주比) / 멀티사별 / 포맷별 / 시간대별 / 지역별
+          + 상영일자 추이(기간 전체) + 주요작 vs 경쟁작 TOP 10
+   B004: 모든 표의 컬럼 헤더 클릭 시 오름/내림차순 정렬
+   상단 엑셀/PDF: 그래프 제외 화면 그대로 + 캐스팅라인 로고 */
 
 /* ── 유틸 ── */
 const fmt = (n: number | null | undefined) =>
@@ -44,34 +45,62 @@ interface Kpis {
 }
 
 interface CmpNum { diff: number; rate: number | null }
+interface CmpDiff { diff: number }
 
-interface KeySummaryTotal extends Kpis {
-    label: string;
-    cmp: {
-        total_seats: CmpNum; sold_seats: CmpNum; occupancy: { diff: number };
-        shows: CmpNum; theaters: CmpNum; screens: CmpNum;
-    } | null;
+interface KpiCmp {
+    total_seats: CmpNum; sold_seats: CmpNum; occupancy: CmpDiff;
+    shows: CmpNum; theaters: CmpNum; screens: CmpNum;
 }
 
-interface KeySummaryDay extends Kpis { date: string; label: string }
-
-interface DetailDay { seats: number; share: number }
+interface KeySummary extends Kpis {
+    date: string;
+    label: string;
+    prev_day: string;
+    prev_week: string;
+    prev_day_cmp: KpiCmp | null;
+    prev_week_cmp: KpiCmp | null;
+}
 
 interface DetailRow {
     label: string;
-    days: DetailDay[];
     total_seats: number;
-    total_share: number;
+    share: number;
+    prev_day_cmp: CmpDiff | null;
+    prev_week_cmp: CmpDiff | null;
     count: number;
     shows: number;
-    is_total?: boolean;
 }
 
-interface DetailBlock {
-    dates: string[];
-    labels: string[];
-    count_label: string;
-    rows: DetailRow[];
+interface TimeRow {
+    label: string;
+    shows: number;
+    total_seats: number;
+    sold_seats: number;
+    occupancy: number;
+    prev_day_cmp: CmpDiff | null;
+    prev_week_cmp: CmpDiff | null;
+}
+
+interface CompetitorRow {
+    rank: number;
+    title: string;
+    is_main: boolean;
+    total_seats: number;
+    occupancy: number;
+    shows: number;
+    prev_day_move: number | null;
+    prev_week_move: number | null;
+}
+
+interface DayTabData {
+    key: string;
+    label: string;
+    key_summary: KeySummary;
+    multi_detail: DetailRow[];
+    format_detail: DetailRow[];
+    time_detail: TimeRow[];
+    region_detail: DetailRow[];
+    competitor_top: CompetitorRow[];
 }
 
 interface TrendPoint {
@@ -94,9 +123,7 @@ interface TimetableData {
         prev_to: string;
         has_prev: boolean;
     };
-    key_summary: { total: KeySummaryTotal; days: KeySummaryDay[] };
-    region_detail: DetailBlock;
-    format_detail: DetailBlock;
+    tabs: DayTabData[];
     trend: { dates: string[]; prev_dates: string[]; points: TrendPoint[]; compare_note: string };
 }
 
@@ -139,6 +166,10 @@ const SectionTitle = styled.div`
     padding: 10px 14px;
     background: #f1f5f9;
     border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 `;
 
 const TableWrap = styled.div`
@@ -171,7 +202,28 @@ const Tbl = styled.table`
         color: #1d4ed8 !important;
         font-weight: 700;
     }
-    .share-cell { color: #94a3b8; font-size: 11.5px; }
+    .main-row td {
+        background: #eff6ff !important;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .num { text-align: right; }
+    .name { text-align: left; }
+`;
+
+/* 일자별 탭 (경쟁작 화면과 같은 모양) */
+const DayTab = styled.button<{ $active: boolean }>`
+    padding: 8px 16px;
+    font-size: 12.5px;
+    font-weight: ${({ $active }) => ($active ? 800 : 500)};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#64748b")};
+    background: ${({ $active }) => ($active ? "#2563eb" : "#ffffff")};
+    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#e2e8f0")};
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    &:hover { color: ${({ $active }) => ($active ? "#ffffff" : "#2563eb")}; }
 `;
 
 const MetricBtn = styled.button<{ $active: boolean }>`
@@ -195,20 +247,40 @@ const EmptyMsg = styled.div`
     line-height: 1.6;
 `;
 
-const CmpText = styled.span`
-    display: block;
-    font-size: 11px;
+/* 증감 표기: 증가는 빨강, 감소는 파랑 (B002 화면 기준) */
+const Delta = styled.span<{ $up: boolean }>`
     font-weight: 700;
-    color: #dc2626;
-    margin-top: 2px;
+    color: ${({ $up }) => ($up ? "#dc2626" : "#1d4ed8")};
 `;
 
-/* 전주 대비 표기: ▲/▼ + 증감(비율) — 보고서 규칙과 동일하게 빨간색 */
-const cmpTxt = (c: CmpNum | undefined, unit: string) => {
-    if (!c) return null;
-    const arrow = c.diff >= 0 ? "▲" : "▼";
+/* ── 증감 셀 렌더러 ── */
+const seatDelta = (c: CmpDiff | null | undefined) => {
+    if (!c) return <span style={{ color: "#cbd5e1" }}>-</span>;
+    const up = c.diff >= 0;
+    return <Delta $up={up}>{up ? "▲" : "▼"} {c.diff >= 0 ? "+" : ""}{fmt(c.diff)}석</Delta>;
+};
+
+const ppDelta = (c: CmpDiff | null | undefined) => {
+    if (!c) return <span style={{ color: "#cbd5e1" }}>-</span>;
+    const up = c.diff >= 0;
+    return <Delta $up={up}>{up ? "▲" : "▼"} {Math.abs(c.diff).toFixed(1)}%p</Delta>;
+};
+
+const kpiDelta = (c: CmpNum | undefined, unit: string) => {
+    if (!c) return <span style={{ color: "#cbd5e1" }}>-</span>;
+    const up = c.diff >= 0;
     const rate = c.rate != null ? ` (${c.rate >= 0 ? "+" : ""}${c.rate.toFixed(1)}%)` : "";
-    return `${arrow} ${c.diff >= 0 ? "+" : ""}${Math.round(c.diff).toLocaleString("ko-KR")}${unit}${rate}`;
+    return (
+        <Delta $up={up}>
+            {up ? "▲" : "▼"} {c.diff >= 0 ? "+" : ""}{fmt(c.diff)}{unit}{rate}
+        </Delta>
+    );
+};
+
+/* 순위 변동: 양수=상승(▲ 빨강), 음수=하락(▼ 파랑), 0·없음='-' */
+const rankMove = (v: number | null | undefined) => {
+    if (v == null || v === 0) return <span style={{ color: "#cbd5e1" }}>-</span>;
+    return <Delta $up={v > 0}>{v > 0 ? "▲" : "▼"} {Math.abs(v)}</Delta>;
 };
 
 type MetricKey = "total_seats" | "sold_seats" | "occupancy" | "shows";
@@ -218,6 +290,190 @@ const METRICS: { key: MetricKey; label: string; unit: string }[] = [
     { key: "occupancy", label: "좌석점유율", unit: "%" },
     { key: "shows", label: "회차수", unit: "회" },
 ];
+
+const MAX_DAYS = 7;   // 일자별 탭 최대 7개 (백엔드와 같은 상한)
+
+/* ── ②③⑤ 멀티사별/포맷별/지역별 공용 표 ── */
+function DetailTable({
+    title, note, rows, countLabel,
+}: { title: string; note?: string; rows: DetailRow[]; countLabel: string }) {
+    const { sorted, sort } = useTableSort(rows);
+    return (
+        <SectionCard>
+            <SectionTitle>
+                <span>{title}</span>
+                <SortHint>{note ?? "* 클릭 시 정렬가능"}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="label" sort={sort}>구분</SortTh>
+                            <SortTh sortKey="total_seats" sort={sort}>총 좌석수</SortTh>
+                            <SortTh sortKey="share" sort={sort}>비율</SortTh>
+                            <SortTh sortKey="prev_day_cmp.diff" sort={sort}>전일比 좌석 증감</SortTh>
+                            <SortTh sortKey="prev_week_cmp.diff" sort={sort}>전주比 좌석 증감</SortTh>
+                            <SortTh sortKey="count" sort={sort}>{countLabel}</SortTh>
+                            <SortTh sortKey="shows" sort={sort}>회차수</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((r) => (
+                            <tr key={r.label}>
+                                <td style={{ fontWeight: 600 }}>{r.label}</td>
+                                <td className="num">{fmt(r.total_seats)}석</td>
+                                <td className="num">{fmtPct(r.share)}</td>
+                                <td>{seatDelta(r.prev_day_cmp)}</td>
+                                <td>{seatDelta(r.prev_week_cmp)}</td>
+                                <td className="num">{fmt(r.count)}</td>
+                                <td className="num">{fmt(r.shows)}</td>
+                            </tr>
+                        ))}
+                        {sorted.length === 0 && (
+                            <tr><td colSpan={7}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
+                        )}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+/* ── ④ 시간대별 상세 현황 ── */
+function TimeTable({ rows }: { rows: TimeRow[] }) {
+    const { sorted, sort } = useTableSort(rows);
+    return (
+        <SectionCard>
+            <SectionTitle>
+                <span>시간대별 상세 현황</span>
+                <SortHint>* 클릭 시 정렬가능</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="label" sort={sort}>시간대 구분</SortTh>
+                            <SortTh sortKey="shows" sort={sort}>상영 회차수</SortTh>
+                            <SortTh sortKey="total_seats" sort={sort}>총 좌석수</SortTh>
+                            <SortTh sortKey="sold_seats" sort={sort}>예매 좌석수</SortTh>
+                            <SortTh sortKey="occupancy" sort={sort}>좌석 점유율</SortTh>
+                            <SortTh sortKey="prev_day_cmp.diff" sort={sort}>전일比 점유율 차이</SortTh>
+                            <SortTh sortKey="prev_week_cmp.diff" sort={sort}>전주比 점유율 차이</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((r) => (
+                            <tr key={r.label}>
+                                <td style={{ fontWeight: 600 }}>{r.label}</td>
+                                <td className="num">{fmt(r.shows)}회</td>
+                                <td className="num">{fmt(r.total_seats)}석</td>
+                                <td className="num">{fmt(r.sold_seats)}석</td>
+                                <td className="num">{fmtPct(r.occupancy)}</td>
+                                <td>{ppDelta(r.prev_day_cmp)}</td>
+                                <td>{ppDelta(r.prev_week_cmp)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+/* ── ⑥ 주요작 vs 경쟁작 ── */
+function CompetitorTable({ rows, label }: { rows: CompetitorRow[]; label: string }) {
+    const { sorted, sort } = useTableSort(rows);
+    return (
+        <SectionCard>
+            <SectionTitle>
+                <span>주요작 vs 경쟁작 · 동시 상영 경쟁작 TOP 10 순위 ({label})</span>
+                <SortHint>* 파란색 행: 당사 관리 영화 · 클릭 시 정렬가능</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <SortTh sortKey="rank" sort={sort}>순위</SortTh>
+                            <SortTh sortKey="title" sort={sort}>영화명</SortTh>
+                            <SortTh sortKey="total_seats" sort={sort}>총 좌석수</SortTh>
+                            <SortTh sortKey="occupancy" sort={sort}>좌석 점유율</SortTh>
+                            <SortTh sortKey="shows" sort={sort}>상영 회차수</SortTh>
+                            <SortTh sortKey="prev_day_move" sort={sort}>전일比 순위변동</SortTh>
+                            <SortTh sortKey="prev_week_move" sort={sort}>전주比 순위변동</SortTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {sorted.map((r) => (
+                            <tr key={r.title} className={r.is_main ? "main-row" : ""}>
+                                <td>{r.rank}{r.is_main ? " (★당사)" : ""}</td>
+                                <td className="name">{r.title}</td>
+                                <td className="num">{fmt(r.total_seats)}석</td>
+                                <td className="num">{fmtPct(r.occupancy)}</td>
+                                <td className="num">{fmt(r.shows)}회</td>
+                                <td>{rankMove(r.prev_day_move)}</td>
+                                <td>{rankMove(r.prev_week_move)}</td>
+                            </tr>
+                        ))}
+                        {sorted.length === 0 && (
+                            <tr><td colSpan={7}><EmptyMsg>동시 상영 경쟁작 데이터가 없습니다</EmptyMsg></td></tr>
+                        )}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
+
+/* ── ① KEY SUMMARY ── */
+function KeySummaryTable({ ks, lastCrawled }: { ks: KeySummary; lastCrawled: string | null }) {
+    const cmpRow = (label: string, c: KpiCmp | null) => (
+        <tr>
+            <td style={{ fontWeight: 600 }}>{label}</td>
+            <td>{kpiDelta(c?.total_seats, "석")}</td>
+            <td>{kpiDelta(c?.sold_seats, "석")}</td>
+            <td>{ppDelta(c?.occupancy)}</td>
+            <td>{kpiDelta(c?.shows, "회")}</td>
+            <td>{kpiDelta(c?.theaters, "개")}</td>
+            <td>{kpiDelta(c?.screens, "개")}</td>
+        </tr>
+    );
+    return (
+        <SectionCard>
+            <SectionTitle>
+                <span>KEY SUMMARY</span>
+                <SortHint>기준 시간: {lastCrawled ?? "-"}</SortHint>
+            </SectionTitle>
+            <TableWrap>
+                <Tbl>
+                    <thead>
+                        <tr>
+                            <th>구분</th>
+                            <th>총 좌석수</th>
+                            <th>예매좌석수</th>
+                            <th>좌석점유율</th>
+                            <th>총 회차수</th>
+                            <th>총 극장수</th>
+                            <th>총 스크린수</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr className="total-row">
+                            <td>{ks.label}</td>
+                            <td className="num">{fmt(ks.total_seats)}석</td>
+                            <td className="num">{fmt(ks.sold_seats)}석</td>
+                            <td className="num">{fmtPct(ks.occupancy)}</td>
+                            <td className="num">{fmt(ks.shows)}회</td>
+                            <td className="num">{fmt(ks.theaters)}개</td>
+                            <td className="num">{fmt(ks.screens)}개</td>
+                        </tr>
+                        {cmpRow(`증감 (전일比 ${ks.prev_day})`, ks.prev_day_cmp)}
+                        {cmpRow(`증감 (전주比 ${ks.prev_week})`, ks.prev_week_cmp)}
+                    </tbody>
+                </Tbl>
+            </TableWrap>
+        </SectionCard>
+    );
+}
 
 /* ── 컴포넌트 ── */
 export function TimeTablePage() {
@@ -236,6 +492,7 @@ export function TimeTablePage() {
 
     /* 검색 결과 */
     const [data, setData] = useState<TimetableData | null>(null);
+    const [activeTab, setActiveTab] = useState("");
 
     /* 엑셀/PDF 다운로드 */
     const [excelBusy, setExcelBusy] = useState(false);
@@ -277,7 +534,8 @@ export function TimeTablePage() {
                 const dates: string[] = res.data?.dates || [];
                 setAvailableDates(dates);
                 if (dates.length > 0) {
-                    setDateFrom(dates[0]);
+                    // 일자별 탭이 최대 7개이므로 기본 기간도 마지막 7일까지만 잡는다
+                    setDateFrom(dates[Math.max(0, dates.length - MAX_DAYS)]);
                     setDateTo(dates[dates.length - 1]);
                 } else {
                     setDateFrom("");
@@ -294,10 +552,21 @@ export function TimeTablePage() {
         setFieldErrors(e => ({ ...e, movie: false }));
     };
 
+    const dayCount = useMemo(() => {
+        if (!dateFrom || !dateTo) return 0;
+        const diff = (new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000;
+        return Math.floor(diff) + 1;
+    }, [dateFrom, dateTo]);
+
     const validate = () => {
         const errs = { movie: !movieId, dateFrom: !dateFrom, dateTo: !dateTo };
         setFieldErrors(errs);
-        return !Object.values(errs).some(Boolean);
+        if (Object.values(errs).some(Boolean)) return false;
+        if (dayCount > MAX_DAYS) {
+            toast.warning(`조회 기간은 최대 ${MAX_DAYS}일까지 지정할 수 있습니다.`);
+            return false;
+        }
+        return true;
     };
 
     /* 검색 */
@@ -307,7 +576,10 @@ export function TimeTablePage() {
         AxiosGet("score/timetable/", {
             params: { movie_id: movieId, date_from: dateFrom, date_to: dateTo },
         })
-            .then(res => setData(res.data))
+            .then(res => {
+                setData(res.data);
+                setActiveTab(res.data?.tabs?.[0]?.key ?? "");
+            })
             .catch(err => {
                 // 조회 실패 시 이전 결과를 지운다 — 남겨두면 헤더의 조사기간과
                 // 표의 내용이 어긋나 다른 조건의 데이터로 오인하게 된다
@@ -316,7 +588,7 @@ export function TimeTablePage() {
             })
             .finally(() => setLoading(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [movieId, dateFrom, dateTo, toast]);
+    }, [movieId, dateFrom, dateTo, dayCount, toast]);
 
     /* 엑셀: 화면 그대로 (그래프 제외) + 로고 */
     const handleExcel = useCallback(async () => {
@@ -326,7 +598,7 @@ export function TimeTablePage() {
             await downloadTimetableExcel(
                 "timetable",
                 { movie_id: movieId, date_from: dateFrom, date_to: dateTo },
-                `집계작 시간표_${selectedMovie?.title_ko ?? ""}`
+                `주요작 시간표_${selectedMovie?.title_ko ?? ""}`
             );
             toast.success("엑셀 파일이 다운로드 되었습니다.");
         } catch (err: any) {
@@ -335,7 +607,7 @@ export function TimeTablePage() {
             setExcelBusy(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [movieId, dateFrom, dateTo, selectedMovie, toast]);
+    }, [movieId, dateFrom, dateTo, dayCount, selectedMovie, toast]);
 
     /* PDF: 화면 그대로 (그래프 제외) + 로고 */
     const handlePdf = useCallback(async () => {
@@ -350,7 +622,7 @@ export function TimeTablePage() {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement("a");
             link.href = url;
-            let filename = `집계작 시간표_${selectedMovie?.title_ko ?? ""}.pdf`;
+            let filename = `주요작 시간표_${selectedMovie?.title_ko ?? ""}.pdf`;
             const cd = response.headers?.["content-disposition"];
             if (cd) {
                 const star = cd.match(/filename\*=(?:utf-8'')?([^;]+)/i);
@@ -370,12 +642,15 @@ export function TimeTablePage() {
             setPdfBusy(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [movieId, dateFrom, dateTo, selectedMovie, toast]);
+    }, [movieId, dateFrom, dateTo, dayCount, selectedMovie, toast]);
 
     const minDate = availableDates[0] ?? "";
     const maxDate = availableDates[availableDates.length - 1] ?? "";
 
-    const hasData = !!data && data.key_summary.total.total_seats > 0;
+    const tab = useMemo(
+        () => data?.tabs.find(t => t.key === activeTab) ?? data?.tabs[0] ?? null,
+        [data, activeTab]
+    );
 
     /* 추이 차트 데이터 */
     const metricConf = METRICS.find(m => m.key === metric)!;
@@ -390,124 +665,6 @@ export function TimeTablePage() {
 
     const chartValueFmt = (v: number | null | undefined) =>
         v == null ? "-" : metric === "occupancy" ? `${Number(v).toFixed(1)}%` : `${Math.round(v).toLocaleString("ko-KR")}${metricConf.unit}`;
-
-    /* ── KEY SUMMARY 렌더 ── */
-    const KeySummary = ({ ks }: { ks: TimetableData["key_summary"] }) => (
-        <SectionCard>
-            <SectionTitle>KEY SUMMARY</SectionTitle>
-            <TableWrap>
-                <Tbl>
-                    <thead>
-                        <tr>
-                            <th>지표</th>
-                            <th>총 좌석수</th>
-                            <th>예매좌석수</th>
-                            <th>좌석점유율</th>
-                            <th>총 회차</th>
-                            <th>총 극장수</th>
-                            <th>총 스크린수</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr className="total-row">
-                            <td>{ks.total.label}</td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmt(ks.total.total_seats)}석</b>
-                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.total_seats, "석")}</CmpText>}
-                            </td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmt(ks.total.sold_seats)}석</b>
-                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.sold_seats, "석")}</CmpText>}
-                            </td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmtPct(ks.total.occupancy)}</b>
-                                {ks.total.cmp && (
-                                    <CmpText>
-                                        {ks.total.cmp.occupancy.diff >= 0 ? "▲" : "▼"} {Math.abs(ks.total.cmp.occupancy.diff).toFixed(1)}%p
-                                    </CmpText>
-                                )}
-                            </td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmt(ks.total.shows)}회</b>
-                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.shows, "회")}</CmpText>}
-                            </td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmt(ks.total.theaters)}개</b>
-                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.theaters, "개")}</CmpText>}
-                            </td>
-                            <td>
-                                <b style={{ fontSize: 13 }}>{fmt(ks.total.screens)}개</b>
-                                {ks.total.cmp && <CmpText>{cmpTxt(ks.total.cmp.screens, "개")}</CmpText>}
-                            </td>
-                        </tr>
-                        {ks.days.map(d => (
-                            <tr key={d.date}>
-                                <td style={{ fontWeight: 600 }}>{d.label}</td>
-                                <td>{fmt(d.total_seats)}석</td>
-                                <td>{fmt(d.sold_seats)}석</td>
-                                <td>{fmtPct(d.occupancy)}</td>
-                                <td>{fmt(d.shows)}회</td>
-                                <td>{fmt(d.theaters)}개</td>
-                                <td>{fmt(d.screens)}개</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </Tbl>
-            </TableWrap>
-        </SectionCard>
-    );
-
-    /* ── 지역별/포맷별 상세 표 ── */
-    const DetailTable = ({ title, detail }: { title: string; detail: DetailBlock }) => (
-        <SectionCard>
-            <SectionTitle>{title}</SectionTitle>
-            <TableWrap>
-                <Tbl>
-                    <thead>
-                        <tr>
-                            <th rowSpan={2}>구분</th>
-                            {detail.labels.map(lb => (
-                                <th key={lb} colSpan={2}>{lb}</th>
-                            ))}
-                            <th colSpan={2}>합계 ({detail.labels.length}일)</th>
-                            <th rowSpan={2}>{detail.count_label}</th>
-                            <th rowSpan={2}>회차수<br /><span style={{ fontWeight: 400, fontSize: 11 }}>({detail.labels.length}일 합계)</span></th>
-                        </tr>
-                        <tr>
-                            {detail.labels.map(lb => (
-                                <React.Fragment key={lb}>
-                                    <th>총 좌석수</th>
-                                    <th>비중</th>
-                                </React.Fragment>
-                            ))}
-                            <th>총 좌석수</th>
-                            <th>비중</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {detail.rows.map((r, i) => (
-                            <tr key={i} className={r.is_total ? "total-row" : ""}>
-                                <td style={{ fontWeight: r.is_total ? 700 : 600 }}>{r.label}</td>
-                                {r.days.map((d, di) => (
-                                    <React.Fragment key={di}>
-                                        <td>{fmt(d.seats)}석</td>
-                                        <td className={r.is_total ? "" : "share-cell"}>{fmtPct(d.share)}</td>
-                                    </React.Fragment>
-                                ))}
-                                <td style={{ fontWeight: 700 }}>{fmt(r.total_seats)}석</td>
-                                <td className={r.is_total ? "" : "share-cell"}>{fmtPct(r.total_share)}</td>
-                                <td>{fmt(r.count)}</td>
-                                <td>{fmt(r.shows)}</td>
-                            </tr>
-                        ))}
-                        {detail.rows.length === 0 && (
-                            <tr><td colSpan={2 * detail.labels.length + 5}><EmptyMsg>데이터가 없습니다</EmptyMsg></td></tr>
-                        )}
-                    </tbody>
-                </Tbl>
-            </TableWrap>
-        </SectionCard>
-    );
 
     return (
         <PageWrapper>
@@ -600,6 +757,13 @@ export function TimeTablePage() {
                 />
             </CommonFilterBar>
 
+            {/* 기간 상한 안내 */}
+            {dayCount > MAX_DAYS && (
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>
+                    조회 기간은 최대 {MAX_DAYS}일까지 지정할 수 있습니다. (현재 {dayCount}일)
+                </div>
+            )}
+
             {/* ── 검색 결과 ── */}
             {data && (
                 <>
@@ -622,15 +786,37 @@ export function TimeTablePage() {
                         </span>
                     </div>
 
-                    {hasData ? (
-                        <>
-                            <KeySummary ks={data.key_summary} />
-                            <DetailTable title="지역별 상세 현황" detail={data.region_detail} />
-                            <DetailTable title="포맷별 상세 현황" detail={data.format_detail} />
+                    {/* 일자별 탭 (최대 7일) */}
+                    <div style={{ display: "flex", gap: 4, borderBottom: "2px solid #2563eb", flexWrap: "wrap" }}>
+                        {data.tabs.map(t => (
+                            <DayTab key={t.key} $active={(tab?.key ?? "") === t.key} onClick={() => setActiveTab(t.key)}>
+                                {t.label} 뷰
+                            </DayTab>
+                        ))}
+                    </div>
 
-                            {/* ── 상영일자 추이 ── */}
+                    {!tab || tab.key_summary.total_seats === 0 ? (
+                        <SectionCard>
+                            <EmptyMsg>
+                                선택한 일자에 해당하는 주요작 시간표 데이터가 없습니다.
+                            </EmptyMsg>
+                        </SectionCard>
+                    ) : (
+                        <>
+                            <KeySummaryTable ks={tab.key_summary} lastCrawled={data.meta.last_crawled_at} />
+                            <DetailTable
+                                title="멀티사별 상세 현황 (CGV / 롯데 / 메가박스 / 일반)"
+                                note="* 멀티플렉스 체인별 배치 점유율 · 클릭 시 정렬가능"
+                                rows={tab.multi_detail}
+                                countLabel="총 극장수"
+                            />
+                            <DetailTable title="포맷별 상세 현황" rows={tab.format_detail} countLabel="스크린수" />
+                            <TimeTable rows={tab.time_detail} />
+                            <DetailTable title="지역별 상세 현황" rows={tab.region_detail} countLabel="총 극장수" />
+
+                            {/* ── 상영일자 추이 (기간 전체) ── */}
                             <SectionCard>
-                                <SectionTitle>상영일자 추이</SectionTitle>
+                                <SectionTitle><span>상영일자 추이</span></SectionTitle>
                                 <div style={{ padding: "12px 14px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                                     <div style={{ display: "flex", gap: 6 }}>
                                         {METRICS.map(m => (
@@ -689,13 +875,9 @@ export function TimeTablePage() {
                                     </div>
                                 </div>
                             </SectionCard>
+
+                            <CompetitorTable rows={tab.competitor_top} label={tab.label} />
                         </>
-                    ) : (
-                        <SectionCard>
-                            <EmptyMsg>
-                                선택한 기간에 해당하는 집계작 시간표 데이터가 없습니다.
-                            </EmptyMsg>
-                        </SectionCard>
                     )}
                 </>
             )}

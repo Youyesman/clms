@@ -49,7 +49,7 @@ const Tab = styled.button<{ $active: boolean }>`
 
 /* T002(0827): 주요작 좌석수·상영관수·스크린수·상영회차수 메뉴 삭제, '경쟁작' 신설 */
 export const TIME_TABLE_TABS: TabItem[] = [
-    { to: "/time_table", label: "집계작 시간표" },
+    { to: "/time_table", label: "주요작 시간표" },
     { to: "/time_table/competitor", label: "경쟁작" },
 ];
 

@@ -43,7 +43,12 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
             params.append("settlement_department", filter.settlementDepartment);
 
         if (sortKey) {
-            const ordering = sortOrder === "desc" ? `-${sortKey}` : sortKey;
+            // M001(0831): 사용2는 저장값이 아니라 사용1+거래처구분 파생값으로 표시하므로
+            // 정렬도 표시 기준과 같은 필드로 보낸다
+            const keys = sortKey === "client_status"
+                ? ["operational_status", "client_type"]
+                : [sortKey];
+            const ordering = keys.map((k) => (sortOrder === "desc" ? `-${k}` : k)).join(",");
             params.append("ordering", ordering);
         }
 
@@ -169,7 +174,17 @@ export function ClientList({ clients, setClients, selectedClient, handleSelectCl
                     onSelectItem={handleSelectClient}
                     longTextFields={longTextFields}
                     getRowKey={(client) => client.id}
-                    formatCell={(key, value) => (key === "operational_status" ? (value ? "사용" : "폐관") : value ?? "")}
+                    formatCell={(key, value, row) => {
+                        if (key === "operational_status") return value ? "사용" : "폐관";
+                        // M001(0831): 사용2는 구 시스템 이관 필드(client_status)라 CLMS 신규
+                        // 거래처는 공란이었고, 옛 값이 사용1과 어긋난 행도 있었다.
+                        // 저장값 대신 항상 사용1(영업상태)+거래처구분에서 파생해 표시한다.
+                        if (key === "client_status") {
+                            const status = row?.operational_status ? "사용" : "삭제";
+                            return row?.client_type ? `${status}(${row.client_type})` : status;
+                        }
+                        return value ?? "";
+                    }}
                     onSortChange={handleSortChange}
                     sortKey={sortKey}
                     sortOrder={sortOrder}

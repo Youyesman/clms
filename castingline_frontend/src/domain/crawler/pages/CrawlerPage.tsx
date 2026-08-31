@@ -389,7 +389,8 @@ export const CrawlerPage = () => {
     // -- Polling History --
     const fetchHistory = async () => {
         try {
-            const res = await AxiosGet("crawler/history");
+            // 5초 폴링이라 전역 로딩 표시는 끈다 (화면 깜빡임 방지)
+            const res = await AxiosGet("crawler/history", { skipLoading: true });
             setHistory(res.data);
         } catch (e) {
             console.error("Failed to fetch history", e);

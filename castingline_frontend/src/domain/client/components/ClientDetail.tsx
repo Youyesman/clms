@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { CustomInput } from "../../../components/common/CustomInput";
+import { MultiEmailInput } from "../../../components/common/MultiEmailInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { Buildings, DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
@@ -172,7 +173,13 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                             <CustomInput label="담당자명" value={formData.settlement_contact || ""} setValue={(v) => updateField("settlement_contact", v)} />
                             <CustomInput label="유선전화" value={formData.settlement_phone_number || ""} setValue={(v) => updateField("settlement_phone_number", v)} />
                             <CustomInput label="휴대전화" value={formData.settlement_mobile_number || ""} setValue={(v) => updateField("settlement_mobile_number", v)} />
-                            <CustomInput label="담당자 메일" value={formData.settlement_email || ""} setValue={(v) => updateField("settlement_email", v)} />
+                            {/* S001(0829): 부금 담당자 메일은 최대 3개 (쉼표·세미콜론 구분) */}
+                            <MultiEmailInput
+                                label="담당자 메일"
+                                value={formData.settlement_email || ""}
+                                setValue={(v) => updateField("settlement_email", v)}
+                                max={3}
+                            />
                             <CustomInput label="세금계산서 메일 1" value={formData.invoice_email_address || ""} setValue={(v) => updateField("invoice_email_address", v)} />
                             <CustomInput label="세금계산서 메일 2" value={formData.invoice_email_address2 || ""} setValue={(v) => updateField("invoice_email_address2", v)} />
                             <CustomInput

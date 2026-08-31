@@ -69,7 +69,12 @@ class Client(TimeStampedModel):
     representative_phone_number = models.CharField(
         max_length=255, null=True, blank=True
     )  # 전화번호(대표)
-    settlement_email = models.EmailField(null=True, blank=True)  # 담당자(부금) 메일주소
+    # S001(0829): 부금 담당자 메일은 최대 3개까지 ','/';' 로 구분해 저장한다.
+    # EmailField(단일 주소 strict 검증)면 2개 이상 입력이 저장되지 않아 CharField로 바꾸고,
+    # 주소별 형식 검증은 시리얼라이저(ClientSerializer.validate_settlement_email)가 맡는다.
+    settlement_email = models.CharField(
+        max_length=255, null=True, blank=True
+    )  # 담당자(부금) 메일주소 — 최대 3개, ',' 또는 ';' 구분
     invoice_email_address = models.EmailField(
         null=True, blank=True
     )  # 세금계산서 발행 메일주소

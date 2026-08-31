@@ -299,7 +299,8 @@ export default function SharedCalendar() {
     const fetchEvents = useCallback(async () => {
         try {
             const res = await AxiosGet(
-                `dashboard/calendar/?start=${rangeStart.format("YYYY-MM-DD")}&end=${rangeEnd.format("YYYY-MM-DD")}`
+                `dashboard/calendar/?start=${rangeStart.format("YYYY-MM-DD")}&end=${rangeEnd.format("YYYY-MM-DD")}`,
+                { skipLoading: true }
             );
             setEvents(res.data || []);
         } catch {
