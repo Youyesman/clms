@@ -62,7 +62,8 @@
     "xlsx": "^0.18.5"
   },
   "resolutions": {
-    "@mui/utils": "5.17.1"
+    "@mui/utils": "5.17.1",
+    "webpack": "5.104.1"
   },
   "scripts": {
     "start": "react-scripts start",

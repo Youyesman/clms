@@ -20,7 +20,12 @@ jobs:
           node-version: '22'
 
       # 3. 프론트엔드 빌드 (서버 OOM 회피 위해 러너에서 빌드)
+      #    실패해도 배포는 계속한다 — repo에 커밋된 build/ 가 안전망으로 내려간다.
+      #    (yarn.lock 이 Berry 포맷이라 yarn 1 은 매번 새로 해석 → 상류 배포에
+      #     따라 언제든 깨질 수 있음. 깨지면 커밋된 빌드가 그대로 서빙된다.)
       - name: Build frontend on runner
+        id: fe_build
+        continue-on-error: true
         run: |
           cd castingline_frontend
           yarn install
@@ -63,7 +68,9 @@ jobs:
             sudo systemctl restart apache2
 
       # 5. 러너에서 만든 최신 빌드를 서버에 업로드 (git reset 이후라 덮어씀)
+      #    러너 빌드가 실패했으면 건너뛴다 — 커밋된 build/ 가 이미 서버에 있다.
       - name: Upload fresh frontend build
+        if: steps.fe_build.outcome == 'success'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
