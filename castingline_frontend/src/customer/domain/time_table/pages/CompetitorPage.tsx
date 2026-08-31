@@ -38,6 +38,8 @@ interface RegionCell { seats: number; occupancy: number; share?: number }
 interface RegionRow { title: string; seoul: RegionCell; metro: RegionCell; local: RegionCell }
 interface GoldenRow { title: string; seats: number; occupancy: number; share: number }
 interface SpecialRow { title: string; shows: number; seats: number }
+/* V004(0831): 특별관 합계 대신 타입별(IMAX/4DX/SCREENX/Dolby) 개별 블록 */
+interface SpecialBlock { format: string; rows: SpecialRow[] }
 interface BrandBlock { movies: string[]; rows: { brand: string; cells: { seats: number; share: number }[] }[] }
 
 interface CompetitorTab {
@@ -46,7 +48,7 @@ interface CompetitorTab {
     summary: SummaryRow[];
     regions: RegionRow[];
     golden: GoldenRow[];
-    special: SpecialRow[];
+    special: SpecialBlock[];
     by_brand: BrandBlock;
 }
 
@@ -56,6 +58,7 @@ interface CompetitorData {
 }
 
 /* ── 스타일 (T001과 동일 계열) ── */
+/* V002(0831): 와이드 모니터에서 전체 폭으로 퍼지지 않도록 최대 폭 + 중앙 정렬 */
 const PageWrapper = styled.div`
     flex: 1;
     display: flex;
@@ -64,6 +67,9 @@ const PageWrapper = styled.div`
     min-height: calc(100vh - 60px);
     padding: 20px;
     gap: 16px;
+    width: 100%;
+    max-width: 1700px;
+    margin: 0 auto;
 `;
 
 const SearchBtn = styled.button`
@@ -302,13 +308,15 @@ function GoldenTable({ rows }: { rows: GoldenRow[] }) {
     );
 }
 
-function SpecialTable({ rows }: { rows: SpecialRow[] }) {
-    const { sorted, sort } = useTableSort(rows);
-    const topTitle = rows[0]?.title;
+/* V004(0831): 특별관 타입(IMAX/4DX/SCREENX/Dolby)마다 개별 표.
+   헤더는 고정(sticky)되고 영화 목록만 세로 스크롤된다 (TableWrap max-height). */
+function SpecialTable({ block }: { block: SpecialBlock }) {
+    const { sorted, sort } = useTableSort(block.rows);
+    const topTitle = block.rows[0]?.title;
     return (
         <SectionCard>
             <SectionTitle>
-                특별관 (IMAX/4DX/Dolby)
+                특별관 ({block.format})
                 <SortHint>{sortNote}</SortHint>
             </SectionTitle>
             <TableWrap>
@@ -328,9 +336,6 @@ function SpecialTable({ rows }: { rows: SpecialRow[] }) {
                                 <td>{fmt(s.seats)}석</td>
                             </tr>
                         ))}
-                        {sorted.length === 0 && (
-                            <tr><td colSpan={3}><EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg></td></tr>
-                        )}
                     </tbody>
                 </Tbl>
             </TableWrap>
@@ -668,10 +673,18 @@ export function CompetitorPage() {
                             {/* ② 권역별 */}
                             <RegionTable rows={tab.regions} label={tab.label} />
 
-                            {/* ③ 골든타임 + ④ 특별관 */}
+                            {/* ③ 골든타임 + ④ 특별관 (V004: 타입별 개별 표) */}
                             <TwoColGrid>
                                 <GoldenTable rows={tab.golden} />
-                                <SpecialTable rows={tab.special} />
+                                {tab.special.map(blk => (
+                                    <SpecialTable key={blk.format} block={blk} />
+                                ))}
+                                {tab.special.length === 0 && (
+                                    <SectionCard>
+                                        <SectionTitle>특별관 (IMAX/4DX/SCREENX/Dolby)</SectionTitle>
+                                        <EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg>
+                                    </SectionCard>
+                                )}
                             </TwoColGrid>
 
                             {/* ⑤ 계열사별 세부 현황 */}

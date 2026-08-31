@@ -129,12 +129,14 @@ def _occ(sold, seats):
 # 전일比는 '해당 일자 - 1일', 전주比는 '해당 일자 - 7일'(같은 요일)과 비교한다.
 # 그래서 집계 대상 날짜는 조회 기간 + 각 날짜의 -1일 · -7일을 모두 포함한다.
 
-# B002: 시간대 구분 (회차 시작시각 기준). 자정 이후 새벽 회차는 심야로 본다.
+# V003(0831): 시간대 구분 — 당사 요약보고서 표준 기준 (회차 시작시각 기준).
+# 자정 이후 새벽 회차는 심야로 본다.
 TIME_SLOTS = [
-    ('조조 (06:00~10:00)', lambda h: 6 <= h < 10),
-    ('프라임 (13:00~19:00)', lambda h: 13 <= h < 19),
-    ('일반 (10:00~13:00, 19:00~23:00)', lambda h: 10 <= h < 13 or 19 <= h < 23),
-    ('심야 (23:00 이후)', lambda h: h >= 23 or h < 6),
+    ('조조 (05~10시)', lambda h: 5 <= h < 10),
+    ('오전 (10~12시)', lambda h: 10 <= h < 12),
+    ('오후 (12~17시)', lambda h: 12 <= h < 17),
+    ('저녁/프라임 (17~21시)', lambda h: 17 <= h < 21),
+    ('심야 (21~24시·새벽)', lambda h: h >= 21 or h < 5),
 ]
 
 # 시간표 조회 기간 상한 (경쟁작 화면과 동일 — 일자별 탭이 최대 7개)
@@ -493,17 +495,22 @@ def build_timetable_data(movie, d_from, d_to):
 # T003: 경쟁작
 # =====================================================================
 
-# 특별관 판별 태그 (섹션 제목: IMAX/4DX/Dolby)
-SPECIAL_FORMAT_KEYS = ("IMAX", "4DX", "SCREENX", "DOLBY", "ATMOS")
+# V004(0831): 특별관 '합계' 대신 타입별 개별 집계 — (표시명, 매칭 태그 키워드).
+# Dolby Atmos 표기는 DOLBY/ATMOS 어느 쪽으로 와도 Dolby로 묶는다.
+SPECIAL_FORMAT_COLUMNS = [
+    ('IMAX', ('IMAX',)),
+    ('4DX', ('4DX',)),
+    ('SCREENX', ('SCREENX',)),
+    ('Dolby', ('DOLBY', 'ATMOS')),
+]
 GOLDEN_START, GOLDEN_END = 14, 21   # 골든타임 14~21시 (시작시각 기준)
 
 
-def _is_special(tags):
-    for t in (tags or []):
-        tu = str(t).upper()
-        if any(k in tu for k in SPECIAL_FORMAT_KEYS):
-            return True
-    return False
+def _special_formats_of(tags):
+    """회차 태그가 해당하는 특별관 표시명 목록 (없으면 빈 리스트)."""
+    uppers = [str(t).upper() for t in (tags or [])]
+    return [name for name, kws in SPECIAL_FORMAT_COLUMNS
+            if any(k in tu for tu in uppers for k in kws)]
 
 
 def _region_group(region):
@@ -521,7 +528,8 @@ def _empty_movie():
         'theaters': set(), 'screen_rows': 0,
         'region': {g: {'seats': 0, 'sold': 0} for g in ('seoul', 'metro', 'local')},
         'golden_seats': 0, 'golden_sold': 0,
-        'special_shows': 0, 'special_seats': 0,
+        'special_fmt': {name: {'shows': 0, 'seats': 0}
+                        for name, _ in SPECIAL_FORMAT_COLUMNS},
         'brand': defaultdict(int),
     }
 
@@ -544,9 +552,11 @@ def _acc_movie(b, row):
         if GOLDEN_START <= sh['hour'] < GOLDEN_END:
             b['golden_seats'] += sh['seats']
             b['golden_sold'] += sh['sold']
-        if _is_special(sh['tags']):
-            b['special_shows'] += 1
-            b['special_seats'] += sh['seats']
+        # V004: 타입별 개별 집계 (IMAX+Dolby 겸용관처럼 복수 타입이면 각각 집계)
+        for name in _special_formats_of(sh['tags']):
+            f = b['special_fmt'][name]
+            f['shows'] += 1
+            f['seats'] += sh['seats']
 
 
 def competitor_movie_options():
@@ -602,10 +612,17 @@ def _competitor_sections(buckets, title_of):
                'share': round(b['golden_seats'] / b['seats'] * 100, 1) if b['seats'] else 0.0}
               for k, b in sorted(buckets.items(), key=lambda kv: -kv[1]['golden_seats'])]
 
-    # ④ 특별관 (IMAX/4DX/Dolby 등)
-    special = [{'title': title_of[k], 'shows': b['special_shows'], 'seats': b['special_seats']}
-               for k, b in sorted(buckets.items(), key=lambda kv: -kv[1]['special_seats'])
-               if b['special_shows'] > 0]
+    # ④ 특별관 — V004(0831): 합계 제거, 타입별(IMAX/4DX/SCREENX/Dolby) 개별 표
+    special = []
+    for name, _ in SPECIAL_FORMAT_COLUMNS:
+        fmt_rows = [{'title': title_of[k],
+                     'shows': b['special_fmt'][name]['shows'],
+                     'seats': b['special_fmt'][name]['seats']}
+                    for k, b in buckets.items()
+                    if b['special_fmt'][name]['shows'] > 0]
+        fmt_rows.sort(key=lambda r: -r['seats'])
+        if fmt_rows:
+            special.append({'format': name, 'rows': fmt_rows})
 
     # ⑤ 계열사별 세부 현황 — 행: 계열사 / 열: 작품(순위순)
     movie_titles = [title_of[k] for k, _ in ordered]

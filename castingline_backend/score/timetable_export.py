@@ -12,7 +12,7 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from crawler.report.common import LOGO_PATH, find_korean_font
+from crawler.report.common import find_korean_font, flat_logo_bytes
 
 # ---------- 엑셀 공통 ----------
 FONT = "맑은 고딕"
@@ -53,9 +53,9 @@ def _row(ws, r, values, font=NORM, fill=None, fmts=None):
 
 
 def _logo(ws, last_col):
-    """우측 상단 캐스팅라인 로고."""
+    """우측 상단 캐스팅라인 로고 (V001: 투명 가장자리 평탄화본 — 회색 바 방지)."""
     try:
-        img = XlImage(LOGO_PATH)
+        img = XlImage(io.BytesIO(flat_logo_bytes()))
         h = 40
         img.width = int(img.width * h / img.height)
         img.height = h
@@ -271,16 +271,21 @@ def competitor_excel_bytes(data):
                      fmts={2: "#,##0", 3: PCT, 4: PCT})
         r += 1
 
-        # ④ 특별관
-        r = _row(ws, r, ["특별관 (IMAX/4DX/Dolby)"], font=BOLD)
-        r = _row(ws, r, ["영화명", "특별관 회차", "특별관 좌석수"], font=BOLD, fill=HEAD_FILL)
+        # ④ 특별관 — V004(0831): 타입별(IMAX/4DX/SCREENX/Dolby) 개별 표
         if tab["special"]:
-            for row in tab["special"]:
-                r = _row(ws, r, [row["title"], row["shows"], row["seats"]],
-                         fmts={2: "#,##0", 3: "#,##0"})
+            for blk in tab["special"]:
+                r = _row(ws, r, [f"특별관 ({blk['format']})"], font=BOLD)
+                r = _row(ws, r, ["영화명", "특별관 회차", "특별관 좌석수"],
+                         font=BOLD, fill=HEAD_FILL)
+                for row in blk["rows"]:
+                    r = _row(ws, r, [row["title"], row["shows"], row["seats"]],
+                             fmts={2: "#,##0", 3: "#,##0"})
+                r += 1
         else:
+            r = _row(ws, r, ["특별관 (IMAX/4DX/SCREENX/Dolby)"], font=BOLD)
+            r = _row(ws, r, ["영화명", "특별관 회차", "특별관 좌석수"], font=BOLD, fill=HEAD_FILL)
             r = _row(ws, r, ["특별관 상영 데이터 없음", "", ""])
-        r += 1
+            r += 1
 
         # ⑤ 계열사별 세부 현황
         bb = tab["by_brand"]
@@ -313,15 +318,21 @@ def _pdf_doc(buf, title):
     page_size = landscape(A4)
     margins = dict(leftMargin=28, rightMargin=28, topMargin=34, bottomMargin=24)
 
+    try:
+        # V001: 투명 가장자리 평탄화본 — 로고 위 회색 바 방지
+        logo = ImageReader(io.BytesIO(flat_logo_bytes()))
+    except Exception:
+        logo = None
+
     def on_page(canvas, doc):
         # 우측 상단 캐스팅라인 로고
         try:
-            img = ImageReader(LOGO_PATH)
-            iw, ih = img.getSize()
-            h = 11 * mm
-            w = iw * h / ih
-            canvas.drawImage(img, page_size[0] - 28 - w, page_size[1] - 30 - 2,
-                             width=w, height=h, mask='auto')
+            if logo is not None:
+                iw, ih = logo.getSize()
+                h = 11 * mm
+                w = iw * h / ih
+                canvas.drawImage(logo, page_size[0] - 28 - w, page_size[1] - 30 - 2,
+                                 width=w, height=h)
         except Exception:
             pass
 
@@ -611,18 +622,25 @@ def competitor_pdf_bytes(data):
         story.append(_pdf_table(rows, [content_w * 0.3] + [wn] * 3))
         story.append(Spacer(1, 10))
 
-        story.append(_pp("특별관 (IMAX/4DX/Dolby)", size=11, bold=True, align="LEFT"))
-        story.append(Spacer(1, 4))
-        rows = [[_pp(h, bold=True) for h in ["영화명", "특별관 회차", "특별관 좌석수"]]]
-        if tab["special"]:
-            for row in tab["special"]:
-                rows.append([_pp(row["title"], align="LEFT"),
-                             _pp(_fnum(row["shows"]) + "회"), _pp(_fnum(row["seats"]) + "석")])
-        else:
-            rows.append([_pp("특별관 상영 데이터 없음", align="LEFT"), _pp("-"), _pp("-")])
+        # ④ 특별관 — V004(0831): 타입별(IMAX/4DX/SCREENX/Dolby) 개별 표
         wn = (content_w - content_w * 0.3) / 2
-        story.append(_pdf_table(rows, [content_w * 0.3] + [wn] * 2))
-        story.append(Spacer(1, 10))
+        if tab["special"]:
+            for blk in tab["special"]:
+                story.append(_pp(f"특별관 ({blk['format']})", size=11, bold=True, align="LEFT"))
+                story.append(Spacer(1, 4))
+                rows = [[_pp(h, bold=True) for h in ["영화명", "특별관 회차", "특별관 좌석수"]]]
+                for row in blk["rows"]:
+                    rows.append([_pp(row["title"], align="LEFT"),
+                                 _pp(_fnum(row["shows"]) + "회"), _pp(_fnum(row["seats"]) + "석")])
+                story.append(_pdf_table(rows, [content_w * 0.3] + [wn] * 2))
+                story.append(Spacer(1, 10))
+        else:
+            story.append(_pp("특별관 (IMAX/4DX/SCREENX/Dolby)", size=11, bold=True, align="LEFT"))
+            story.append(Spacer(1, 4))
+            rows = [[_pp(h, bold=True) for h in ["영화명", "특별관 회차", "특별관 좌석수"]],
+                    [_pp("특별관 상영 데이터 없음", align="LEFT"), _pp("-"), _pp("-")]]
+            story.append(_pdf_table(rows, [content_w * 0.3] + [wn] * 2))
+            story.append(Spacer(1, 10))
 
         # ⑤ 계열사별 세부 현황 — 작품이 많으면 8개씩 끊어 표를 나눈다
         bb = tab["by_brand"]

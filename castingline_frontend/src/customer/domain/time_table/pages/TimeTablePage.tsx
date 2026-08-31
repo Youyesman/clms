@@ -128,6 +128,7 @@ interface TimetableData {
 }
 
 /* ── 스타일 ── */
+/* V002(0831): 와이드 모니터에서 전체 폭으로 퍼지지 않도록 최대 폭 + 중앙 정렬 */
 const PageWrapper = styled.div`
     flex: 1;
     display: flex;
@@ -136,6 +137,20 @@ const PageWrapper = styled.div`
     min-height: calc(100vh - 60px);
     padding: 20px;
     gap: 16px;
+    width: 100%;
+    max-width: 1700px;
+    margin: 0 auto;
+`;
+
+/* V002(0831): 넓은 화면에서 상세 데이터·그래프 영역 2열 배치 */
+const TwoColGrid = styled.div`
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+    @media (max-width: 1400px) {
+        grid-template-columns: 1fr;
+    }
 `;
 
 const SearchBtn = styled.button`
@@ -804,17 +819,23 @@ export function TimeTablePage() {
                     ) : (
                         <>
                             <KeySummaryTable ks={tab.key_summary} lastCrawled={data.meta.last_crawled_at} />
-                            <DetailTable
-                                title="멀티사별 상세 현황 (CGV / 롯데 / 메가박스 / 일반)"
-                                note="* 멀티플렉스 체인별 배치 점유율 · 클릭 시 정렬가능"
-                                rows={tab.multi_detail}
-                                countLabel="총 극장수"
-                            />
-                            <DetailTable title="포맷별 상세 현황" rows={tab.format_detail} countLabel="스크린수" />
-                            <TimeTable rows={tab.time_detail} />
-                            <DetailTable title="지역별 상세 현황" rows={tab.region_detail} countLabel="총 극장수" />
+                            {/* V002: 넓은 화면에서는 상세 데이터를 2열로 배치 */}
+                            <TwoColGrid>
+                                <DetailTable
+                                    title="멀티사별 상세 현황 (CGV / 롯데 / 메가박스 / 일반)"
+                                    note="* 멀티플렉스 체인별 배치 점유율 · 클릭 시 정렬가능"
+                                    rows={tab.multi_detail}
+                                    countLabel="총 극장수"
+                                />
+                                <DetailTable title="포맷별 상세 현황" rows={tab.format_detail} countLabel="스크린수" />
+                            </TwoColGrid>
+                            <TwoColGrid>
+                                <TimeTable rows={tab.time_detail} />
+                                <DetailTable title="지역별 상세 현황" rows={tab.region_detail} countLabel="총 극장수" />
+                            </TwoColGrid>
 
-                            {/* ── 상영일자 추이 (기간 전체) ── */}
+                            {/* ── 상영일자 추이 (기간 전체) + 경쟁작 TOP 10 — V002: 넓은 화면 2열 ── */}
+                            <TwoColGrid>
                             <SectionCard>
                                 <SectionTitle><span>상영일자 추이</span></SectionTitle>
                                 <div style={{ padding: "12px 14px 4px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
@@ -877,6 +898,7 @@ export function TimeTablePage() {
                             </SectionCard>
 
                             <CompetitorTable rows={tab.competitor_top} label={tab.label} />
+                            </TwoColGrid>
                         </>
                     )}
                 </>

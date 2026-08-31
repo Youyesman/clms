@@ -13,6 +13,34 @@ import os
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "casting_line_logo.png")
 
+_flat_logo_bytes = None
+
+
+def flat_logo_bytes():
+    """투명 가장자리를 잘라내고 흰 배경에 합성한 로고 PNG 바이트 (캐시).
+
+    W001/V001: 원본 PNG 맨 윗줄이 '완전 투명한 검정'이라, 이미지를 부드럽게
+    축소하는 뷰어(PDF/엑셀)에서 그 줄이 번져 로고 위에 회색 바처럼 보인다.
+    알파를 없애고 흰 배경에 평탄화하면 사라진다.
+    """
+    global _flat_logo_bytes
+    if _flat_logo_bytes is None:
+        import io
+
+        from PIL import Image
+
+        src = Image.open(LOGO_PATH).convert("RGBA")
+        bbox = src.split()[3].getbbox()     # 완전 투명한 가장자리 제거
+        if bbox:
+            src = src.crop(bbox)
+        flat = Image.new("RGB", src.size, (255, 255, 255))
+        flat.paste(src, mask=src.split()[3])
+        buf = io.BytesIO()
+        flat.save(buf, format="PNG")
+        _flat_logo_bytes = buf.getvalue()
+    return _flat_logo_bytes
+
+
 # 샘플 디자인 색상 (엑셀 ARGB 기준)
 COLOR_HEADER_GREEN = "E5F1D7"   # 표 제목 행 연한 연두
 COLOR_MAIN_CREAM = "FFF2CC"     # 주요작 강조 행

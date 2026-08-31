@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "/static/css/main.57073bfc.css",
-    "main.js": "/static/js/main.d7328e59.js",
+    "main.js": "/static/js/main.d1197319.js",
     "static/js/131.a42a8475.chunk.js": "/static/js/131.a42a8475.chunk.js",
     "static/js/239.c71481cc.chunk.js": "/static/js/239.c71481cc.chunk.js",
     "static/media/Gemini_Generated_Image_uln0pquln0pquln0.png": "/static/media/Gemini_Generated_Image_uln0pquln0pquln0.6f286e5892cc6df96fd9.png",
@@ -17,6 +17,6 @@
   },
   "entrypoints": [
     "static/css/main.57073bfc.css",
-    "static/js/main.d7328e59.js"
+    "static/js/main.d1197319.js"
   ]
 }

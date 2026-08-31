@@ -484,7 +484,10 @@ def build_pdf(data, out_path, scope=None):
             row_val,
             row_prev,
         ]))
-        story.append(Spacer(1, 14))
+        story.append(Spacer(1, 3))
+        story.append(_p("※ 점유율 1위는 조회 기간 총 좌석수 상위 10작품 중 기간 통합 점유율(총 예매좌석 ÷ 총 좌석수) 기준",
+                        size=7.5, color=colors.grey))
+        story.append(Spacer(1, 11))
 
         if daily.get("top"):
             story.append(Paragraph("총 좌석수 기준 TOP 10 작품 일별 전주 비교", S["section"]))

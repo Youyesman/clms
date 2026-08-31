@@ -525,21 +525,42 @@ def build_report_data(start_date, end_date, main_title=None, brands=None, dates=
         }
 
         # 경쟁작 경쟁 포지션 — 4개 지표별 1위 작품 (서로 다를 수 있음, §B-6)
+        # C001(0831): 점유율 1위는 '조회 기간 총 좌석수 TOP 10' 작품 중에서만 뽑는다.
+        # 좌석 모수가 극소수인 소규모 상영작이 비율만으로 1위 카드에 오르는 튐 방지.
+        # 점유율 값 자체는 기간 전체 합계(SUM 예매 ÷ SUM 좌석) 기준 그대로다.
+        def _occ_rank_in_top10(movie_aggs, key):
+            """총 좌석수 TOP 10 안에서의 점유율 순위 (동률 1,2,2,4). 밖이면 None."""
+            pool = sorted(movie_aggs.items(), key=lambda kv: -kv[1].total)[:10]
+            prev_val, prev_rank = None, 0
+            for i, (k, a) in enumerate(sorted(pool, key=lambda kv: -kv[1].occupancy), 1):
+                rank = prev_rank if a.occupancy == prev_val else i
+                prev_val, prev_rank = a.occupancy, rank
+                if k == key:
+                    return rank
+            return None
+
         metric_fns = {
             "seats": (lambda s: s["total_seats"], "석"),
             "reserved": (lambda s: s["reserved"], "석"),
             "occupancy": (lambda s: s["occupancy"], "%"),
             "shows": (lambda s: s["shows"], "회"),
         }
+        occ_pool = movies[:10]              # movies는 총 좌석수 내림차순 정렬 상태
         leaders = {}
         for m, (fn, unit) in metric_fns.items():
-            top = max(movies, key=fn)
+            top = max(occ_pool if m == "occupancy" else movies, key=fn)
+            if m == "occupancy":
+                prev_rank = _occ_rank_in_top10(prev_by_movie, top["key"]) if has_prev else None
+                cur_rank = _occ_rank_in_top10(by_movie, top["key"])
+            else:
+                prev_rank = prev_ranks.get(top["key"], {}).get(m) if has_prev else None
+                cur_rank = ranks[top["key"]][m]
             leaders[m] = {
                 "title": top["title"],
                 "value": fn(top),
                 "unit": unit,
-                "prev_rank": prev_ranks.get(top["key"], {}).get(m) if has_prev else None,
-                "cur_rank": ranks[top["key"]][m],
+                "prev_rank": prev_rank,
+                "cur_rank": cur_rank,
             }
         data["leaders"] = leaders
 

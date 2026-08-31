@@ -9,8 +9,8 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .common import (COLOR_HEADER_GREEN, COLOR_MAIN_CREAM, COLOR_RED, LOGO_PATH,
-                     fmt_cmp, fmt_num, fmt_pct, fmt_rank_cmp)
+from .common import (COLOR_HEADER_GREEN, COLOR_MAIN_CREAM, COLOR_RED,
+                     flat_logo_bytes, fmt_cmp, fmt_num, fmt_pct, fmt_rank_cmp)
 
 FONT_NAME = "맑은 고딕"
 GREEN_FILL = PatternFill(start_color=COLOR_HEADER_GREEN, end_color=COLOR_HEADER_GREEN, fill_type="solid")
@@ -51,9 +51,10 @@ def _cmp_value(cmp_dict):
 def _sheet_head(ws, title, subtitle, last_col):
     _cell(ws, 1, 1, title, font=TITLE_FONT, border=False, align=LEFT)
     _cell(ws, 2, 1, subtitle, font=SUB_FONT, border=False, align=LEFT)
-    # 우측 상단 CASTING LINE 로고 (§22)
+    # 우측 상단 CASTING LINE 로고 (§22 · V001: 평탄화본 — 로고 위 회색 바 방지)
     try:
-        img = XlImage(LOGO_PATH)
+        import io as _io
+        img = XlImage(_io.BytesIO(flat_logo_bytes()))
         h = 42
         img.width = int(img.width * h / img.height)
         img.height = h
@@ -323,7 +324,10 @@ def build_excel(data, out_path):
         for ci, (_, c) in enumerate(cards, 1):
             txt, red = fmt_rank_cmp(c["prev_rank"], c["cur_rank"])
             _cell(ws, r + 4, ci, txt, font=RED_FONT if red else DATA_FONT)
-        r += 6
+        _cell(ws, r + 5, 1,
+              "※ 점유율 1위는 조회 기간 총 좌석수 상위 10작품 중 기간 통합 점유율(총 예매좌석 ÷ 총 좌석수) 기준",
+              font=SUB_FONT, border=False, align=LEFT)
+        r += 7
 
         if daily.get("top"):
             _top_daily_block(ws, r, "총 좌석수 기준 TOP 10 작품 일별 전주 비교",
