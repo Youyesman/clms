@@ -669,6 +669,7 @@ class SettlementCompareView(SettlementListView):
                     "row_count": len(res.get("rows") or []), "source": "ai",
                     "confidence": res.get("confidence") or "high",
                     "notes": res.get("notes") or "",
+                    "file_idx": file_idx,  # 파일별 대사(매칭) 성공 여부 판정용 (P001)
                 })
                 for r in res.get("rows") or []:
                     row = {
@@ -805,6 +806,16 @@ class SettlementCompareView(SettlementListView):
                 else:
                     row["chain"] = "일반극장" if row["chain"] == "불명" else row["chain"]
                     row["cls"] = None  # 미매칭 — 파일에만 있는 행으로 표시
+
+        # PDF 파일별 대사 성공 여부 — 행이 하나라도 영화 섹션에 들어가면(영화
+        # 매칭 성공) '대사됨', 0건이면 화면에서 '판독 불가'로 표기한다 (P001)
+        matched_per_idx = Counter()
+        for row in ai_rows:
+            if movie_match.get(row["movie"]) is not None:
+                matched_per_idx[row["file_idx"]] += 1
+        for fi in file_infos:
+            if fi["source"] == "ai":
+                fi["matched_row_count"] = matched_per_idx.get(fi.pop("file_idx"), 0)
 
         # 대표영화별 파일 행 그룹 + 미매칭 영화 집계
         rows_by_primary = {}

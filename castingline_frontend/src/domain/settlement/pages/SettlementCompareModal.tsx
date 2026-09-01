@@ -76,6 +76,7 @@ interface IFileInfo {
     source: "excel" | "ai";
     confidence?: "high" | "low"; // AI 추출 신뢰도 (PDF만)
     notes?: string; // AI 판독 특이사항 (PDF만)
+    matched_row_count?: number; // 대사표(영화 섹션)에 매칭된 행 수 (PDF만) — 0이면 판독 불가 (P001)
 }
 interface ICompareResult {
     chains: string[];
@@ -1057,23 +1058,34 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                         <FileList>
                             {result.files
                                 .filter((f) => f.source === "ai")
-                                .map((f) => (
-                                    <li key={f.filename} className={f.confidence === "low" ? "low" : ""}>
-                                        {f.confidence === "low" ? (
-                                            <Warning size={14} weight="fill" color="#d97706" />
-                                        ) : (
-                                            <CheckCircle size={14} weight="fill" color="#16a34a" />
-                                        )}
-                                        <span className="ai">AI</span>
-                                        <b>{f.filename}</b>
-                                        <span>({f.chain.replace("AI·", "")} · {f.row_count}건)</span>
-                                        {f.confidence === "low" && (
-                                            <em className="notes" title={f.notes}>
-                                                판독 주의: {f.notes || "숫자/이름 판독 불확실 — 원본 대조 필요"}
-                                            </em>
-                                        )}
-                                    </li>
-                                ))}
+                                .map((f) => {
+                                    // 판독 성공 = 파일의 행이 하나라도 대사표(영화 섹션)에 매칭됨.
+                                    // 수치가 달라도 판독은 된 것 — 차이는 아래 영화별 표에서 확인 (P001)
+                                    const ok = (f.matched_row_count ?? f.row_count) > 0;
+                                    return (
+                                        <li
+                                            key={f.filename}
+                                            className={ok ? "" : "low"}
+                                            title={f.notes || undefined}
+                                        >
+                                            {ok ? (
+                                                <CheckCircle size={14} weight="fill" color="#16a34a" />
+                                            ) : (
+                                                <Warning size={14} weight="fill" color="#d97706" />
+                                            )}
+                                            <span className="ai">AI</span>
+                                            <b>{f.filename}</b>
+                                            {ok ? (
+                                                <span>
+                                                    ({f.chain.replace("AI·", "")} ·{" "}
+                                                    {f.matched_row_count ?? f.row_count}건 대사)
+                                                </span>
+                                            ) : (
+                                                <em className="notes">— 판독 불가</em>
+                                            )}
+                                        </li>
+                                    );
+                                })}
                         </FileList>
                     )}
 
