@@ -671,9 +671,15 @@ class SettlementCompareView(SettlementListView):
                     "notes": res.get("notes") or "",
                     "file_idx": file_idx,  # 파일별 대사(매칭) 성공 여부 판정용 (P001)
                 })
+                # A001(0901): 영화의전당 등 일부 극장 PDF는 한글 텍스트 추출이 안 돼
+                # AI가 극장명/영화명을 빈 값으로 반환한다. 이때는 파일명(확장자 제거)을
+                # 극장/영화명으로 대신 써서 이름 매칭(포함/AI 매칭)이 잡을 수 있게 한다.
+                # (예: '영화의전당_그림자아이.pdf' → 영화 '그림자 아이' 포함 매칭)
+                stem = _re.sub(r"\.[A-Za-z0-9]+$", "", item["filename"]).strip()
                 for r in res.get("rows") or []:
                     row = {
-                        "theater": r.get("theater") or "", "movie": r.get("movie") or "",
+                        "theater": r.get("theater") or stem,
+                        "movie": r.get("movie") or stem,
                         "date": r.get("date") or "", "date_end": r.get("date_end") or "",
                         "visitors": int(r.get("visitors") or 0),
                         "supply": int(r.get("supply") or 0),
@@ -729,6 +735,10 @@ class SettlementCompareView(SettlementListView):
         #    (양방향 포함 매칭, 겹치는 후보는 제목이 긴 쪽 = 더 구체적인 쪽 채택)
         def match_primary(file_movie_name):
             f_norm = norm_title(file_movie_name)
+            # A001(0901): 빈 문자열은 모든 제목에 '포함'으로 판정돼 제일 긴 제목의
+            # 영화(예: 신극장판은혼)에 잘못 매칭됐다 — 판독 실패 행은 미매칭 처리.
+            if not f_norm:
+                return None
             best = None
             for p, p_norm in primary_norms:
                 if not p_norm:

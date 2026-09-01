@@ -528,9 +528,16 @@ def build_report_data(start_date, end_date, main_title=None, brands=None, dates=
         # C001(0831): 점유율 1위는 '조회 기간 총 좌석수 TOP 10' 작품 중에서만 뽑는다.
         # 좌석 모수가 극소수인 소규모 상영작이 비율만으로 1위 카드에 오르는 튐 방지.
         # 점유율 값 자체는 기간 전체 합계(SUM 예매 ÷ SUM 좌석) 기준 그대로다.
+        # C001(0901): 추가로 '기간 총 좌석수 10만석 이상' 모수 필터를 적용한다(방안 B).
+        # TOP 10 안에서도 좌석 모수가 10만석 미만인 작품은 점유율 1위 후보에서 제외하되,
+        # 조회 기간이 짧아 10만석 이상 작품이 하나도 없으면 TOP 10 전체로 폴백한다
+        # (1위 카드가 비는 것 방지).
+        OCC_MIN_SEATS = 100_000
+
         def _occ_rank_in_top10(movie_aggs, key):
-            """총 좌석수 TOP 10 안에서의 점유율 순위 (동률 1,2,2,4). 밖이면 None."""
-            pool = sorted(movie_aggs.items(), key=lambda kv: -kv[1].total)[:10]
+            """총 좌석수 TOP 10(+10만석 필터) 안에서의 점유율 순위 (동률 1,2,2,4). 밖이면 None."""
+            top = sorted(movie_aggs.items(), key=lambda kv: -kv[1].total)[:10]
+            pool = [kv for kv in top if kv[1].total >= OCC_MIN_SEATS] or top
             prev_val, prev_rank = None, 0
             for i, (k, a) in enumerate(sorted(pool, key=lambda kv: -kv[1].occupancy), 1):
                 rank = prev_rank if a.occupancy == prev_val else i
@@ -545,7 +552,9 @@ def build_report_data(start_date, end_date, main_title=None, brands=None, dates=
             "occupancy": (lambda s: s["occupancy"], "%"),
             "shows": (lambda s: s["shows"], "회"),
         }
-        occ_pool = movies[:10]              # movies는 총 좌석수 내림차순 정렬 상태
+        # movies는 총 좌석수 내림차순 정렬 상태 — TOP 10 중 10만석 이상만 (없으면 TOP 10 폴백)
+        occ_top10 = movies[:10]
+        occ_pool = [s for s in occ_top10 if s["total_seats"] >= OCC_MIN_SEATS] or occ_top10
         leaders = {}
         for m, (fn, unit) in metric_fns.items():
             top = max(occ_pool if m == "occupancy" else movies, key=fn)

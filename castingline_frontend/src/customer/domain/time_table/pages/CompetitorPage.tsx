@@ -308,37 +308,83 @@ function GoldenTable({ rows }: { rows: GoldenRow[] }) {
     );
 }
 
-/* V004(0831): 특별관 타입(IMAX/4DX/SCREENX/Dolby)마다 개별 표.
-   헤더는 고정(sticky)되고 영화 목록만 세로 스크롤된다 (TableWrap max-height). */
-function SpecialTable({ block }: { block: SpecialBlock }) {
+/* B001(0901): 특별관 타입별 개별 카드가 자리를 많이 차지한다는 요청에 따라,
+   카드 하나 안에서 포맷(IMAX/4DX/SCREENX/Dolby…) 탭으로 전환하는 구조로 통합.
+   헤더는 고정(sticky)되고 영화 목록만 세로 스크롤된다 (TableWrap max-height, V004). */
+const FmtTabs = styled.span`
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 10px;
+    vertical-align: middle;
+`;
+const FmtTab = styled.button<{ $active: boolean }>`
+    height: 22px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: ${({ $active }) => ($active ? 700 : 500)};
+    cursor: pointer;
+    border: 1px solid ${({ $active }) => ($active ? "#2563eb" : "#cbd5e1")};
+    background: ${({ $active }) => ($active ? "#2563eb" : "#ffffff")};
+    color: ${({ $active }) => ($active ? "#ffffff" : "#64748b")};
+    white-space: nowrap;
+`;
+
+function SpecialTableBody({ block }: { block: SpecialBlock }) {
     const { sorted, sort } = useTableSort(block.rows);
     const topTitle = block.rows[0]?.title;
     return (
+        <TableWrap>
+            <Tbl>
+                <thead>
+                    <tr>
+                        <SortTh sortKey="title" sort={sort}>영화명</SortTh>
+                        <SortTh sortKey="shows" sort={sort}>특별관 회차</SortTh>
+                        <SortTh sortKey="seats" sort={sort}>특별관 좌석수</SortTh>
+                    </tr>
+                </thead>
+                <tbody>
+                    {sorted.map((s) => (
+                        <tr key={s.title} className={s.title === topTitle ? "top-row" : ""}>
+                            <td style={{ textAlign: "left", fontWeight: 600 }}>{s.title === topTitle ? "★ " : ""}{s.title}</td>
+                            <td>{fmt(s.shows)}회</td>
+                            <td>{fmt(s.seats)}석</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </Tbl>
+        </TableWrap>
+    );
+}
+
+function SpecialTabsCard({ blocks }: { blocks: SpecialBlock[] }) {
+    // 일자 탭을 바꿔도 같은 포맷 탭 유지 — 그 날 없는 포맷이면 첫 포맷으로 폴백
+    const [fmtKey, setFmtKey] = useState<string>("");
+    const active = blocks.find((b) => b.format === fmtKey) ?? blocks[0];
+    return (
         <SectionCard>
             <SectionTitle>
-                특별관 ({block.format})
-                <SortHint>{sortNote}</SortHint>
-            </SectionTitle>
-            <TableWrap>
-                <Tbl>
-                    <thead>
-                        <tr>
-                            <SortTh sortKey="title" sort={sort}>영화명</SortTh>
-                            <SortTh sortKey="shows" sort={sort}>특별관 회차</SortTh>
-                            <SortTh sortKey="seats" sort={sort}>특별관 좌석수</SortTh>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sorted.map((s) => (
-                            <tr key={s.title} className={s.title === topTitle ? "top-row" : ""}>
-                                <td style={{ textAlign: "left", fontWeight: 600 }}>{s.title === topTitle ? "★ " : ""}{s.title}</td>
-                                <td>{fmt(s.shows)}회</td>
-                                <td>{fmt(s.seats)}석</td>
-                            </tr>
+                특별관
+                {blocks.length > 0 && (
+                    <FmtTabs>
+                        {blocks.map((b) => (
+                            <FmtTab
+                                key={b.format}
+                                $active={b.format === active?.format}
+                                onClick={() => setFmtKey(b.format)}
+                            >
+                                {b.format}
+                            </FmtTab>
                         ))}
-                    </tbody>
-                </Tbl>
-            </TableWrap>
+                    </FmtTabs>
+                )}
+                {blocks.length > 0 && <SortHint>{sortNote}</SortHint>}
+            </SectionTitle>
+            {active ? (
+                <SpecialTableBody key={active.format} block={active} />
+            ) : (
+                <EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg>
+            )}
         </SectionCard>
     );
 }
@@ -673,18 +719,10 @@ export function CompetitorPage() {
                             {/* ② 권역별 */}
                             <RegionTable rows={tab.regions} label={tab.label} />
 
-                            {/* ③ 골든타임 + ④ 특별관 (V004: 타입별 개별 표) */}
+                            {/* ③ 골든타임 + ④ 특별관 (B001: 카드 하나 + 포맷 탭) */}
                             <TwoColGrid>
                                 <GoldenTable rows={tab.golden} />
-                                {tab.special.map(blk => (
-                                    <SpecialTable key={blk.format} block={blk} />
-                                ))}
-                                {tab.special.length === 0 && (
-                                    <SectionCard>
-                                        <SectionTitle>특별관 (IMAX/4DX/SCREENX/Dolby)</SectionTitle>
-                                        <EmptyMsg>특별관 상영 데이터가 없습니다</EmptyMsg>
-                                    </SectionCard>
-                                )}
+                                <SpecialTabsCard blocks={tab.special} />
                             </TwoColGrid>
 
                             {/* ⑤ 계열사별 세부 현황 */}

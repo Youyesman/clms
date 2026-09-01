@@ -167,17 +167,24 @@ def _match_filename_all(filename, targets):
     return out
 
 
-def _match_text(subject, body, targets):
-    """제목>본문에서 첫 매칭되는 (target_info, raw_keyword, where) 반환. 없으면 None."""
-    subj_n = _norm(subject)
+def _match_body_all(body, targets, limit=3):
+    """본문(인용 제거 후)에서 매칭되는 대상 영화들을 [(target_info, raw_keyword, "body")] 로 반환.
+
+    D002(0901): '그림자 아이, 지느러미 부금정산서 전달드립니다'처럼 본문에 여러
+    영화가 언급되면 모두에 배정한다. 단, 인용 제거를 뚫고 남은 영화 목록 표 등으로
+    과다 매칭되면(limit 초과) 오매칭 위험이 크므로 기존처럼 첫 매칭 한 편만 쓴다."""
     body_n = _norm(body)
+    if not body_n:
+        return []
+    out = []
     for info in targets:
         for raw, kw in info["keywords"]:
-            if kw in subj_n:
-                return info, raw, "subject"
             if kw in body_n:
-                return info, raw, "body"
-    return None
+                out.append((info, raw, "body"))
+                break  # 한 영화당 한 번만
+    if len(out) > limit:
+        return out[:1]
+    return out
 
 
 def _match_subject_all(subject, targets):
@@ -221,6 +228,9 @@ _NAME_NOISE_RE = re.compile(
         r"주식회사", r"캐스팅라인", r"케스팅라인", r"롯데\s*시네마", r"롯데",
         r"메가\s*박스", r"씨네\s*큐", r"CGV", r"CJ",
         r"최종본?", r"수정본?", r"사본", r"copy", r"final", r"scan",
+        # D002(0901): '부금 2건.pdf' 의 '건'(수량 단위)이 고유명으로 남아
+        # 본문 폴백이 막히던 문제 — 숫자+단위는 통째로 제거 (\d+ 보다 앞에 둘 것)
+        r"\d+\s*[건부편]",
         r"\d{2,4}\s*년", r"\d{1,2}\s*월", r"\d{1,2}\s*일", r"\d+",   # 날짜/숫자
     ]),
     re.I,
@@ -506,13 +516,12 @@ def scan_folder(folder, since=None, until=None, month=None, max_messages=2000):
         #    제목은 '[눈동자/백룸]' 처럼 여러 영화가 있을 수 있으므로 매칭되는 모든
         #    영화에 저장하고, 본문은 오매칭 위험이 커서 첫 매칭 한 편만 사용한다.
         subj_matches = _match_subject_all(msg.get("subject", ""), targets)
-        th = None if subj_matches else _match_text("", body, targets)
-        if subj_matches or th:
+        body_matches = [] if subj_matches else _match_body_all(body, targets)
+        if subj_matches or body_matches:
             if subj_matches:
                 fallback = [(info, raw_kw, "subject") for info, raw_kw in subj_matches]
             else:
-                info, raw_kw, where = th
-                fallback = [(info, raw_kw, where)]
+                fallback = body_matches
             if not attachments:
                 stats["matched"] += 1
                 stats["matched_no_attachment"] += 1

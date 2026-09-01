@@ -305,6 +305,15 @@ class BulkMatcher:
                     ]
                 )
 
+        # C008: 포맷 속성까지 일치하는 변형을 못 찾아도, 제목이 영화관리에
+        # 등록돼 있으면 '영화 없음'으로 업로드를 막지 않는다 — 제목이 정확히
+        # 같은 후보(없으면 포함 후보) 중 대표영화, 그마저 없으면 첫 후보로 폴백.
+        # (오더 등록 여부와 무관하게 영화관리 등록만으로 업로드 가능해야 함)
+        if not matched and candidates:
+            exact = [m for m in candidates if m.title_pure_norm == norm_raw]
+            pool = exact or candidates
+            matched = next((m for m in pool if m.is_primary_movie), pool[0])
+
         parts = [attr["media_type"]]
         for key in [
             "viewing_dimension",
