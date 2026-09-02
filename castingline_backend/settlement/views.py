@@ -301,6 +301,7 @@ class SettlementListView(APIView):
                                 tgt["날짜조정"] = {
                                     "원본": adj.date_to_original or "",
                                     "조정ID": adj.id,
+                                    "일괄": bool(adj.date_to_is_bulk),  # A006
                                 }
                         if show_adjustment_info:
                             tgt["조정경고"] = {
@@ -325,6 +326,8 @@ class SettlementListView(APIView):
                             tgt["날짜조정"] = {
                                 "원본": adj.date_to_original or "",
                                 "조정ID": adj.id,
+                                # A006: 일괄 수정분인지 — '확정 일괄 해제'는 이것만 푼다
+                                "일괄": bool(adj.date_to_is_bulk),
                             }
                         if amount_adjusted:
                             tgt["is_adjusted"] = True
@@ -620,7 +623,8 @@ class SettlementCompareView(SettlementListView):
         import re as _re
         from collections import Counter
 
-        from settlement.compare import parse_settlement_excel, norm_theater, norm_title
+        from settlement.compare import (parse_settlement_excel, norm_theater, norm_title,
+                                        resolve_theater_fallback)
         from settlement.compare_ai import parse_settlement_pdfs, ai_match_names
 
         files = request.FILES.getlist("files")
@@ -732,28 +736,37 @@ class SettlementCompareView(SettlementListView):
         primary_norms = [(p, norm_title(p.title_ko)) for p in primary_movies if p.title_ko]
 
         # 3. 파일의 영화명 → 대표영화 자동 매칭
-        #    (양방향 포함 매칭, 겹치는 후보는 제목이 긴 쪽 = 더 구체적인 쪽 채택)
+        #    ① 정규화 제목 정확 일치
+        #    ② 파일 제명이 시스템 제목을 통째로 포함 (예: '길위의뭉치(디지털)', 파일명 폴백)
+        #       — 여러 제목이 포함되면 나머지를 모두 품는 가장 구체적인 제목만 채택
+        #         (범죄도시 ⊂ 범죄도시4). 서로 무관한 제목이 섞이면 미매칭 → AI 매칭.
+        #    ③ 파일 제명이 시스템 제목의 일부(조각)인 경우 — 유일할 때만.
+        #    A001/0902: 예전엔 양방향 포함 후보 중 '가장 긴 제목'을 무조건 골라, 빈 값이나
+        #    짧은 조각이 제일 긴 제목(신극장판은혼…)에 붙었다. 애매하면 고르지 않는다.
         def match_primary(file_movie_name):
             f_norm = norm_title(file_movie_name)
-            # A001(0901): 빈 문자열은 모든 제목에 '포함'으로 판정돼 제일 긴 제목의
-            # 영화(예: 신극장판은혼)에 잘못 매칭됐다 — 판독 실패 행은 미매칭 처리.
             if not f_norm:
                 return None
-            best = None
-            for p, p_norm in primary_norms:
-                if not p_norm:
-                    continue
-                if p_norm in f_norm or f_norm in p_norm:
-                    if best is None or len(p_norm) > len(best[1]):
-                        best = (p, p_norm)
-            return best[0] if best else None
+            exact = [p for p, p_norm in primary_norms if p_norm == f_norm]
+            if exact:
+                return exact[0]
+            contained = [(p, p_norm) for p, p_norm in primary_norms if p_norm and p_norm in f_norm]
+            if contained:
+                longest = max(contained, key=lambda x: len(x[1]))
+                if all(p_norm in longest[1] for _, p_norm in contained):
+                    return longest[0]
+                return None
+            fragment = [p for p, p_norm in primary_norms if p_norm and f_norm in p_norm]
+            return fragment[0] if len(fragment) == 1 else None
 
         file_movie_names = {r["movie"] for r in all_rows}
         movie_match = {name: match_primary(name) for name in file_movie_names}
 
         # 3-1. PDF(AI) 행의 극장 → 시스템 거래처 매칭
         #      ① 정규화 극장명 정확 일치(동명이면 추출 체인으로 압축)
-        #      ② 남은 극장 + 이름 매칭 실패 영화 → AI 매칭 한 번 호출
+        #      ② 규칙 폴백: 사업자번호 → 파일명 포함 → 유사도 (A002/A003, 0902)
+        #        후보는 '그 달 해당 영화 실적이 있는 거래처'로 제한해 오매칭을 막는다
+        #      ③ 남은 극장 + 이름 매칭 실패 영화 → AI 매칭 한 번 호출
         #        (법인명/주소 표기, 팩스 오독 대응 — 예: '마산버스터미널 시네마'→'롯데마산(합성동)')
         pdf_pairs = set()  # 매칭된 거래처의 (체인, 구분) — 응답 chains 표기용
         if ai_rows:
@@ -764,18 +777,89 @@ class SettlementCompareView(SettlementListView):
             for c in active_clients:
                 by_norm.setdefault(norm_theater(c.client_name), []).append(c)
 
-            resolved = {}   # (파일 극장명, 추출 체인) → Client
-            need_ai = {}
+            # 대표영화 코드 → 그 달 실적(Score)이 있는 거래처 id 집합 (폴백 후보 제약용)
+            movie_primary_code = {}
+            for m in active_movies:
+                raw = m.movie_code if m.is_primary_movie else (m.primary_movie_code or m.movie_code)
+                movie_primary_code[m.id] = (raw or "").replace(" ", "")
+            clients_by_primary_code = {}
+            for mid, cid in (Score.objects
+                             .filter(entry_date__year=yyyy, entry_date__month=mm)
+                             .values_list("movie_id", "client_id").distinct()):
+                clients_by_primary_code.setdefault(movie_primary_code.get(mid, ""), set()).add(cid)
+
+            # (파일 극장명, 추출 체인) → 대표 행 / 그 극장 행들이 매칭된 대표영화 코드
+            key_rows = {}
+            key_movie_codes = {}
             for row in ai_rows:
                 rkey = (row["theater"], row["chain"])
-                if rkey in resolved or rkey in need_ai:
-                    continue
+                key_rows.setdefault(rkey, row)
+                p = movie_match.get(row["movie"])
+                if p is not None and p.movie_code:
+                    key_movie_codes.setdefault(rkey, set()).add(p.movie_code.replace(" ", ""))
+
+            # 금액 판별용 시스템 값: 대표영화 id → {거래처코드: {인원, 영화사 지급금}}
+            # (유사도 동점 극장 — 곡성/보성/고흥작은영화관 — 을 파일 금액으로 가린다)
+            sys_values_cache = {}
+
+            def _system_values(primary):
+                if primary.id not in sys_values_cache:
+                    vals = {}
+                    try:
+                        for r in self.get_processed_data(yyyy_mm, primary.id, "전체극장",
+                                                         include_adjustments=False):
+                            if r.get("is_subtotal") or r.get("is_adjustment"):
+                                continue
+                            v = vals.setdefault(r.get("거래처코드"), {"인원": 0, "영화사 지급금": 0})
+                            v["인원"] += r.get("인원") or 0
+                            v["영화사 지급금"] += r.get("영화사 지급금") or 0
+                    except Exception:
+                        pass  # 부율 미설정 등 계산 불가 → 금액 판별 생략
+                    sys_values_cache[primary.id] = vals
+                return sys_values_cache[primary.id]
+
+            def _make_tie_breaker(rkey):
+                # 파일측 (대표영화 → 인원/지급금 합)
+                file_vals = {}
+                for row in ai_rows:
+                    if (row["theater"], row["chain"]) != rkey:
+                        continue
+                    prim = movie_match.get(row["movie"])
+                    if prim is None:
+                        continue
+                    fv = file_vals.setdefault(prim, {"인원": 0, "영화사 지급금": 0})
+                    fv["인원"] += row["visitors"]
+                    fv["영화사 지급금"] += row["payout"]
+
+                def tie_breaker(cands):
+                    hits = []
+                    for c in cands:
+                        for prim, fv in file_vals.items():
+                            sv = _system_values(prim).get(c.client_code)
+                            if sv and (sv["영화사 지급금"] == fv["영화사 지급금"] or sv["인원"] == fv["인원"]):
+                                hits.append(c)
+                                break
+                    return hits[0] if len(hits) == 1 else None
+                return tie_breaker
+
+            resolved = {}   # (파일 극장명, 추출 체인) → Client
+            need_ai = {}
+            for rkey, row in key_rows.items():
                 cands = by_norm.get(norm_theater(row["theater"]), [])
                 if len(cands) > 1:  # 브랜드 접두사 제거 후 동명 지점 (예: 롯데강동/메가박스강동)
                     filt = [c for c in cands if (c.theater_kind or "") == row["chain"]]
                     cands = filt or cands
                 if len(cands) == 1:
                     resolved[rkey] = cands[0]
+                    continue
+                month_client_ids = set()
+                for code in key_movie_codes.get(rkey, ()):
+                    month_client_ids |= clients_by_primary_code.get(code, set())
+                c = resolve_theater_fallback(
+                    row["theater"], row["hint"], row["filename"], row["chain"],
+                    active_clients, month_client_ids, tie_breaker=_make_tie_breaker(rkey))
+                if c is not None:
+                    resolved[rkey] = c
                 else:
                     need_ai[rkey] = {"name": row["theater"], "hint": row["hint"],
                                      "chain": row["chain"], "filename": row["filename"]}
@@ -1369,6 +1453,7 @@ def _serialize_adjustment(a):
         "date_to_override": (a.date_to_override.strftime("%Y-%m-%d")
                              if a.date_to_override else None),
         "date_to_original": a.date_to_original or None,
+        "date_to_is_bulk": bool(a.date_to_is_bulk),
         "note": a.note,
         "updated_at": a.updated_at,
     }
@@ -1602,6 +1687,12 @@ class SettlementAdjustmentDetailView(APIView):
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
         if scope == "date":
+            # A006: '확정 일괄 해제'(bulk_only)는 일괄 수정으로 확정된 행만 푼다.
+            # 수기/AI 확정 행이 섞여 오면(구버전 화면 등) 삭제하지 않고 건너뛴다 —
+            # 필터를 전체로 되돌린 뒤 일괄 해제하면 수기 확정까지 지워지던 문제.
+            if request.query_params.get("bulk_only") and not obj.date_to_is_bulk:
+                return Response({"skipped": True, "id": obj.pk,
+                                 "date_to": str(obj.date_to_override or "")})
             # F001: 일괄 수정 해제 — 일괄이 덮어쓰기 전의 수기/AI 확정값이
             # 보관돼 있으면 삭제 대신 그 값으로 복구한다
             if obj.date_to_is_bulk and obj.date_to_prev:

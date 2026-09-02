@@ -11,6 +11,7 @@ get_processed_data 집계)과 비교할 수 있는 공통 구조로 변환한다
           (영화관/영화/배급사 소계 행은 배급사 컬럼이 비어 있어 스킵)
 """
 
+import difflib
 import math
 import re
 
@@ -306,3 +307,93 @@ def _parse_lotte(df, hi):
             "payout": _num(row.iloc[c_payout]),
         })
     return rows
+
+
+# ── PDF(AI) 극장명 → 거래처 결정적 폴백 매칭 (A002/A003, 0902) ──
+# 정규화 극장명 정확 일치에 실패한 극장을 AI 이름 매칭에 보내기 전에, 규칙으로
+# 확실히 잡을 수 있는 경우를 먼저 처리한다. 사례:
+#   · 시흥정왕(메가박스 위탁) PDF — 한글 텍스트가 추출되지 않아 극장명이 빈 값.
+#     힌트에 사업자번호 220-85-46233 만 남음 → 거래처 사업자번호로 매칭
+#   · 곡성작은영화관 팩스 PDF — 파일명이 '고성…' 이라 AI 가 '고성작은영화관'으로
+#     읽음 → 시스템 '곡성작은영화관' 과 한 글자 차이(유사도 0.86) → 유사도 매칭
+# 오매칭 방지: 파일명·유사도 매칭은 '그 달 해당 영화 실적이 있는 거래처'(month_client_ids)
+# 로 후보를 제한한다 (예: 파일명 '고성…' 이 'CGV 고성' 에 붙는 사고 방지).
+_BIZ_NO_RE = re.compile(r"(\d{3})\s*-?\s*(\d{2})\s*-?\s*(\d{5})")
+FUZZY_THEATER_RATIO = 0.8
+
+
+def _norm_stem(filename):
+    """파일명(확장자 제거)을 극장명 포함 비교용으로 정규화."""
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", str(filename or ""))
+    return re.sub(r"\s+", "", stem).lower()
+
+
+def _narrow(cands, chain, month_client_ids):
+    """동명/다중 후보를 체인 → 월 실적 순으로 좁힌다 (좁혀지지 않으면 원래 목록)."""
+    if len(cands) > 1 and chain and chain != "불명":
+        filt = [c for c in cands if (c.theater_kind or "") == chain]
+        cands = filt or cands
+    if len(cands) > 1 and month_client_ids:
+        filt = [c for c in cands if c.id in month_client_ids]
+        cands = filt or cands
+    return cands
+
+
+def resolve_theater_fallback(theater_name, hint_text, filename, chain, clients, month_client_ids,
+                             tie_breaker=None):
+    """정확 일치 실패 극장의 규칙 매칭. 반환: Client 또는 None (→ AI 매칭으로).
+
+    ① 사업자번호: hint 에서 000-00-00000 을 찾아 거래처 사업자번호와 대조.
+       유일하면 채택(강한 신호), 여러 곳이 같은 번호면 체인·월 실적으로 좁혀 유일할 때만.
+    ② 파일명 포함: 정규화 파일명이 거래처 정규화명(2자 이상)을 포함 — 가장 긴 이름.
+       월 실적 거래처에 한함.
+    ③ 유사도: 정규화명 difflib 유사도 ≥ FUZZY_THEATER_RATIO, 월 실적 거래처에 한함.
+       후보가 여럿이면 tie_breaker(후보들) — 파일 금액(인원/지급금)과 시스템 값이
+       일치하는 극장 — 로 판별하고, 그래도 못 가리면 최고점이 유일할 때만 채택.
+       (곡성/보성/고흥작은영화관처럼 한 글자 차이 극장이 동점인 경우 대비)
+    """
+    # ① 사업자번호
+    biz_nos = {"".join(m) for m in _BIZ_NO_RE.findall(str(hint_text or ""))}
+    if biz_nos:
+        cands = [c for c in clients
+                 if (c.business_registration_number or "").replace("-", "").strip() in biz_nos]
+        cands = _narrow(cands, chain, month_client_ids)
+        if len(cands) == 1:
+            return cands[0]
+
+    if not month_client_ids:
+        return None
+    month_clients = [c for c in clients if c.id in month_client_ids]
+
+    # ② 파일명 포함
+    stem = _norm_stem(filename)
+    if stem:
+        hits = [(len(norm_theater(c.client_name)), c) for c in month_clients
+                if len(norm_theater(c.client_name)) >= 2 and norm_theater(c.client_name) in stem]
+        if hits:
+            top = max(h[0] for h in hits)
+            cands = _narrow([c for n, c in hits if n == top], chain, month_client_ids)
+            if len(cands) == 1:
+                return cands[0]
+            if len(cands) > 1 and tie_breaker is not None:
+                c = tie_breaker(cands)
+                if c is not None:
+                    return c
+
+    # ③ 유사도
+    target = norm_theater(theater_name)
+    if len(target) >= 3:
+        scored = sorted(
+            ((difflib.SequenceMatcher(None, target, norm_theater(c.client_name)).ratio(), c)
+             for c in month_clients), key=lambda x: -x[0])
+        scored = [sc for sc in scored if sc[0] >= FUZZY_THEATER_RATIO]
+        if len(scored) == 1:
+            return scored[0][1]
+        if len(scored) > 1:
+            if tie_breaker is not None:
+                c = tie_breaker([c for _, c in scored])
+                if c is not None:
+                    return c
+            if scored[1][0] < scored[0][0]:
+                return scored[0][1]
+    return None

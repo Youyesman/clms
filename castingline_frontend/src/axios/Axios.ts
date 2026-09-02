@@ -149,12 +149,13 @@ axiosInstance.interceptors.response.use(
     }
 );
 
-export function AxiosDelete(url: string | number, id: number | string) {
+export function AxiosDelete(url: string | number, id: number | string, params?: Record<string, any>) {
     let token = localStorage.getItem("token");
     return axiosInstance.delete(`${BASE_URL}/${url}/${id}/`, {
         headers: {
             Authorization: `token ${token}`,
         },
+        ...(params ? { params } : {}),
     });
 }
 

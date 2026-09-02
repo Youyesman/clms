@@ -512,14 +512,20 @@ function BulkDateModal({
     }, [rows]);
 
     // 날짜 확정이 걸려있는 조정 ID 목록 (해제용)
-    const clearIds = useMemo(() => {
+    // A006: 여러 행 모드의 '확정 일괄 해제'는 일괄 수정으로 확정된 행만 푼다.
+    // 수기/AI 확정 행은 그대로 둔다 (건수는 안내용으로만 센다). 단건 모드는 그 행 그대로.
+    const { clearIds, manualCount } = useMemo(() => {
         const ids = new Set<number>();
+        const manual = new Set<number>();
         targets.forEach((r: any) => {
-            const id = r?.["날짜조정"]?.["조정ID"];
-            if (id) ids.add(id);
+            const dc = r?.["날짜조정"];
+            const id = dc?.["조정ID"];
+            if (!id) return;
+            if (single || dc["일괄"]) ids.add(id);
+            else manual.add(id);
         });
-        return Array.from(ids);
-    }, [targets]);
+        return { clearIds: Array.from(ids), manualCount: manual.size };
+    }, [targets, single]);
 
     const save = async () => {
         if (!dateTo) {
@@ -568,14 +574,18 @@ function BulkDateModal({
             "날짜(To) 확정 해제",
             single
                 ? `'${rows[0]["극장명"]}'의 날짜(To) 확정을 해제하고 원래 날짜로 복구하시겠습니까? (금액 조정은 유지)`
-                : `날짜(To) 확정이 걸린 ${clearIds.length}개 행을 모두 해제하고 원래 날짜로 복구하시겠습니까? (금액 조정은 유지)`,
+                : `일괄 수정으로 확정된 ${clearIds.length}개 행을 해제하고 원래 날짜로 복구하시겠습니까?` +
+                      (manualCount ? ` 수기/AI로 확정한 ${manualCount}개 행은 그대로 유지됩니다.` : "") +
+                      " (금액 조정은 유지)",
             "warning",
             async () => {
                 setSaving(true);
                 try {
                     const resps = await Promise.all(
                         clearIds.map((id) =>
-                            AxiosDelete(`settlement-adjustments/${id}`, "date")
+                            // A006: 여러 행 모드는 서버에서도 일괄 수정분만 풀도록 표시
+                            AxiosDelete(`settlement-adjustments/${id}`, "date",
+                                single ? undefined : { bulk_only: 1 })
                         )
                     );
                     // F001: 일괄 해제 시 수기/AI 확정값이 있던 행은 그 값으로 복구됨
@@ -639,9 +649,13 @@ function BulkDateModal({
                         style={{ color: "#d97706", borderColor: "#fde68a" }}
                         onClick={clearAll}
                         disabled={saving}
-                        title="날짜(To) 확정만 원래 날짜로 복구 (금액 조정 유지)"
+                        title={
+                            single
+                                ? "날짜(To) 확정만 원래 날짜로 복구 (금액 조정 유지)"
+                                : "일괄 수정으로 확정된 행만 원래 날짜로 복구 — 수기/AI 확정은 유지 (금액 조정 유지)"
+                        }
                     >
-                        {single ? "확정 해제" : `확정 일괄 해제 (${clearIds.length})`}
+                        {single ? "확정 해제" : `일괄 수정 해제 (${clearIds.length})`}
                     </button>
                 )}
                 <button className="save" onClick={save} disabled={saving}>
@@ -1068,7 +1082,11 @@ export function ManageSettlement() {
                 if (ti < 0) return;
                 const row = list[ti];
                 row["날짜(To)"] = saved.date_to_override;
-                row["날짜조정"] = { 원본: saved.date_to_original || "", 조정ID: saved.id };
+                row["날짜조정"] = {
+                    원본: saved.date_to_original || "",
+                    조정ID: saved.id,
+                    일괄: !!saved.date_to_is_bulk,
+                };
                 // 수기 수정은 확인여부를 바꾸지 않는다 (K002)
             });
             return list;
@@ -1966,7 +1984,7 @@ export function ManageSettlement() {
                                         style={{ whiteSpace: "nowrap" }}
                                         title={
                                             dc
-                                                ? `확정된 날짜(To)${
+                                                ? `${dc["일괄"] ? "일괄 수정" : "수기/AI"}으로 확정된 날짜(To)${
                                                       dc["원본"] ? ` — 원래 ${dc["원본"]}` : ""
                                                   }`
                                                 : undefined
