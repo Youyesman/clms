@@ -2183,6 +2183,11 @@ class SettlementEseroExportView(SettlementListView):
         if not raw_items:
             return HttpResponse("조회된 데이터가 없습니다.", status=404)
 
+        # G001: 집계 키는 (사업자번호, 종사업장번호, 거래처코드).
+        # 작은영화관 주식회사·제이티미디어처럼 한 사업자번호로 여러 극장을 운영하는 곳은
+        # 종사업장번호가 비어 있어 사업자번호만으로 묶으면 극장들이 한 행으로 합쳐져
+        # 화면의 극장 수보다 이세로 행이 적게 나온다. 거래처코드(없으면 극장명)로 극장을
+        # 구분하되, 같은 극장의 여러 행(상영타입 분리·조정 전용 행 등)은 그대로 합산한다.
         aggregated_for_esero = {}
         for item in raw_items:
             if item.get("is_subtotal"):
@@ -2190,7 +2195,8 @@ class SettlementEseroExportView(SettlementListView):
 
             biz_no = (item.get("사업자 등록번호") or "").replace("-", "")
             sub_biz_no = item.get("종사업장번호") or ""
-            key = (biz_no, sub_biz_no)
+            theater_key = item.get("거래처코드") or item.get("극장명") or ""
+            key = (biz_no, sub_biz_no, theater_key)
 
             if key not in aggregated_for_esero:
                 aggregated_for_esero[key] = item.copy()
@@ -2256,7 +2262,7 @@ class SettlementEseroExportView(SettlementListView):
             return f"[{display_movie_title}]{mm}월 극장부금"
 
         row_idx = 7
-        for (biz_no, sub_biz), item in aggregated_for_esero.items():
+        for (biz_no, sub_biz, _theater_key), item in aggregated_for_esero.items():
             # A: 종류 (01: 일반) / B: 작성일자
             ws.cell(row=row_idx, column=1, value="01")
 
