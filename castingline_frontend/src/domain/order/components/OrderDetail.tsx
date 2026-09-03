@@ -14,6 +14,53 @@ import { ExcelIconButton } from "../../../components/common/ExcelIconButton";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
 import { CommonFilterBar } from "../../../components/common/CommonFilterBar";
 import { CommonSectionCard } from "../../../components/common/CommonSectionCard";
+import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
+import styled from "styled-components";
+
+/** O003(0903): 계열사 다중 선택 체크박스 (필터바 안) */
+const ChainGroup = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 6px;
+    white-space: nowrap;
+    .title { font-size: 12px; font-weight: 700; color: #64748b; margin-right: 2px; }
+    label { font-size: 12px; }
+    svg { width: 18px; height: 18px; }
+`;
+
+/** O002(0903): 일괄 종영/해제 텍스트 버튼 */
+const BulkButton = styled.button<{ $tone?: "green" | "red" }>`
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 30px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    ${({ $tone }) =>
+        $tone === "red"
+            ? "background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; &:hover:not(:disabled){background:#fecaca; border-color:#ef4444;}"
+            : "background:#f0fdf4; border:1px solid #dcfce7; color:#15803d; &:hover:not(:disabled){background:#dcfce7; border-color:#16a34a;}"}
+    &:disabled {
+        background: #f8fafc;
+        border-color: #e2e8f0;
+        color: #94a3b8;
+        cursor: not-allowed;
+    }
+`;
+
+/** O003: 계열사 체크박스 항목 — 백엔드 chains 파라미터 값과 동일 */
+const CHAIN_OPTIONS = ["CGV", "Lotte", "Megabox", "씨네큐", "일반관"] as const;
+type ChainKey = (typeof CHAIN_OPTIONS)[number];
+const ALL_CHAINS: Record<ChainKey, boolean> = {
+    CGV: true, Lotte: true, Megabox: true, 씨네큐: true, 일반관: true,
+};
 
 /** 스타일 정의 **/
 
@@ -39,65 +86,83 @@ export function OrderDetail({
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
     const [page, setPage] = useState(1);
-    const [pageSize] = useState(50);
+    // O003(0903): 무한 스크롤 대신 100건 고정 페이징 — 페이지 안에서는 렉 없이 스크롤
+    const PAGE_SIZE = 100;
     const [totalCount, setTotalCount] = useState(0);
     const [isExcelLoading, setIsExcelLoading] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [isBulkBusy, setIsBulkBusy] = useState(false);
+    // O003: 계열사 다중 선택 (기본 전체)
+    const [chains, setChains] = useState<Record<ChainKey, boolean>>(ALL_CHAINS);
+    // O004: 뒤늦게 도착한 이전 요청 응답이 최신 목록을 덮어쓰지 않도록 요청 순번을 기억
+    const requestSeq = useRef(0);
 
     const movieOrderListId = selectedOrderList?.id ?? null;
-    const theaterId = searchClient.theater?.id ?? null;
+    // O001(0903): 극장명은 키워드 검색 — 드롭다운에서 하나를 고르지 않아도 입력한
+    // 글자가 들어간 극장 전부('씨네큐' → 씨네큐 신도림·경주보문·청라 …)가 조회된다
+    const theaterKeyword = (searchClient.theater?.client_name || clientInputValue || "").trim();
+
+    const selectedChains = CHAIN_OPTIONS.filter((c) => chains[c]);
+    const chainParam = selectedChains.length === CHAIN_OPTIONS.length ? "" : selectedChains.join(",");
 
     /**
      * 조회 파라미터 — 영화(오더목록 선택)와 극장명 검색을 함께 적용한다 (O001).
-     * · 영화 선택 + 극장 검색 → 그 영화의 그 극장 오더만
-     * · 영화 미선택 + 극장 검색 → 해당 극장의 모든 영화 (백엔드에서 개봉일 최신순)
+     * · 영화 선택 + 극장 검색 → 그 영화의 키워드 극장 오더만
+     * · 영화 미선택 + 극장 검색 → 키워드 극장들의 모든 영화 (백엔드에서 개봉일 최신순)
      */
     const buildParams = useCallback(
         (key: string | null, order: "asc" | "desc") => {
             const params = new URLSearchParams();
             if (movieOrderListId) params.append("id", String(movieOrderListId));
             if (filterStartDate) params.append("start_date", filterStartDate);
-            if (theaterId) params.append("client_id", String(theaterId));
+            if (theaterKeyword) params.append("client_name", theaterKeyword);
+            if (chainParam) params.append("chains", chainParam);
             // 오더 목록 상단에서 고른 KOBIS 연동 여부 필터
             if (kobisLinked) params.append("kobis_linked", kobisLinked);
             if (key) params.append("ordering", `${order === "asc" ? "" : "-"}${key}`);
             return params;
         },
-        [movieOrderListId, filterStartDate, theaterId, kobisLinked]
+        [movieOrderListId, filterStartDate, theaterKeyword, chainParam, kobisLinked]
     );
 
-    const hasAnyFilter = !!(movieOrderListId || filterStartDate || theaterId);
+    const hasAnyFilter = !!(movieOrderListId || filterStartDate || theaterKeyword);
 
     const fetchSortedOrderDetail = useCallback(
         (
             key: string | null,
             order: "asc" | "desc",
-            currentPage = 1,
-            append = false
+            currentPage = 1
         ) => {
-            if (!movieOrderListId && !filterStartDate && !theaterId) {
+            const seq = ++requestSeq.current;
+            if (!movieOrderListId && !filterStartDate && !theaterKeyword) {
                 setOrderDetail([]);
                 setTotalCount(0);
+                setPage(1);
                 return;
             }
 
             const params = buildParams(key, order);
             params.append("page", String(currentPage));
-            params.append("page_size", String(pageSize));
+            params.append("page_size", String(PAGE_SIZE));
 
             setIsLoading(true);
             AxiosGet(`order/?${params.toString()}`)
                 .then((res) => {
-                    setOrderDetail((prev: any[]) =>
-                        append ? [...prev, ...res.data.results] : res.data.results
-                    );
+                    // O004: 정렬/영화를 바꾼 뒤 도착한 옛 응답은 버린다 (순서 뒤섞임 방지)
+                    if (seq !== requestSeq.current) return;
+                    setOrderDetail(res.data.results);
                     setTotalCount(res.data.count);
                     setPage(currentPage);
                 })
-                .catch((error) => toast.error(handleBackendErrors(error)))
-                .finally(() => setIsLoading(false));
+                .catch((error) => {
+                    if (seq !== requestSeq.current) return;
+                    toast.error(handleBackendErrors(error));
+                })
+                .finally(() => {
+                    if (seq === requestSeq.current) setIsLoading(false);
+                });
         },
-        [movieOrderListId, filterStartDate, theaterId, buildParams, pageSize]
+        [movieOrderListId, filterStartDate, theaterKeyword, buildParams]
     );
 
     /** ✅ 2. 검색 버튼 클릭 핸들러 **/
@@ -109,18 +174,21 @@ export function OrderDetail({
         fetchSortedOrderDetail(sortKey, sortOrder, 1);
     };
 
-    /** ✅ 3. 왼쪽에서 영화를 새로 선택/해제했을 때 (극장 검색어는 그대로 유지) **/
+    /** ✅ 3. 왼쪽에서 영화를 새로 선택/해제했을 때 (극장 검색어는 그대로 유지)
+     *  O004(0903): 정렬·페이지·선택 행은 초기화하고 1페이지부터 다시 조회한다. */
     useEffect(() => {
-        fetchSortedOrderDetail(sortKey, sortOrder, 1);
+        setSortKey(null);
+        setSortOrder("asc");
+        setSelectedOrderDetail(null);
+        fetchSortedOrderDetail(null, "asc", 1);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [movieOrderListId, kobisLinked]);
 
-    /** ✅ 4. 목록 하단 도달 시 다음 페이지를 이어붙인다 (O005 — 페이지 넘김 대신 스크롤) **/
-    const handleScrollEnd = useCallback(() => {
-        if (isLoading) return;
-        if (orderDetail.length >= totalCount) return;
-        fetchSortedOrderDetail(sortKey, sortOrder, page + 1, true);
-    }, [isLoading, orderDetail.length, totalCount, page, sortKey, sortOrder, fetchSortedOrderDetail]);
+    /** ✅ 4. 페이지 이동 (O003 — 100건 단위) **/
+    const handlePageChange = (nextPage: number) => {
+        if (nextPage < 1 || nextPage === page) return;
+        fetchSortedOrderDetail(sortKey, sortOrder, nextPage);
+    };
 
     const handleSortChange = (key: string) => {
         let newOrder: "asc" | "desc" = sortKey === key && sortOrder === "asc" ? "desc" : "asc";
@@ -131,6 +199,45 @@ export function OrderDetail({
 
     const handleAddOrderDetail = () => {
         openModal(<AddOrderDetailModal selectedOrderList={selectedOrderList} onSuccess={() => { fetchSortedOrderDetail(sortKey, sortOrder, page); }}></AddOrderDetailModal>, { title: "오더 상세 내역 추가", width: '600px' })
+    };
+
+    /** O002(0903): 선택 작품 전체 극장의 종영일을 각 극장 마지막상영일로 일괄 반영 */
+    const handleBulkClose = () => {
+        if (!movieOrderListId) {
+            toast.warning("오더 목록에서 작품을 먼저 선택해주세요.");
+            return;
+        }
+        if (!window.confirm("선택된 작품의 전체 극장 종영일을 각 극장별 [마지막상영일]로 일괄 업데이트하시겠습니까?")) return;
+        setIsBulkBusy(true);
+        AxiosPost("order/bulk-close", { orderlist_id: movieOrderListId })
+            .then((res) => {
+                const { updated = 0, skipped = 0 } = res.data || {};
+                toast.success(
+                    `${updated.toLocaleString()}개 극장의 종영일을 마지막상영일로 반영했습니다.` +
+                    (skipped ? ` (마지막상영일 없음 ${skipped.toLocaleString()}개 제외)` : "")
+                );
+                fetchSortedOrderDetail(sortKey, sortOrder, page);
+            })
+            .catch((error) => toast.error(handleBackendErrors(error)))
+            .finally(() => setIsBulkBusy(false));
+    };
+
+    /** O002(0903): 선택 작품 전체 극장의 종영일을 일괄 초기화(NULL) */
+    const handleBulkClearEndDate = () => {
+        if (!movieOrderListId) {
+            toast.warning("오더 목록에서 작품을 먼저 선택해주세요.");
+            return;
+        }
+        if (!window.confirm("선택된 작품의 전체 극장 종영일을 일괄 초기화(삭제)하시겠습니까?")) return;
+        setIsBulkBusy(true);
+        AxiosPost("order/bulk-clear-end-date", { orderlist_id: movieOrderListId })
+            .then((res) => {
+                const { updated = 0 } = res.data || {};
+                toast.success(`${updated.toLocaleString()}개 극장의 종영일을 초기화했습니다.`);
+                fetchSortedOrderDetail(sortKey, sortOrder, page);
+            })
+            .catch((error) => toast.error(handleBackendErrors(error)))
+            .finally(() => setIsBulkBusy(false));
     };
 
     const handleUpdateCell = (item: any, key: string, value: any) => {
@@ -326,7 +433,27 @@ export function OrderDetail({
         <>
             {/* 칩 디자인은 CommonFilterBar가 직계 자식에 주입한다 — styled 래퍼로
                 감싸면 주입이 막히므로 인풋을 직접 배치한다 */}
-            <CommonFilterBar onSearch={onClickSearch}>
+            <CommonFilterBar
+                onSearch={onClickSearch}
+                actions={
+                    <>
+                        {/* O002: 작품 전체 극장 일괄 종영 / 종영일 일괄 해제 (오더 목록에서 작품 선택 시 활성) */}
+                        <BulkButton
+                            $tone="green"
+                            disabled={!movieOrderListId || isBulkBusy}
+                            onClick={handleBulkClose}
+                            title="선택 작품 전체 극장의 종영일을 각 극장 마지막상영일로 반영">
+                            <CheckCircleIcon size={14} weight="fill" /> 일괄 종영 처리
+                        </BulkButton>
+                        <BulkButton
+                            $tone="red"
+                            disabled={!movieOrderListId || isBulkBusy}
+                            onClick={handleBulkClearEndDate}
+                            title="선택 작품 전체 극장의 종영일을 비운다">
+                            종영일 일괄 해제
+                        </BulkButton>
+                    </>
+                }>
                 <CustomInput
                     label="기준일자"
                     inputType="date"
@@ -336,19 +463,31 @@ export function OrderDetail({
                 <AutocompleteInputClient
                     type="theater"
                     label="극장명"
-                    placeholder="극장명 검색..."
+                    placeholder="극장명 키워드 (예: 씨네큐)"
                     formData={searchClient}
                     setFormData={setSearchClient}
                     inputValue={clientInputValue}
                     setInputValue={setClientInputValue}
                 />
+                {/* O003: 계열사 다중 선택 — 체크를 풀면 그 계열사는 조회에서 빠진다 */}
+                <ChainGroup>
+                    <span className="title">계열사</span>
+                    {CHAIN_OPTIONS.map((c) => (
+                        <CustomCheckbox
+                            key={c}
+                            label={c}
+                            checked={chains[c]}
+                            onChange={(v) => setChains((prev) => ({ ...prev, [c]: v }))}
+                        />
+                    ))}
+                </ChainGroup>
             </CommonFilterBar>
 
             <CommonSectionCard>
                 <CommonListHeader
                     title={
                         totalCount > 0
-                            ? `오더 상세 내역 (${orderDetail.length.toLocaleString()}/${totalCount.toLocaleString()})`
+                            ? `오더 상세 내역 (${((page - 1) * PAGE_SIZE + 1).toLocaleString()}~${((page - 1) * PAGE_SIZE + orderDetail.length).toLocaleString()} / ${totalCount.toLocaleString()})`
                             : "오더 상세 내역"
                     }
                     actions={
@@ -372,8 +511,7 @@ export function OrderDetail({
                         </>
                     }
                 />
-                {/* O005: 페이지 전체가 늘어나면 내부 스크롤(onScrollEnd)이 발화하지 않으므로
-                    목록에 자체 높이를 줘 표 안에서 스크롤되게 한다 */}
+                {/* O003(0903): 100건 페이징. 표에 자체 높이를 줘 페이지 안에서 스크롤되게 한다 */}
                 <div style={{ height: "65vh", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 <GenericTable
                     headers={headers}
@@ -399,8 +537,10 @@ export function OrderDetail({
                     onSortChange={handleSortChange}
                     sortKey={sortKey}
                     sortOrder={sortOrder}
-                    hidePagination
-                    onScrollEnd={handleScrollEnd}
+                    page={page}
+                    pageSize={PAGE_SIZE}
+                    totalCount={totalCount}
+                    onPageChange={handlePageChange}
                 />
                 </div>
             </CommonSectionCard>

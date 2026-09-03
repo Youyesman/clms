@@ -23,11 +23,6 @@ import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
 
-const getYesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
 
 /* ── 타입 ── */
 interface SupplyRow {
@@ -342,7 +337,6 @@ const ClearBtn = styled.button`
 export function SupplyPricePage() {
     const toast = useToast();
     const [settlementFilter, setSettlementFilter] = useRecoilState(SettlementFilterState);
-    const yesterday = getYesterday();
     const searchWrapperRef = useRef<HTMLDivElement>(null);
     const theaterWrapperRef = useRef<HTMLDivElement>(null);
 

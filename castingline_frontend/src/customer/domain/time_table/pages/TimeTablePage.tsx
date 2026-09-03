@@ -12,6 +12,7 @@ import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { downloadTimetableExcel } from "../exportTimetableExcel"; // A001
+import { addDaysStr } from "../../../../utils/dateUtils";
 import { SortTh, SortHint, useTableSort } from "../../../../components/common/SortableTable";
 
 /* B002(0829): 주요작 시간표 화면 개편 — 일자별 탭(최대 7일)
@@ -549,9 +550,19 @@ export function TimeTablePage() {
                 const dates: string[] = res.data?.dates || [];
                 setAvailableDates(dates);
                 if (dates.length > 0) {
-                    // 일자별 탭이 최대 7개이므로 기본 기간도 마지막 7일까지만 잡는다
-                    setDateFrom(dates[Math.max(0, dates.length - MAX_DAYS)]);
-                    setDateTo(dates[dates.length - 1]);
+                    // V001(0903): 기본 기간은 접속일 기준 미래 3일(내일~3일 뒤).
+                    // 이 영화에 그 기간 시간표가 하나라도 있으면 그 범위로, 없으면
+                    // 예전처럼 데이터가 있는 마지막 7일로 잡는다 (탭은 최대 7개).
+                    const futureFrom = addDaysStr(1);
+                    const futureTo = addDaysStr(3);
+                    const hasFuture = dates.some(d => d >= futureFrom && d <= futureTo);
+                    if (hasFuture) {
+                        setDateFrom(futureFrom);
+                        setDateTo(futureTo);
+                    } else {
+                        setDateFrom(dates[Math.max(0, dates.length - MAX_DAYS)]);
+                        setDateTo(dates[dates.length - 1]);
+                    }
                 } else {
                     setDateFrom("");
                     setDateTo("");

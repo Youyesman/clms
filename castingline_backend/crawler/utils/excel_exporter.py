@@ -1216,13 +1216,17 @@ def export_transformed_schedules(queryset, movie_title=None, start_date=None, en
         return str(d).split(' ')[0]
 
     # M003: 파일명 규칙 변경
-    #  - 주요작 선택: '시간표_주요작제목.xlsx' (예: 시간표_비광)
+    #  - 주요작 선택: '시간표_주요작제목_YYMMDD.xlsx' (예: 시간표_비광_260904)
+    #    C001(0903): 팝업에서 고른 조회 기간의 시작일을 뒤에 붙인다
     #  - 주요작 없음: '경쟁작 좌석수_MM.DD~MM.DD.xlsx' (예: 경쟁작 좌석수_08.20~08.26)
     def _mmdd(x):
         return f"{x[5:7]}.{x[8:10]}" if len(x) >= 10 else x
 
+    def _yymmdd(x):
+        return f"{x[2:4]}{x[5:7]}{x[8:10]}" if len(x) >= 10 else x
+
     if has_main:
-        filename = f"시간표_{safe_title}.xlsx"
+        filename = f"시간표_{safe_title}_{_yymmdd(fmt_date(start_date))}.xlsx"
     else:
         filename = (f"경쟁작 좌석수_{_mmdd(fmt_date(start_date))}"
                     f"~{_mmdd(fmt_date(end_date))}.xlsx")

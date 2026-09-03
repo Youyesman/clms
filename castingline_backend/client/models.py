@@ -91,6 +91,16 @@ class Client(TimeStampedModel):
     rate_exception_type = models.CharField(
         max_length=10, null=True, blank=True
     )  # 부율 예외극장 구분: '모두'=한국+외화 55%, '외화'=외화만 55%, 빈값=해당없음
+    # F001(0903): 이세로 합산용 메인(상위) 거래처.
+    # 메가박스코엑스(발전기금면제관)처럼 부금 계산을 위해 부과관/면제관으로 나눠 둔
+    # 극장은 이 값을 본관으로 지정한다. 화면·스코어·부금 계산은 그대로 분리 유지하고,
+    # 이세로 다운로드에서만 본관과 한 행으로 합산·본관 극장명으로 출력된다.
+    # (같은 사업자번호로 서로 다른 극장을 운영하는 곳을 잘못 묶지 않기 위해
+    #  사업자번호가 아니라 이 명시적 지정을 기준으로 삼는다)
+    parent_client = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="child_clients",
+    )  # 이세로 합산 메인 거래처
 
     distributor_theater_name = models.CharField(
         max_length=10, null=True, blank=True, default="N"

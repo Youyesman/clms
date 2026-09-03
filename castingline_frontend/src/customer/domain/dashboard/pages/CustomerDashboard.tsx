@@ -10,16 +10,14 @@ import { useToast } from "../../../../components/common/CustomToast";
 import { CustomSelect } from "../../../../components/common/CustomSelect";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { DailyScorePanel, DailyScoreCards } from "../components/DailyScorePanel";
+import { yesterdayStr } from "../../../../utils/dateUtils";
 
 /* ─────────────────────────  유틸  ───────────────────────── */
 
 const toNum = (v: any) => (isNaN(Number(v)) ? 0 : Number(v));
 const fmt = (n: number) => Math.round(n).toLocaleString();
-const yesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
+// S003(0903): 어제 날짜는 로컬 기준 공용 유틸 (UTC 변환으로 이틀 전이 되던 문제)
+const yesterday = yesterdayStr;
 
 interface MovieItem {
     id: number;

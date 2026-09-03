@@ -25,11 +25,6 @@ const fmtN = (n: number) => n.toLocaleString("ko-KR");
 /* 부율 없는 극장은 부율 의존 값이 null로 내려옴 → null-safe 포맷 */
 const fmtRn = (r: number | null) => (r == null ? "" : `${r.toFixed(2)}%`);
 
-const getYesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
 
 /* ── 타입 ── */
 interface SettlementRow {
@@ -343,7 +338,6 @@ const SortIcon = styled.span<{ $active: boolean }>`
 export function TheaterTotalPage() {
     const toast = useToast();
     const [settlementFilter, setSettlementFilter] = useRecoilState(SettlementFilterState);
-    const yesterday = getYesterday();
     const searchWrapperRef = useRef<HTMLDivElement>(null);
 
     const [moviesList, setMoviesList] = useState<

@@ -1,10 +1,6 @@
 import { atom } from "recoil";
-
-function yesterday(): string {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
-}
+// S003(0903): 어제 날짜는 로컬 기준 공용 유틸 사용 (UTC 변환으로 이틀 전이 되던 문제)
+import { yesterdayStr as yesterday } from "../utils/dateUtils";
 
 export interface ScoreFilterDate {
     date: string;      // 단일날짜 페이지용 (ScorePage, CriteriaPage, SeatRatePage)

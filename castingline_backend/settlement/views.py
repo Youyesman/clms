@@ -2279,6 +2279,22 @@ class SettlementEseroExportView(SettlementListView):
         # 종사업장번호가 비어 있어 사업자번호만으로 묶으면 극장들이 한 행으로 합쳐져
         # 화면의 극장 수보다 이세로 행이 적게 나온다. 거래처코드(없으면 극장명)로 극장을
         # 구분하되, 같은 극장의 여러 행(상영타입 분리·조정 전용 행 등)은 그대로 합산한다.
+        #
+        # F001(0903): 부과관/면제관으로 분리 관리하는 극장(메가박스코엑스(발전기금면제관) 등)은
+        # 거래처 관리에서 지정한 '메인 거래처'(parent_client) 기준으로 본관과 한 행으로 합산하고,
+        # 극장명은 괄호 레이블이 없는 본관 극장명으로 출력한다. 사업자번호가 같더라도 메인
+        # 거래처가 지정되지 않은 극장은 합치지 않는다 (같은 사업자가 운영하는 다른 극장 보호).
+        parent_map = {}  # 하위 거래처코드 → 메인 거래처(Client)
+        for child in Client.objects.filter(
+                parent_client__isnull=False).select_related("parent_client"):
+            parent_map[child.client_code] = child.parent_client
+
+        # 극장명 등 표시 정보는 본관(메인) 행의 값을 우선한다. 하위 행이 먼저 들어와
+        # 그룹을 만든 경우엔 메인 행이 나타날 때 덮어쓴다.
+        DISPLAY_KEYS = ("극장명", "배급사별 극장명", "거래처코드", "멀티구분", "classification",
+                        "지역", "공급받는자 상호", "공급받는자 성명", "사업장 소재", "업태", "업종",
+                        "수신자이메일", "수신자이메일2")
+
         aggregated_for_esero = {}
         for item in raw_items:
             if item.get("is_subtotal"):
@@ -2287,6 +2303,18 @@ class SettlementEseroExportView(SettlementListView):
             biz_no = (item.get("사업자 등록번호") or "").replace("-", "")
             sub_biz_no = item.get("종사업장번호") or ""
             theater_key = item.get("거래처코드") or item.get("극장명") or ""
+
+            parent = parent_map.get(item.get("거래처코드"))
+            if parent is not None:
+                # 하위(면제관) 행 → 메인 거래처 키로 합류. 극장명은 메인 극장명으로.
+                theater_key = parent.client_code or parent.client_name or theater_key
+                item = dict(item)
+                item["극장명"] = parent.client_name or item.get("극장명", "")
+                item["거래처코드"] = parent.client_code
+                # 배급사별 극장명도 면제관 것은 버린다 — 메인 행이 있으면 그 값으로
+                # 교체되고, 없으면 메인 극장명으로 폴백된다
+                item["배급사별 극장명"] = ""
+                item["_is_child"] = True
             key = (biz_no, sub_biz_no, theater_key)
 
             if key not in aggregated_for_esero:
@@ -2300,6 +2328,29 @@ class SettlementEseroExportView(SettlementListView):
 
                 if item.get("날짜(To)", "") > target.get("날짜(To)", ""):
                     target["날짜(To)"] = item.get("날짜(To)", "")
+                if item.get("날짜(From)") and (
+                        not target.get("날짜(From)")
+                        or item["날짜(From)"] < target["날짜(From)"]):
+                    target["날짜(From)"] = item["날짜(From)"]
+
+                # 메인 행이 뒤늦게 합류하면 표시 정보를 메인 값으로 교체
+                if target.get("_is_child") and not item.get("_is_child"):
+                    for k in DISPLAY_KEYS:
+                        if k in item:
+                            target[k] = item[k]
+                    target["_is_child"] = False
+
+        # F002(0903): 공급가액이 0원(또는 음수/미산정)인 극장은 이세로 추출에서 제외.
+        # 자동차극장 등 KOBIS 미연동관은 누락 방지용으로 관객 0명을 등록해 화면에는
+        # 보이지만, 국세청 전자세금계산서는 0원 발행이 불가해 일괄 업로드 시 오류가 난다.
+        # 화면(월간 부금 정산 관리)에는 그대로 노출된다.
+        aggregated_for_esero = {
+            key: it for key, it in aggregated_for_esero.items()
+            if (it.get("공급가액") or 0) > 0
+        }
+        if not aggregated_for_esero:
+            return HttpResponse("공급가액이 0원보다 큰 극장이 없어 이세로 파일을 만들 수 없습니다.",
+                                status=404)
 
         # 3. 엑셀 템플릿 로드 (건수에 따라 템플릿 선택)
         is_over_100 = len(aggregated_for_esero) > 100

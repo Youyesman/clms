@@ -12,6 +12,7 @@ import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
 import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
+import { scoreYearOptions } from "../../../../utils/dateUtils";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 스타일 ── */
@@ -189,10 +190,8 @@ export function CriteriaPage() {
     }, [toast]);
 
     // 연도별 영화 목록
-    const yearOptions = useMemo(() => {
-        const cy = new Date().getFullYear();
-        return Array.from({ length: 11 }, (_, i) => (cy - i).toString());
-    }, []);
+    // S002(0903): 연도 범위는 올해~2010 (공용 유틸)
+    const yearOptions = useMemo(() => scoreYearOptions(), []);
 
     const fetchMoviesByYear = useCallback((year: string) => {
         AxiosGet(`score/movies-by-year/`, { params: { year } })

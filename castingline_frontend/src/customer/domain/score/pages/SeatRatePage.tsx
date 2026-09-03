@@ -12,6 +12,7 @@ import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
 import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
+import { scoreYearOptions } from "../../../../utils/dateUtils";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 유틸 ── */
@@ -19,11 +20,6 @@ const fmtN = (n: number) => n.toLocaleString("ko-KR");
 const fmtRate = (r: number | null | undefined) =>
     r == null ? "-" : `${r.toFixed(1)}%`;
 
-const getYesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
 
 /* ── 멀티 순서 ── */
 const MULTI_ORDER: Record<string, number> = {
@@ -238,7 +234,6 @@ const EmptyRow = styled.tr`
 /* ── 컴포넌트 ── */
 export function SeatRatePage() {
     const toast = useToast();
-    const yesterday = getYesterday();
 
     const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
     const [moviesList, setMoviesList] = useState<{ id: number; title_ko: string }[]>([]);
@@ -266,10 +261,8 @@ export function SeatRatePage() {
         ];
     }, [formatOptions]);
 
-    const yearOptions = useMemo(() => {
-        const cy = new Date().getFullYear();
-        return Array.from({ length: 11 }, (_, i) => (cy - i).toString());
-    }, []);
+    // S002(0903): 연도 범위는 올해~2010 (공용 유틸)
+    const yearOptions = useMemo(() => scoreYearOptions(), []);
 
     const fetchMoviesByYear = useCallback(
         (year: string) => {

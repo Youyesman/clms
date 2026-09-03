@@ -16,10 +16,25 @@ def split_emails(raw):
 
 
 class ClientSerializer(serializers.ModelSerializer):
+    # F001: 이세로 합산 메인 거래처명 — 화면 표시용 (쓰기는 parent_client id로)
+    parent_client_name = serializers.CharField(
+        source="parent_client.client_name", read_only=True, default=None)
 
     class Meta:
         model = Client
         fields = "__all__"
+
+    def validate_parent_client(self, value):
+        """자기 자신을 메인 거래처로 지정하거나, 메인 거래처가 또 다른 메인을
+        가리키는 2단 연결은 막는다 (이세로 합산은 1단계만 본다)."""
+        if value is None:
+            return value
+        if self.instance and value.pk == self.instance.pk:
+            raise serializers.ValidationError("자기 자신을 메인 거래처로 지정할 수 없습니다.")
+        if value.parent_client_id:
+            raise serializers.ValidationError(
+                f"'{value.client_name}'은(는) 이미 다른 극장에 합산되는 극장이라 메인으로 지정할 수 없습니다.")
+        return value
 
     def validate_settlement_email(self, value):
         """부금 담당자 메일: 구분자로 나눠 각각 형식 검증 후 ', ' 로 정규화해 저장.

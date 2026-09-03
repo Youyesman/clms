@@ -13,16 +13,12 @@ import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
 import { TheaterNameToggle, TheaterNameCell } from "../../../../components/common/TheaterNameToggle";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
+import { scoreYearOptions } from "../../../../utils/dateUtils";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 /* ── 유틸 ── */
 const fmt = (n: number) => n.toLocaleString("ko-KR");
 
-const getYesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
 
 /* ── 스타일 ── */
 const PageWrapper = styled.div`
@@ -193,7 +189,6 @@ interface DailyData {
 /* ── 컴포넌트 ── */
 export function DailyStatusPage() {
     const toast = useToast();
-    const yesterday = getYesterday();
 
     const [moviesList, setMoviesList] = useState<any[]>([]);
     const [data, setData] = useState<DailyData>({
@@ -248,10 +243,8 @@ export function DailyStatusPage() {
         [toast]
     );
 
-    const yearOptions = useMemo(() => {
-        const cy = new Date().getFullYear();
-        return Array.from({ length: 11 }, (_, i) => (cy - i).toString());
-    }, []);
+    // S002(0903): 연도 범위는 올해~2010 (공용 유틸)
+    const yearOptions = useMemo(() => scoreYearOptions(), []);
 
     const fetchMoviesByYear = useCallback(
         (year: string) => {
@@ -368,18 +361,24 @@ export function DailyStatusPage() {
         [rows, page]
     );
 
-    /* ── 엑셀 다운로드 (화면 표시와 동일: 전체합계 행 포함) ── */
+    /* ── 엑셀 다운로드 (전체합계 행 포함) ──
+       S001(0903): 관객수 0명 행(자동차극장 등 누락 방지용 0명 등록분)은 배급사 전달용
+       파일에서 제외한다. 마이너스 관객수(멀티사 당일 취소건)는 정상 추출 대상이라 남긴다.
+       화면 표시는 그대로. 합계는 0명 행을 빼도 값이 같으므로 화면 합계를 그대로 쓴다. */
     const handleExcelDownload = () => {
-        const body: (string | number)[][] = rows.map((row) => [
-            row.date, getTheaterName(row), row.auditorium, 1,
-            Number(row.fare) || 0, row.visitor, row.revenue,
-        ]);
+        const body: (string | number)[][] = rows
+            .filter((row) => Number(row.visitor) !== 0)
+            .map((row) => [
+                row.date, getTheaterName(row), row.auditorium, 1,
+                Number(row.fare) || 0, row.visitor, row.revenue,
+            ]);
         if (body.length > 0) {
             body.push(["전체합계", "", "", "", "", grand_total.visitor, grand_total.revenue]);
         }
 
+        // S001(0903): 시트명(=파일명)은 '일별스코어_영화명' 으로 간소화 (예: 일별스코어_비광)
         const n = downloadExcel(
-            `스코어_일별현황_${meta?.movie_title || ""}_${searchParams.date_from}~${searchParams.date_to}`,
+            `일별스코어_${meta?.movie_title || ""}`,
             {
                 caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 조회기간: ${searchParams.date_from} ~ ${searchParams.date_to}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
                 headers: [["날짜", "극장", "상영관", "--", "요금(원)", "관객수(명)", "매출액"]],

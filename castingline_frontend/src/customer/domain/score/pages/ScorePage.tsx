@@ -14,6 +14,7 @@ import { PageNavTabs, SCORE_TABS } from "../../../../components/common/PageNavTa
 import { ExcelIconButton } from "../../../../components/common/ExcelIconButton";
 import { downloadExcel } from "../../../../utils/excelExport";
 import { useRecoilState } from "recoil";
+import { scoreYearOptions } from "../../../../utils/dateUtils";
 import { ScoreFilterState } from "../../../../atom/ScoreFilterState";
 
 
@@ -172,10 +173,8 @@ export function ScorePage() {
             .catch((err) => toast.error(handleBackendErrors(err)));
     }, [toast]);
 
-    const yearOptions = useMemo(() => {
-        const currentYear = new Date().getFullYear();
-        return Array.from({ length: 11 }, (_, i) => (currentYear - i).toString());
-    }, []);
+    // S002(0903): 연도 범위는 올해~2010 (공용 유틸)
+    const yearOptions = useMemo(() => scoreYearOptions(), []);
 
     // 대표영화만 가져오는 API (score/movies-by-year/)
     const fetchMoviesByYear = useCallback(

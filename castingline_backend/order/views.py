@@ -4,11 +4,12 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
-from django.db.models import Exists, F, OuterRef, Q, Subquery
-from django.db.models.functions import Coalesce
+from django.db.models import Exists, F, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce, Replace
 from datetime import datetime
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from rest_framework import viewsets, filters, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from score.models import Score
 from rest_framework.views import APIView
@@ -18,7 +19,31 @@ from castingline_backend.utils.excel_helper import ExcelGenerator
 class DefaultPagination(PageNumberPagination):
     page_size = 20  # 한 페이지에 보여질 항목 수 설정
     page_size_query_param = "page_size"
-    max_page_size = 100  # 최대 몇개 항목까지 보여줄건지?
+    max_page_size = 150  # O003(0903): 오더 상세 내역 100개 고정 페이징 허용
+
+
+# O003(0903): 오더 상세 내역 계열사 필터. '일반관'은 멀티 체인 4곳 이외 전부
+# (일반극장·자동차극장·프리머스·빈값)를 뜻한다.
+CHAIN_KINDS = {
+    "CGV": ["CGV"],
+    "Lotte": ["롯데"],
+    "Megabox": ["메가박스"],
+    "씨네큐": ["씨네큐"],
+}
+CHAIN_KIND_VALUES = [v for vals in CHAIN_KINDS.values() for v in vals]
+
+
+def theater_kind_q(chains, prefix="client"):
+    """계열사 다중 선택값(콤마 구분: CGV,Lotte,Megabox,씨네큐,일반관)을 Q로 변환.
+    전부 선택했거나 값이 없으면 None(필터 없음)."""
+    selected = [c.strip() for c in (chains or "").split(",") if c.strip()]
+    if not selected or len(selected) >= len(CHAIN_KINDS) + 1:
+        return None
+    kinds = [k for c in selected for k in CHAIN_KINDS.get(c, [])]
+    q = Q(**{f"{prefix}__theater_kind__in": kinds}) if kinds else Q(pk__in=[])
+    if "일반관" in selected:
+        q |= ~Q(**{f"{prefix}__theater_kind__in": CHAIN_KIND_VALUES})
+    return q
 
 
 def movie_scope_q(movie_id, prefix="movie"):
@@ -109,6 +134,19 @@ class OrderViewSet(viewsets.ModelViewSet):
         if filter_client_id:
             queryset = queryset.filter(client_id=filter_client_id)
 
+        # 5-1. O001(0903): 극장명 키워드 검색 — 한 극장을 고르는 게 아니라 키워드가
+        #      들어간 극장 전부('씨네큐' → 씨네큐 신도림·경주보문·청라 …). 공백은 무시.
+        client_keyword = (self.request.query_params.get("client_name") or "").replace(" ", "")
+        if client_keyword:
+            queryset = queryset.annotate(
+                _client_name_nospace=Replace(F("client__client_name"), Value(" "), Value(""))
+            ).filter(_client_name_nospace__icontains=client_keyword)
+
+        # 5-2. O003(0903): 계열사(CGV/Lotte/Megabox/씨네큐/일반관) 다중 선택 필터
+        chain_q = theater_kind_q(self.request.query_params.get("chains"))
+        if chain_q is not None:
+            queryset = queryset.filter(chain_q)
+
         # 6. KOBIS 연동 여부 필터 (?kobis_linked=true|false)
         #    영진위 상세내역에 스코어가 넘어오지 않는 극장만 따로 보기 위한 필터
         kobis_linked = self.request.query_params.get("kobis_linked")
@@ -116,7 +154,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(client__kobis_linked=(kobis_linked == "true"))
 
         # 7. 영화를 고르지 않고 극장만 검색한 경우: 개봉일이 최신인 영화가 위로 (O001)
-        if filter_client_id and not ol_id and not self.request.query_params.get("ordering"):
+        if (filter_client_id or client_keyword) and not ol_id \
+                and not self.request.query_params.get("ordering"):
             queryset = queryset.order_by(
                 F("release_date").desc(nulls_last=True), "-id"
             )
@@ -127,17 +166,60 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def _pin_missing_rate_first(queryset):
-        """부율 미등록(has_rate=False) 오더를 목록 최상단에 고정한다 (O001)."""
+        """부율 미등록(has_rate=False) 오더를 목록 최상단에 고정한다 (O001).
+
+        O004(0903): 정렬 키가 같은 행(마지막상영일이 같은 극장 수십 건 등)은 DB가
+        페이지마다 다른 순서로 내줄 수 있어, 페이지를 넘기면 행이 겹치거나 빠지고
+        날짜가 뒤섞여 보였다. 항상 id를 마지막 정렬 키로 붙여 순서를 고정한다.
+        """
         current_order = tuple(queryset.query.order_by or ("-id",))
         if current_order[:1] != ("has_rate",):
-            queryset = queryset.order_by("has_rate", *current_order)
-        return queryset
+            current_order = ("has_rate",) + current_order
+        if not any(str(o).lstrip("-") == "id" for o in current_order):
+            current_order = current_order + ("-id",)
+        return queryset.order_by(*current_order)
 
     def filter_queryset(self, queryset):
         # KoreanOrderingFilter가 ordering 파라미터로 order_by를 통째로 덮어쓰므로,
         # 어떤 정렬을 골라도 부율 미등록 우선(O001)은 유지한다.
         queryset = super().filter_queryset(queryset)
         return self._pin_missing_rate_first(queryset)
+
+    def _bulk_target_queryset(self, request):
+        """O002(0903) 일괄 종영/해제 대상 — 오더 목록에서 고른 작품의 전체 극장 오더.
+        대표영화를 고르면 하위 포맷 오더까지 포함한다."""
+        ol_id = request.data.get("orderlist_id") or request.query_params.get("id")
+        if not ol_id:
+            return None, Response({"detail": "오더 목록에서 작품을 먼저 선택해주세요."},
+                                  status=status.HTTP_400_BAD_REQUEST)
+        try:
+            base_order = OrderList.objects.get(id=ol_id)
+        except (OrderList.DoesNotExist, ValueError, TypeError):
+            return None, Response({"detail": "오더를 찾을 수 없습니다."},
+                                  status=status.HTTP_404_NOT_FOUND)
+        return Order.objects.filter(movie_scope_q(base_order.movie_id)), None
+
+    @action(detail=False, methods=["post"], url_path="bulk-close")
+    def bulk_close(self, request):
+        """O002(0903) [일괄 종영 처리]: 작품 전체 극장의 종영일 = 각 극장의 마지막상영일.
+        마지막상영일이 없는 극장(스코어 없음)은 건너뛴다. 자동 연장 강조도 해제된다."""
+        qs, err = self._bulk_target_queryset(request)
+        if err:
+            return err
+        targets = qs.filter(last_screening_date__isnull=False)
+        updated = targets.update(
+            end_date=F("last_screening_date"), end_date_auto_updated=False)
+        skipped = qs.filter(last_screening_date__isnull=True).count()
+        return Response({"updated": updated, "skipped": skipped})
+
+    @action(detail=False, methods=["post"], url_path="bulk-clear-end-date")
+    def bulk_clear_end_date(self, request):
+        """O002(0903) [종영일 일괄 해제]: 작품 전체 극장의 종영일을 NULL로 초기화."""
+        qs, err = self._bulk_target_queryset(request)
+        if err:
+            return err
+        updated = qs.update(end_date=None, end_date_auto_updated=False)
+        return Response({"updated": updated})
 
     def destroy(self, request, *args, **kwargs):
         # 1. 삭제하려는 대상(Order) 객체 가져오기
@@ -311,7 +393,8 @@ class OrderExcelExportView(APIView):
     def get(self, request):
         # 극장명만으로 조회한 결과도 다운로드할 수 있어야 한다 (O002)
         if not any(
-            request.query_params.get(k) for k in ("start_date", "id", "client_id")
+            request.query_params.get(k)
+            for k in ("start_date", "id", "client_id", "client_name")
         ):
             return Response(
                 {"detail": "영화·기준일자·극장명 중 하나는 지정해주세요."},

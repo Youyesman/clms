@@ -7,6 +7,7 @@ import { handleBackendErrors } from "../../../../axios/handleBackendErrors";
 import { CommonFilterBar } from "../../../../components/common/CommonFilterBar";
 import { CustomInput } from "../../../../components/common/CustomInput";
 import { CustomCheckbox } from "../../../../components/common/CustomCheckbox";
+import { addDaysStr } from "../../../../utils/dateUtils";
 import { SortTh, SortHint, useTableSort } from "../../../../components/common/SortableTable";
 
 /* T003(0827): [시간표 조회] - 경쟁작 화면.
@@ -464,13 +465,10 @@ export function CompetitorPage() {
                 setMovieOpts(res.data?.movies || []);
                 const dates: string[] = res.data?.dates || [];
                 setAvailableDates(dates);
-                if (dates.length > 0) {
-                    // 기본 기간: 데이터가 있는 마지막 날짜부터 최대 3일 전
-                    const last = dates[dates.length - 1];
-                    const from = dates[Math.max(0, dates.length - 3)];
-                    setDateFrom(from);
-                    setDateTo(last);
-                }
+                // V001(0903): 기본 기간은 접속일 기준 미래 3일 (내일 ~ 3일 뒤).
+                // 예: 9/3 접속 → 9/4 ~ 9/6. 데이터 유무와 무관하게 고정한다.
+                setDateFrom(addDaysStr(1));
+                setDateTo(addDaysStr(3));
             })
             .catch(err => toast.error(handleBackendErrors(err)));
         // eslint-disable-next-line react-hooks/exhaustive-deps

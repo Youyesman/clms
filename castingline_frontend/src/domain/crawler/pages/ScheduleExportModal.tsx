@@ -287,8 +287,9 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
 
             const contentDisposition = response.headers?.["content-disposition"];
             // M003: 서버가 정한 파일명(시간표_제목 / 경쟁작 좌석수_MM.DD~MM.DD)을 그대로 사용
+            // C001(0903): 파일명 뒤에 조회 기간 시작일(YYMMDD)을 붙인다 (예: 시간표_비광_260904)
             let filename = selectedMovie
-                ? `시간표_${selectedMovie.title}.xlsx`
+                ? `시간표_${selectedMovie.title}_${exportStartDate.replace(/-/g, "").slice(2)}.xlsx`
                 : "경쟁작 좌석수.xlsx";
             if (contentDisposition) {
                 // 한글 파일명은 filename*=utf-8'' 형식으로 오므로 우선 처리

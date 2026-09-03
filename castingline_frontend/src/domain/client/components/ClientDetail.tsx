@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 import { CustomInput } from "../../../components/common/CustomInput";
+import { AutocompleteInputClient } from "../../../components/common/AutocompleteInputClient";
+import { X } from "@phosphor-icons/react";
 import { MultiEmailInput } from "../../../components/common/MultiEmailInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { Buildings, DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
@@ -67,6 +69,70 @@ const InlineRow = styled.div`
     gap: 8px;
     grid-column: span 1; /* 또는 레이아웃에 맞춰 조정 */
 `;
+
+const HelpText = styled.div`
+    grid-column: span 2;
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.5;
+    margin-top: -8px;
+`;
+
+/**
+ * F001(0903): 이세로 합산 메인 거래처 선택.
+ * 메가박스코엑스(발전기금면제관)처럼 부금 계산용으로 갈라 둔 극장에 본관을 지정하면
+ * 이세로 다운로드에서만 본관과 한 행으로 합산되고 극장명은 본관 이름으로 나간다.
+ * 화면·스코어·부금 계산은 그대로 분리된다.
+ */
+function ParentClientField({ selectedClient, formData, updateField }: {
+    selectedClient: any; formData: any; updateField: (name: string, value: any) => void;
+}) {
+    const [search, setSearch] = useState<any>({ theater: null });
+    const [inputValue, setInputValue] = useState("");
+
+    // 다른 거래처를 고르면 그 거래처의 메인 극장으로 표시를 맞춘다
+    useEffect(() => {
+        const id = selectedClient?.parent_client ?? null;
+        const name = selectedClient?.parent_client_name ?? "";
+        setSearch({ theater: id ? { id, client_name: name } : null });
+        setInputValue(id ? name : "");
+    }, [selectedClient?.id, selectedClient?.parent_client, selectedClient?.parent_client_name]);
+
+    // 드롭다운에서 극장을 고르면 id가 생긴다 → formData.parent_client 반영.
+    // 글자만 치고 고르지 않은 상태(id 없음)는 저장하지 않는다.
+    const pickedId = search.theater?.id ?? null;
+    useEffect(() => {
+        if (pickedId && pickedId !== formData.parent_client) {
+            updateField("parent_client", pickedId);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pickedId]);
+
+    const clear = () => {
+        setSearch({ theater: null });
+        setInputValue("");
+        updateField("parent_client", null);
+    };
+
+    return (
+        <InlineRow style={{ minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <AutocompleteInputClient
+                    type="theater"
+                    label="이세로 합산 메인 극장"
+                    placeholder="본관 극장명 검색 (미지정 시 단독 발행)"
+                    formData={search}
+                    setFormData={setSearch}
+                    inputValue={inputValue}
+                    setInputValue={setInputValue}
+                />
+            </div>
+            <CustomIconButton onClick={clear} title="메인 극장 지정 해제" disabled={!formData.parent_client}>
+                <X />
+            </CustomIconButton>
+        </InlineRow>
+    );
+}
 export function ClientDetail({ selectedClient, formData, setFormData, handleInputChange, handleUpdateClient, handleBulkUpdateSettlement, settlementDepartments, onOpenSettlementSettings }) {
     const toast = useToast()
     const { showAlert } = useAppAlert()
@@ -182,6 +248,13 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                             />
                             <CustomInput label="세금계산서 메일 1" value={formData.invoice_email_address || ""} setValue={(v) => updateField("invoice_email_address", v)} />
                             <CustomInput label="세금계산서 메일 2" value={formData.invoice_email_address2 || ""} setValue={(v) => updateField("invoice_email_address2", v)} />
+                            {/* F001(0903): 발전기금 면제관 등 분리 극장의 이세로 합산 본관 지정 */}
+                            <ParentClientField selectedClient={selectedClient} formData={formData} updateField={updateField} />
+                            <HelpText>
+                                이세로 합산 메인 극장: 발전기금 면제관처럼 부금 계산용으로 나눈 극장에 본관을 지정하면,
+                                이세로 다운로드에서만 본관과 한 행으로 합산되고 극장명은 본관 이름으로 출력됩니다.
+                                (부금 정산 화면·스코어 계산은 그대로 분리 유지)
+                            </HelpText>
                             <CustomInput
                                 label="부금 특이사항"
                                 value={formData.settlement_remarks || ""}

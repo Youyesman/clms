@@ -26,11 +26,6 @@ const fmtN = (n: number) => n.toLocaleString("ko-KR");
 const fmtNn = (n: number | null) => (n == null ? "" : n.toLocaleString("ko-KR"));
 const fmtRn = (r: number | null) => (r == null ? "" : `${r.toFixed(2)}%`);
 
-const getYesterday = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-};
 
 /* ── 타입 ── */
 interface SettlementRow {
@@ -328,7 +323,6 @@ const SortIcon = styled.span<{ $active: boolean }>`
 export function SettlementAggregatePage() {
     const toast = useToast();
     const [settlementFilter, setSettlementFilter] = useRecoilState(SettlementFilterState);
-    const yesterday = getYesterday();
     const searchWrapperRef = useRef<HTMLDivElement>(null);
 
     const [moviesList, setMoviesList] = useState<
