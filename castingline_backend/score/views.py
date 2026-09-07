@@ -692,21 +692,31 @@ def score_by_region(movie_id, request):
         .order_by("-total_fare")
     )
 
-    # 6. 결과 조합
+    # 6. 결과 조합 — S001(0907): 정규 지역 6개는 데이터가 없어도 항상 0으로 채워 고정 노출
+    return Response(_compose_summary_rows(total_stats, today_dict, prev_dict, REGIONS))
+
+
+def _compose_summary_rows(total_stats, today_dict, prev_dict, fixed_sections):
+    """S001(0907): 총괄 행 조합. fixed_sections 는 집계값이 없어도 0 행으로 항상 넣고
+    고정 순서로 앞에 두며, 목록에 없는 구분(빈 값·기타 등)은 뒤에 붙인다.
+    (지역별·멀티별·기간별 총괄 공통 — 화면·엑셀이 같은 순서·같은 행 구성을 쓴다)"""
+    by_sec = {row["section"]: dict(row) for row in total_stats}
+    ordered = list(fixed_sections) + [
+        s for s in by_sec if s not in fixed_sections]
     results = []
-    for row in total_stats:
-        sec = row["section"]
+    for sec in ordered:
+        row = by_sec.get(sec) or {"section": sec}
         t_data = today_dict.get(
             sec, {"visitors": 0, "theaters": 0, "screens": 0, "base_fare": 0}
         )
         p_data = prev_dict.get(sec, {"visitors": 0, "theaters": 0})
-
         row.update(
             {
+                "total_visitors": row.get("total_visitors") or 0,
+                "total_fare": row.get("total_fare") or 0,
                 "base_day_visitors": t_data["visitors"] or 0,
                 "prev_day_visitors": p_data["visitors"] or 0,
                 "theater_count": t_data["theaters"] or 0,
-                # ✅ 추가: 스크린수와 기준일 총요금 업데이트
                 "screen_count": t_data["screens"] or 0,
                 "base_day_fare": t_data["base_fare"] or 0,
                 "prev_theater_count": p_data["theaters"] or 0,
@@ -714,8 +724,11 @@ def score_by_region(movie_id, request):
             }
         )
         results.append(row)
+    return results
 
-    return Response(results)
+
+# S001(0907): 멀티별 총괄 고정 구분 (화면 FIXED_SECTION_ORDER.multi 와 동일 순서)
+MULTI_SECTIONS = ["CGV", "롯데", "메가박스", "씨네큐", "일반극장"]
 
 
 def score_by_multi(movie_id, request):
@@ -799,29 +812,8 @@ def score_by_multi(movie_id, request):
         .order_by("-total_fare")
     )
 
-    # 5. 결과 조합 및 필드 매핑
-    results = []
-    for row in total_stats:
-        sec = row["section"]
-        t_data = today_dict.get(
-            sec, {"visitors": 0, "theaters": 0, "screens": 0, "base_fare": 0}
-        )
-        p_data = prev_dict.get(sec, {"visitors": 0, "theaters": 0})
-
-        row.update(
-            {
-                "base_day_visitors": t_data["visitors"] or 0,
-                "prev_day_visitors": p_data["visitors"] or 0,
-                "theater_count": t_data["theaters"] or 0,
-                "screen_count": t_data["screens"] or 0,  # ✅ 프론트엔드 매핑
-                "base_day_fare": t_data["base_fare"] or 0,  # ✅ 프론트엔드 매핑
-                "prev_theater_count": p_data["theaters"] or 0,
-                "theater_change": (t_data["theaters"] or 0) - (p_data["theaters"] or 0),
-            }
-        )
-        results.append(row)
-
-    return Response(results)
+    # 5. 결과 조합 — S001(0907): 멀티 구분 5개는 데이터가 없어도 항상 0으로 채워 고정 노출
+    return Response(_compose_summary_rows(total_stats, today_dict, prev_dict, MULTI_SECTIONS))
 
 
 def score_by_version(movie_id, request):

@@ -483,6 +483,36 @@ def _is_excluded_kofic_theater(theater_name):
     )
 
 
+def _kofic_round_columns(df):
+    """C001(0907): 영진위 상세 엑셀의 회차 컬럼을 헤더에서 찾아 [(회차, 관객수 컬럼)]로 돌려준다.
+
+    기존에는 1~8회를 고정 위치(col 9,11,…,23)로만 읽어 9회차 이후 컬럼이 통째로
+    누락됐다 (횡성시네마 10회·12회 상영분이 0명/일부만 반영 → 'CLMS 미등록'·'인원 불일치').
+    헤더 행의 'N회' 라벨(2칸 병합: 매출액|관객수)을 모두 찾아 파일에 있는 회차를 전부 읽는다.
+    헤더를 못 찾으면 None 을 돌려주고, 호출부가 위치 기반(col 8부터 2칸씩 행 끝까지)으로 읽는다.
+    """
+    for r in range(min(6, len(df))):
+        found = []
+        for ci, v in enumerate(df.iloc[r].tolist()):
+            m = re.fullmatch(r"\s*(\d+)\s*회(?:차)?\s*", str(v))
+            if m:
+                found.append((int(m.group(1)), ci))
+        if not found:
+            continue
+        sub = df.iloc[r + 1].tolist() if r + 1 < len(df) else []
+        cols = []
+        for h, ci in found:
+            # 'N회' 아래 행(매출액|관객수)에서 '관객' 라벨 위치로 관객수 컬럼을 확정한다.
+            vis_col = ci + 1
+            for cand in (ci + 1, ci):
+                if cand < len(sub) and "관객" in str(sub[cand]):
+                    vis_col = cand
+                    break
+            cols.append((h, vis_col))
+        return cols
+    return None
+
+
 def preview_kofic_format(file, movie_id, include_chains=False, use_total=False):
     """
     영진위 '회원용통계(영화사별)상세' 양식 파서.
@@ -497,7 +527,9 @@ def preview_kofic_format(file, movie_id, include_chains=False, use_total=False):
     레이아웃(0-indexed):
       row0: 제목 / row1: 날짜|지역|극장명|스크린|좌석수|전체|...|회차 / row2: 발권금액|매출액|관객수...
       data: col0 날짜, col1 지역, col2 극장명, col3 스크린, col4 좌석수, col5 발권금액(요금),
-            col6/7 전체 매출액/관객수, 이후 1~8회 (매출액, 관객수) 쌍
+            col6/7 전체 매출액/관객수, 이후 회차별 (매출액, 관객수) 쌍
+      회차 컬럼 수는 파일마다 다르다(8회까지인 파일, 12회 이상인 파일) — 헤더의
+      'N회' 라벨로 전부 찾아 읽는다 (C001 0907, _kofic_round_columns).
     """
     if not movie_id:
         return {"error": "영진위(일반극장) 파일은 영화를 먼저 선택해야 합니다."}
@@ -520,6 +552,8 @@ def preview_kofic_format(file, movie_id, include_chains=False, use_total=False):
 
         preview_data = []
         for _sheet_name, df in sheets.items():
+            # C001: 시트마다 회차 컬럼 위치를 헤더에서 찾는다 (없으면 위치 기반)
+            round_cols = _kofic_round_columns(df)
             for _, row in df.iterrows():
                 date_raw = str(row.iloc[0]).strip() if len(row) > 0 else ""
                 # 데이터 행만 처리 (날짜가 YYYYMMDD 8자리 숫자인 행)
@@ -580,11 +614,13 @@ def preview_kofic_format(file, movie_id, include_chains=False, use_total=False):
                         _append_row("전체", vis)
                     continue
 
-                # 회차 1~8: 관객수 컬럼 = 7 + 2*h
-                for h in range(1, 9):
-                    vis_col = 7 + 2 * h
+                # C001: 파일에 존재하는 모든 회차 컬럼을 읽는다 (1~8회 고정 폐기).
+                # 헤더를 못 찾은 파일은 col 8부터 (매출액, 관객수) 2칸씩 행 끝까지 회차로 본다.
+                if round_cols is None:
+                    round_cols = [(h, 7 + 2 * h) for h in range(1, (len(row) - 8) // 2 + 1)]
+                for h, vis_col in round_cols:
                     if vis_col >= len(row):
-                        break
+                        continue
                     vis = pd.to_numeric(row.iloc[vis_col], errors="coerce")
                     # 빈 셀(NaN)/0 은 건너뛴다. NaN은 truthy 이므로 반드시 isna 로 먼저 판별.
                     if pd.isna(vis) or vis == 0:
