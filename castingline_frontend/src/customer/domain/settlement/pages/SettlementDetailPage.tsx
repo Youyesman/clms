@@ -18,6 +18,7 @@ import type { FormatGroup } from "../../../../components/common/CustomMultiSelec
 import { PageNavTabs, SETTLEMENT_TABS } from "../../../../components/common/PageNavTabs";
 import { useRecoilState } from "recoil";
 import { SettlementFilterState } from "../../../../atom/SettlementFilterState";
+import { scoreYearOptions } from "../../../../utils/dateUtils";
 
 /* ── 유틸 ── */
 const fmtN = (n: number) => n.toLocaleString("ko-KR");
@@ -364,10 +365,8 @@ export function SettlementDetailPage() {
         ];
     }, [formatOptions]);
 
-    const yearOptions = useMemo(() => {
-        const cy = new Date().getFullYear();
-        return Array.from({ length: 11 }, (_, i) => (cy - i).toString());
-    }, []);
+    // S001(0910): 연도 범위를 올해~2010으로 확대 — 스코어 현황과 동일한 공용 유틸 사용
+    const yearOptions = useMemo(() => scoreYearOptions(), []);
 
     /* ── 영화 목록 불러오기 ── */
     const fetchMoviesByYear = useCallback(
