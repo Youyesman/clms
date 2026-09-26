@@ -95,6 +95,8 @@ export function ManageFund() {
         const params = new URLSearchParams();
         if (activeFilters.yyyy) params.append("yyyy", activeFilters.yyyy);
         if (activeFilters.client_id) params.append("client_id", activeFilters.client_id);
+        // F001: 자동완성 미선택 키워드 검색 (포함 극장 전체 조회)
+        if (activeFilters.search) params.append("search", activeFilters.search);
 
         // 멀티구분 필터 로직 적용
         if (activeFilters.multi_type === "멀티") params.append("multi_only", "true");
@@ -122,11 +124,17 @@ export function ManageFund() {
 
     const handleSearch = () => {
         setPage(1);
+        // F001: 검색 모드 Dual 지원
+        // - 자동완성 목록에서 극장을 직접 선택(client.id 존재) → 해당 극장 1건만 조회
+        // - 키워드만 입력하고 돋보기/Enter → 키워드 포함 극장 전체 조회 (LIKE %키워드%)
+        const keyword = clientInput.trim();
+        const selectedId = keyword !== "" ? searchParams.client?.id || "" : "";
         setActiveFilters({
             yyyy: searchParams.yyyy,
             multi_type: searchParams.multi_type,
             fund_filter: searchParams.fund_filter,
-            client_id: clientInput.trim() === "" ? "" : searchParams.client?.id || "",
+            client_id: selectedId,
+            search: selectedId ? "" : keyword,
         });
     };
 
@@ -161,6 +169,8 @@ export function ManageFund() {
         const params = new URLSearchParams();
         if (activeFilters.yyyy) params.append("yyyy", activeFilters.yyyy);
         if (activeFilters.client_id) params.append("client_id", activeFilters.client_id);
+        // F001: 키워드 검색 조건을 엑셀 내보내기에도 동일 적용
+        if (activeFilters.search) params.append("search", activeFilters.search);
 
         if (activeFilters.multi_type === "멀티") params.append("multi_only", "true");
         else if (activeFilters.multi_type === "일반") params.append("normal_only", "true");

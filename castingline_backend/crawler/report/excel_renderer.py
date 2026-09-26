@@ -27,8 +27,37 @@ RED_FONT = Font(name=FONT_NAME, size=9, bold=True, color=COLOR_RED)
 
 _side = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=_side, right=_side, top=_side, bottom=_side)
-CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
+# C001(0926): 긴 영화명이 잘리지 않도록 데이터 셀은 줄바꿈 허용 + 행 높이 자동 맞춤
+CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LEFT = Alignment(horizontal="left", vertical="center")
+
+
+def _autofit_row_heights(ws):
+    """C001(0926): PDF처럼 텍스트 줄 수에 맞춰 행 높이를 늘린다.
+
+    openpyxl에는 자동 맞춤이 없어, 열 너비 대비 표시 폭(한글 등 전각=2)으로
+    줄 수를 추정해 높이를 계산한다. wrap_text 셀만 대상으로 하므로 제목/부제
+    (LEFT, 줄바꿈 없음) 행은 건드리지 않는다.
+    """
+    import math
+    for row in ws.iter_rows():
+        max_lines = 1
+        for c in row:
+            v = c.value
+            if not isinstance(v, str) or not v:
+                continue
+            if not (c.alignment and c.alignment.wrap_text):
+                continue
+            width = ws.column_dimensions[c.column_letter].width or 8.43
+            chars_per_line = max(width - 1.5, 1)
+            for part in v.splitlines() or [""]:
+                visual = sum(2 if ord(ch) > 0x2E80 else 1 for ch in part)
+                max_lines = max(max_lines, math.ceil(visual / chars_per_line) or 1)
+        if max_lines > 1:
+            computed = 13.2 * max_lines + 4
+            current = ws.row_dimensions[row[0].row].height or 0
+            if computed > current:
+                ws.row_dimensions[row[0].row].height = computed
 
 
 def _cell(ws, row, col, value, font=DATA_FONT, fill=None, border=True, align=CENTER):
@@ -356,6 +385,7 @@ def build_excel(data, out_path):
 
     for ws in wb.worksheets:
         ws.sheet_view.showGridLines = False
+        _autofit_row_heights(ws)  # C001(0926): 긴 영화명 행 높이 자동 맞춤
 
     wb.save(out_path)
     return out_path

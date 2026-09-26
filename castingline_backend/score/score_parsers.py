@@ -1,4 +1,5 @@
 import re
+import unicodedata
 import pandas as pd
 import numpy as np
 from django.db import transaction
@@ -24,7 +25,12 @@ _TITLE_NORM_RE = re.compile(r"[\s\-:~·,.\'\"’“”!?/\\|()\[\]{}&+_=]+")
 def _norm_title(s):
     if not s:
         return ""
-    return _TITLE_NORM_RE.sub("", str(s)).lower()
+    # U002(0926): 특수 알파벳 폴딩 (SÃO ↔ SAO) — NFKD 분해 후 결합 문자(악센트) 제거.
+    # 한글은 자모로 분해되므로 NFC로 재결합해야 정규식/비교가 정상 동작한다.
+    s = unicodedata.normalize("NFKD", str(s))
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = unicodedata.normalize("NFC", s)
+    return _TITLE_NORM_RE.sub("", s).lower()
 
 
 def _read_excel(file, **kwargs):
@@ -134,6 +140,25 @@ class BulkMatcher:
             _m.title_norm = _norm_title(_m.title_ko)
             _m.title_pure_norm = _norm_title(re.sub(r"\(.*?\)", "", _m.title_ko or ""))
 
+        # U002(0926): 극장별 영화명 매핑(Alias) 연동 — 크롤러 관리에서 등록한
+        # [크롤링 영화명 → 대표 영화명] 매핑을 파일 업로드 매칭에도 적용한다.
+        # 키는 정규화한 크롤링명(괄호 제거본 포함), 값은 대표 영화명 텍스트.
+        self.title_alias_map = {}
+        try:
+            from crawler.models import CrawlTitleAlias
+            for _a in CrawlTitleAlias.objects.filter(
+                is_active=True, target__is_active=True
+            ).select_related("target"):
+                for key in (
+                    _norm_title(_a.crawl_title),
+                    _norm_title(re.sub(r"\(.*?\)", "", _a.crawl_title or "")),
+                ):
+                    if key:
+                        self.title_alias_map[key] = _a.target.title
+        except Exception:
+            # 크롤러 앱 미설치/마이그레이션 이전 등 — 매핑 없이 동작
+            self.title_alias_map = {}
+
     @staticmethod
     def _extract_aud_num(s):
         """관 이름/코드에서 관 번호를 추출. '02관'->2, '2관(삼척관)'->2, '004'->4, '산천어관'->None"""
@@ -233,6 +258,20 @@ class BulkMatcher:
         # 1. 속성 추출 (수정된 7개 필드 기준)
         attr = parse_screening_attributes(f"{original_excel_movie_text} {type_str}")
 
+        # U002(0926): 극장별 영화명 매핑(Alias) — 엑셀 원문/제목이 매핑에 등록돼
+        # 있으면 대표 영화명으로 치환한 뒤 기존 매칭을 태운다. (포맷 속성은
+        # 엑셀 원문에서 이미 추출했으므로 그대로 유지)
+        if self.title_alias_map:
+            for probe in (
+                _norm_title(original_excel_movie_text),
+                _norm_title(re.sub(r"\(.*?\)", "", str(original_excel_movie_text or ""))),
+                _norm_title(raw_title),
+                _norm_title(re.sub(r"\(.*?\)", "", str(raw_title or ""))),
+            ):
+                if probe and probe in self.title_alias_map:
+                    raw_title = self.title_alias_map[probe]
+                    break
+
         # 2. 제목 정규화: 괄호와 그 안의 텍스트(SOUNDX 등) 무조건 삭제
         pure_title = re.sub(r"\(.*?\)", "", raw_title).strip()
         norm_raw = _norm_title(pure_title)
@@ -297,11 +336,14 @@ class BulkMatcher:
         if not matched:
             primary = next((m for m in candidates if m.is_primary_movie), None)
             if primary:
+                # U002(0926): 코드 뒤 공백('C2025149  ' vs 'C2025149') 때문에
+                # 하위영화 풀이 비어 포맷 매칭이 통째로 실패하지 않도록 strip 비교
+                base_code = (primary.movie_code or "").strip()
                 matched = match_logic(
                     [
                         m
                         for m in self.movie_list
-                        if m.primary_movie_code == primary.movie_code
+                        if (m.primary_movie_code or "").strip() == base_code
                     ]
                 )
 
@@ -350,9 +392,13 @@ def parse_screening_attributes(text):
     u = str(text).upper().replace(" ", "")
 
     # 1. viewing_dimension
-    if "3D" in u:
+    # U002(0926): '4DX'/'4-DX'/'SUPER4D'의 '4D'가 상영차원으로 오인되지 않도록
+    # 특수관 토큰을 뗀 문자열로 판정한다. 예) '4DX 2D' → 2D + 4DX (기존엔 4D로
+    # 읽혀 '2D 4-DX' 하위영화와 속성 불일치 → 포맷 비어있는 중복 오더 생성)
+    u_dim = u.replace("4-DX", "").replace("4DX", "").replace("SUPER4D", "")
+    if "3D" in u_dim:
         attr["viewing_dimension"] = "3D"
-    elif "4D" in u:
+    elif "4D" in u_dim:
         attr["viewing_dimension"] = "4D"
 
     # 2. audio_mode

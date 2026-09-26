@@ -52,12 +52,36 @@ class RateFilter(django_filters.FilterSet):
     client_type = django_filters.CharFilter(
         field_name="client__client_type", lookup_expr="icontains"
     )
-    theater_kind = django_filters.CharFilter(
-        field_name="client__theater_kind", lookup_expr="icontains"
-    )
+    theater_kind = django_filters.CharFilter(method="filter_theater_kind")
     classification = django_filters.CharFilter(
         field_name="client__classification", lookup_expr="icontains"
     )
+
+    # 체인 멀티 목록 — '기타'(비체인) 판정 기준 (order/views.py CHAIN_KINDS와 동일 기준)
+    CHAIN_KINDS = ["CGV", "롯데", "메가박스", "씨네큐"]
+
+    def filter_theater_kind(self, queryset, name, value):
+        # P001: [멀티] 드롭다운 값을 DB 실제 분류값과 1:1 매핑.
+        # - 자동차극장: theater_kind가 '자동차극장'이거나 is_car_theater 플래그가 켜진 극장
+        # - 일반극장: theater_kind='일반극장' 중 자동차극장 제외
+        # - 기타(하위호환): 체인 4사가 아닌 전부
+        if not value or value == "전체":
+            return queryset
+        if value == "자동차극장":
+            return queryset.filter(
+                Q(client__theater_kind__icontains="자동차")
+                | Q(client__is_car_theater=True)
+            )
+        if value == "일반극장":
+            return queryset.filter(
+                client__theater_kind__icontains="일반극장"
+            ).exclude(client__is_car_theater=True)
+        if value == "기타":
+            q = Q()
+            for kind in self.CHAIN_KINDS:
+                q |= Q(client__theater_kind__icontains=kind)
+            return queryset.exclude(q)
+        return queryset.filter(client__theater_kind__icontains=value)
 
     class Meta:
         model = Rate
@@ -91,6 +115,10 @@ class RateViewSet(viewsets.ModelViewSet):
         'client_code': 'client__client_code',
         'client_name': 'client__client_name',
         'movie': 'movie__title_ko',
+        # P002: Rate 모델에 없는 Client 필드는 매핑이 없으면 DRF가 정렬 파라미터를
+        # 조용히 폐기해 헤더 클릭이 무시된다 — 지역/구분 정렬을 최우선 ORDER BY로 반영
+        'region_code': 'client__region_code',
+        'classification': 'client__classification',
     }
 
     def get_queryset(self):

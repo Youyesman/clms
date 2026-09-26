@@ -49,10 +49,10 @@ export function RateFilter({ formData, setFormData, handleSearch }) {
                 labelWidth={LABEL_WIDTH}
             />
 
-            {/* 3. 멀티 선택 */}
+            {/* 3. 멀티 선택 — P001: DB 실제 멀티 분류값과 1:1 매핑 ('기타' 대신 일반극장/자동차극장) */}
             <CustomSelect
                 label="멀티"
-                options={["전체", "롯데", "CGV", "메가박스", "씨네큐", "기타"]}
+                options={["전체", "CGV", "롯데", "메가박스", "씨네큐", "일반극장", "자동차극장"]}
                 value={formData.theater_kind}
                 onChange={(val) => updateField("theater_kind", val)}
                 labelWidth={LABEL_WIDTH}

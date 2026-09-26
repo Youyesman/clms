@@ -47,6 +47,16 @@ interface CrawlTarget {
     created_at: string;
 }
 
+// C002: 극장별 영화명 매핑(Alias) — 크롤링 영화명 → 대표 영화(크롤 대상)
+interface CrawlAlias {
+    id: number;
+    crawl_title: string;
+    target_id: number;
+    target_title: string;
+    is_active: boolean;
+    created_at: string;
+}
+
 // --- Styled Components ---
 const PageContainer = styled.div`
     display: flex;
@@ -245,6 +255,13 @@ export const CrawlerPage = () => {
     const [jsonInput, setJsonInput] = useState("");
     const [selectedTargetIds, setSelectedTargetIds] = useState<number[]>([]);
 
+    // C002: 극장별 영화명 매핑(Alias) 상태
+    const [aliases, setAliases] = useState<CrawlAlias[]>([]);
+    const [aliasInput, setAliasInput] = useState("");
+    const [aliasTargetId, setAliasTargetId] = useState<number | "">("");
+    const [aliasLoading, setAliasLoading] = useState(false);
+    const [showAliasSection, setShowAliasSection] = useState(false);
+
     // Pagination State
     const [page, setPage] = useState(1);
     const pageSize = 10;
@@ -258,6 +275,64 @@ export const CrawlerPage = () => {
         } catch {
             toast.error("대상 영화 목록 불러오기 실패");
         }
+    };
+
+    // -- C002: 영화명 매핑(Alias) --
+    const fetchAliases = async () => {
+        try {
+            const res = await AxiosGet("crawler/title-aliases/");
+            setAliases(res.data);
+        } catch {
+            toast.error("영화명 매핑 목록 불러오기 실패");
+        }
+    };
+
+    const handleAddAlias = async () => {
+        const crawlTitle = aliasInput.trim();
+        if (!crawlTitle || !aliasTargetId) return;
+        setAliasLoading(true);
+        try {
+            await AxiosPost("crawler/title-aliases", {
+                crawl_title: crawlTitle,
+                target_id: aliasTargetId,
+            });
+            setAliasInput("");
+            await fetchAliases();
+            toast.success("영화명 매핑이 추가되었습니다.");
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || "매핑 추가 실패");
+        } finally {
+            setAliasLoading(false);
+        }
+    };
+
+    const handleToggleAlias = async (id: number) => {
+        try {
+            await AxiosPatch("crawler/title-aliases", {}, id);
+            setAliases((prev) =>
+                prev.map((a) => (a.id === id ? { ...a, is_active: !a.is_active } : a))
+            );
+        } catch {
+            toast.error("상태 변경 실패");
+        }
+    };
+
+    const handleDeleteAlias = (alias: CrawlAlias) => {
+        showAlert(
+            "영화명 매핑 삭제",
+            `'${alias.crawl_title} → ${alias.target_title}' 매핑을 삭제하시겠습니까?`,
+            "warning",
+            async () => {
+                try {
+                    await AxiosDelete("crawler/title-aliases", alias.id);
+                    setAliases((prev) => prev.filter((a) => a.id !== alias.id));
+                    toast.success("삭제 완료");
+                } catch {
+                    toast.error("삭제 실패");
+                }
+            },
+            true
+        );
     };
 
     const handleAddTarget = async () => {
@@ -399,6 +474,7 @@ export const CrawlerPage = () => {
 
     useEffect(() => {
         fetchTargets();
+        fetchAliases();
         fetchHistory();
         const interval = setInterval(fetchHistory, 5000);
         return () => clearInterval(interval);
@@ -903,9 +979,109 @@ export const CrawlerPage = () => {
                 {/* 하단 안내 */}
                 <div style={{ padding: '10px 20px 14px', fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
                     입력 제목에서 특수문자/괄호/태그를 제거 후 크롤 데이터와 비교합니다.
+                    특수 알파벳(Ã·É·Ñ 등)은 일반 알파벳과 같은 문자로 인식합니다 (SÃO = SAO).
                     <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재</code> 입력 시
                     <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타- 불의재(3D)</code>,
                     <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 4 }}>아바타: 불의 재 [IMAX]</code> 모두 매칭
+                </div>
+
+                {/* ===== C002: 극장별 영화명 매핑(Alias) ===== */}
+                <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <div
+                        onClick={() => setShowAliasSection(v => !v)}
+                        style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>극장별 영화명 매핑</span>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                                극장사 공시 영화명(한/영·통합 표기)을 대표 영화로 지정 — 특수 케이스에만 사용
+                            </span>
+                        </div>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>
+                            {aliases.length}건 {showAliasSection ? '▲' : '▼'}
+                        </span>
+                    </div>
+
+                    {showAliasSection && (
+                        <>
+                            <div style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8, background: '#fafbfc', borderBottom: '1px solid #f1f5f9' }}>
+                                <input
+                                    placeholder="크롤링 영화명 (예: THE FIRST SLAM DUNK)"
+                                    value={aliasInput}
+                                    onChange={(e) => setAliasInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && handleAddAlias()}
+                                    style={{ flex: 1, height: 32, padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, outline: 'none', background: '#ffffff' }}
+                                />
+                                <span style={{ fontSize: 13, color: '#94a3b8', flexShrink: 0 }}>→</span>
+                                <select
+                                    value={aliasTargetId}
+                                    onChange={(e) => setAliasTargetId(e.target.value ? Number(e.target.value) : "")}
+                                    style={{ height: 32, padding: '0 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, outline: 'none', background: '#ffffff', maxWidth: 260 }}
+                                >
+                                    <option value="">대표 영화(크롤 대상) 선택</option>
+                                    {targets.map((t) => (
+                                        <option key={t.id} value={t.id}>{t.title}</option>
+                                    ))}
+                                </select>
+                                <PrimaryBtn onClick={handleAddAlias} disabled={aliasLoading || !aliasInput.trim() || !aliasTargetId}>
+                                    매핑 추가
+                                </PrimaryBtn>
+                            </div>
+
+                            {aliases.length === 0 ? (
+                                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+                                    등록된 매핑이 없습니다. 극장사별 영화명 표기가 달라 수집이 누락될 때만 등록하세요.
+                                </div>
+                            ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                            <th style={{ padding: '8px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', width: 52 }}>상태</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>크롤링 영화명</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>대표 영화</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', width: 130 }}>등록일</th>
+                                            <th style={{ padding: '8px 12px', width: 48 }}></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {aliases.map((a) => (
+                                            <tr key={a.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '6px 16px' }}>
+                                                    <button
+                                                        onClick={() => handleToggleAlias(a.id)}
+                                                        title={a.is_active ? "클릭하여 비활성화" : "클릭하여 활성화"}
+                                                        style={{
+                                                            padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                                                            background: a.is_active ? '#f0fdf4' : '#f1f5f9',
+                                                            color: a.is_active ? '#16a34a' : '#94a3b8',
+                                                        }}
+                                                    >
+                                                        {a.is_active ? 'ON' : 'OFF'}
+                                                    </button>
+                                                </td>
+                                                <td style={{ padding: '6px 12px', fontWeight: 500, color: a.is_active ? '#0f172a' : '#94a3b8' }}>{a.crawl_title}</td>
+                                                <td style={{ padding: '6px 12px', color: '#2563eb', fontWeight: 600 }}>{a.target_title}</td>
+                                                <td style={{ padding: '6px 12px', color: '#94a3b8', fontSize: 11 }}>{a.created_at}</td>
+                                                <td style={{ padding: '6px 12px' }}>
+                                                    <button
+                                                        onClick={() => handleDeleteAlias(a)}
+                                                        style={{ padding: '3px 8px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', borderRadius: 4, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                                    >
+                                                        삭제
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            <div style={{ padding: '8px 20px 14px', fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
+                                매핑된 크롤링명으로 수집된 시간표는 대표 영화명으로 통일 저장되어 3사 데이터가 한 작품으로 합산됩니다.
+                                스코어 엑셀/메일 업로드의 영화명 매칭에도 동일하게 적용됩니다.
+                            </div>
+                        </>
+                    )}
                 </div>
             </Card>
 
@@ -1154,8 +1330,8 @@ export const CrawlerPage = () => {
                             {/* M002: 크롤 대상 영화에서 체크한 영화만 크롤링 안내 */}
                             <div style={{ padding: '8px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: selectedTargetIds.length > 0 ? '#fef9c3' : '#f1f5f9', color: selectedTargetIds.length > 0 ? '#a16207' : '#64748b' }}>
                                 {selectedTargetIds.length > 0
-                                    ? `체크한 ${selectedTargetIds.length}개 영화만 크롤링합니다. (크롤한 날짜의 기존 데이터는 모두 지워지고 이번 영화만 남습니다)`
-                                    : "크롤 대상 영화 전체를 크롤링합니다. (특정 영화만 원하면 목록에서 체크 후 실행 · 크롤한 날짜의 기존 데이터는 새 데이터로 교체)"}
+                                    ? `체크한 ${selectedTargetIds.length}개 영화만 크롤링합니다. (크롤한 날짜에서 이번 대상 영화의 기존 데이터만 새 데이터로 교체 — 다른 영화·먼저 수집한 데이터는 유지)`
+                                    : "크롤 대상 영화 전체를 크롤링합니다. (특정 영화만 원하면 목록에서 체크 후 실행 · 크롤한 날짜에서 대상 영화의 기존 데이터만 새 데이터로 교체)"}
                             </div>
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 기간</div>

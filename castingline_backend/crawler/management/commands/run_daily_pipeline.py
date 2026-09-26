@@ -85,7 +85,11 @@ def _get_target_dates():
 
 
 def _get_target_titles():
-    """크롤 대상 영화 제목 목록 (활성화된 것만). 미지정 시 None → 전체 저장"""
+    """크롤 대상 영화 제목 목록 (활성화된 것만). 미지정 시 None → 전체 저장
+
+    C002(0926): 영화명 매핑(Alias)의 크롤링명도 대상에 포함한다.
+    """
+    from crawler.models import CrawlTitleAlias
     active_targets = list(CrawlTargetMovie.objects.filter(is_active=True))
     if not active_targets:
         print("🎬 크롤 대상 영화 미지정 → 전체 저장")
@@ -94,22 +98,34 @@ def _get_target_titles():
     for tm in active_targets:
         clean_t, _ = MovieSchedule.parse_and_normalize_title(tm.title)
         titles.append(clean_t)
-    print(f"🎬 크롤 대상 {len(titles)}편: {titles}")
+    alias_map = CrawlTitleAlias.build_map(active_targets)
+    titles.extend(alias_map.keys())
+    print(f"🎬 크롤 대상 {len(titles)}편(매핑 {len(alias_map)}건 포함): {titles}")
     return titles
+
+
+def _get_alias_title_map():
+    """C002(0926): 영화명 매핑 시드 — 매핑된 크롤링명을 대표 영화명으로 통일 저장."""
+    from crawler.models import CrawlTitleAlias
+    return CrawlTitleAlias.build_map()
 
 
 def _collect_and_transform(site, history, target_dates, target_titles):
     """사이트별 수집 + 스케줄 변환. Returns: (collected_cnt, created_cnt, failures)"""
+    # C002(0926): 대상 영화가 지정돼 있으면 [대상 영화 × 브랜드 × 날짜] 단위로만
+    # 교체한다 — 다른 크롤링명으로 먼저 수집된 데이터가 지워지지 않는다.
+    # 영화명 매핑(Alias) 시드는 크롤링명을 대표 영화명으로 통일 저장한다.
+    title_map = _get_alias_title_map()
     if site == 'cgv':
         logs, _total, failures = CGVPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
         db_logs = list(CGVScheduleLog.objects.filter(crawler_run=history))
         print(f"   ↳ Generating Schedules from {len(db_logs)} CGV logs...")
-        # C002(0827): 날짜 전체 교체 — 수집된 날짜의 기존 스케줄을 영화 구분 없이 지우고 최신 수집분으로 다시 채운다
-        MovieSchedule.replace_before_transform(['CGV'], sorted({l.query_date for l in db_logs}))
+        MovieSchedule.replace_before_transform(['CGV'], sorted({l.query_date for l in db_logs}),
+                                               target_titles=target_titles)
         created, errors = 0, []
         for log in db_logs:
             try:
-                cnt, errs = MovieSchedule.create_from_cgv_log(log, target_titles=target_titles)
+                cnt, errs = MovieSchedule.create_from_cgv_log(log, target_titles=target_titles, title_map=title_map)
                 created += cnt
                 errors.extend(errs)
             except Exception as e:
@@ -119,12 +135,12 @@ def _collect_and_transform(site, history, target_dates, target_titles):
         logs, _total, failures = LottePipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
         db_logs = list(LotteScheduleLog.objects.filter(crawler_run=history))
         print(f"   ↳ Generating Schedules from {len(db_logs)} Lotte logs...")
-        # C002(0827): 날짜 전체 교체
-        MovieSchedule.replace_before_transform(['LOTTE'], sorted({l.query_date for l in db_logs}))
+        MovieSchedule.replace_before_transform(['LOTTE'], sorted({l.query_date for l in db_logs}),
+                                               target_titles=target_titles)
         created, errors = 0, []
         for log in db_logs:
             try:
-                cnt, errs = MovieSchedule.create_from_lotte_log(log, target_titles=target_titles)
+                cnt, errs = MovieSchedule.create_from_lotte_log(log, target_titles=target_titles, title_map=title_map)
                 created += cnt
                 errors.extend(errs)
             except Exception as e:
@@ -134,12 +150,12 @@ def _collect_and_transform(site, history, target_dates, target_titles):
         logs, _total, failures = MegaboxPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
         db_logs = list(MegaboxScheduleLog.objects.filter(crawler_run=history))
         print(f"   ↳ Generating Schedules from {len(db_logs)} Megabox logs...")
-        # C002(0827): 날짜 전체 교체
-        MovieSchedule.replace_before_transform(['MEGABOX'], sorted({l.query_date for l in db_logs}))
+        MovieSchedule.replace_before_transform(['MEGABOX'], sorted({l.query_date for l in db_logs}),
+                                               target_titles=target_titles)
         created, errors = 0, []
         for log in db_logs:
             try:
-                cnt, errs = MovieSchedule.create_from_megabox_log(log, target_titles=target_titles)
+                cnt, errs = MovieSchedule.create_from_megabox_log(log, target_titles=target_titles, title_map=title_map)
                 created += cnt
                 errors.extend(errs)
             except Exception as e:
@@ -148,8 +164,8 @@ def _collect_and_transform(site, history, target_dates, target_titles):
     elif site == 'kobis':
         logs, theaters, failures = KobisPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
         print(f"   ↳ Generating Schedules from {len(logs)} KOBIS logs ({theaters} theaters)...")
-        # C002(0827): 날짜 전체 교체 (데일리는 일반극장만 수집하므로 일반극장 범위만)
-        MovieSchedule.replace_before_transform(['일반극장'], sorted({c['date'] for c in logs}))
+        MovieSchedule.replace_before_transform(['일반극장'], sorted({c['date'] for c in logs}),
+                                               target_titles=target_titles)
         created, errors = KobisPipelineService.transform_logs_to_schedule(
             log_ids=[c['log_id'] for c in logs],
             target_titles=target_titles,

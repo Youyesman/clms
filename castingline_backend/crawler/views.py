@@ -154,11 +154,18 @@ def run_site_crawler_background(history_id, data, site_key):
         if selected_ids:
             active_qs = active_qs.filter(id__in=selected_ids)
         active_targets = list(active_qs)
+        alias_title_map = {}
         if active_targets:
             crawl_target_titles = []
             for tm in active_targets:
                 clean_t, _ = MovieSchedule.parse_and_normalize_title(tm.title)
                 crawl_target_titles.append(clean_t)
+            # C002(0926): 극장별 영화명 매핑(Alias) — 매핑된 크롤링명도 수집 대상에
+            # 포함시키고, title_map 시드로 대표 영화명으로 통일 저장되게 한다.
+            from crawler.models import CrawlTitleAlias
+            alias_title_map = CrawlTitleAlias.build_map(active_targets)
+            for alias_norm in alias_title_map:
+                crawl_target_titles.append(alias_norm)
         else:
             crawl_target_titles = None
 
@@ -168,18 +175,23 @@ def run_site_crawler_background(history_id, data, site_key):
             site_logs = [l for l in site_logs
                          if not MovieSchedule.kobis_chain_brand(l.theater_name)[0]]
 
-        # C002(0827): 날짜 전체 교체 — 같은 날짜를 다시 크롤하면 (브랜드×수집된 날짜)의
-        # 기존 스케줄을 영화 구분 없이 전부 지운 뒤 이번 크롤 대상 영화만 다시 채운다.
-        # → 이전 크롤에만 있던 영화의 잔재 데이터가 보고서/엑셀에 남지 않는다.
-        # (수집 로그가 있는 날짜만 지우므로 크롤이 통째로 실패한 날짜는 기존 데이터 유지)
+        # C002(0926): 교체 단위를 [대상 영화 × 브랜드 × 상영일]로 좁힌다.
+        # 대상 영화를 지정해 크롤하면 그 영화들의 기존 행만 지우고 다시 채우므로,
+        # 대표영화명이 같은 다른 크롤링명(CGV용/메가박스용 등)을 순차 수집해도
+        # 먼저 수집된 타 영화·타 크롤링명 데이터가 지워지지 않는다 (3사 합산 유지).
+        # 대상 미지정(전체 저장) 크롤은 기존대로 (브랜드×날짜) 전체 교체 (C002 0827).
         wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                        if kobis_multiplex else [brand])
         MovieSchedule.replace_before_transform(
-            wipe_brands, sorted({l.query_date for l in site_logs}))
+            wipe_brands, sorted({l.query_date for l in site_logs}),
+            target_titles=crawl_target_titles)
 
         total_created = 0
+        # alias 매핑을 시드로 깔고, 크롤 전체가 같은 맵을 공유해 표기를 통일한다
+        run_title_map = dict(alias_title_map)
         for log in site_logs:
-            c, _ = site['create_fn'](log, target_titles=crawl_target_titles)
+            c, _ = site['create_fn'](log, target_titles=crawl_target_titles,
+                                     title_map=run_title_map)
             total_created += c
 
         # 6. 변환 결과 엑셀
@@ -469,10 +481,11 @@ def run_transform_background(new_history_id, source_history_id):
         total_created = 0
         
         # [Title Normalization Init]
-        # [Title Normalization Init]
-        from crawler.models import MovieSchedule
+        from crawler.models import MovieSchedule, CrawlTitleAlias
         from django.db.models import Min
-        title_map = {}
+        # C002(0926): 영화명 매핑(Alias)을 최우선 시드로 — 매핑된 크롤링명은
+        # First-Come 표기보다 대표 영화명이 항상 우선한다.
+        title_map = CrawlTitleAlias.build_map()
         # Pre-populate title_map from existing DB to respect "First Come" titles
         map_start = start_date - timedelta(days=60)
         map_end = end_date + timedelta(days=60)
@@ -1212,6 +1225,83 @@ class CrawlTargetMovieBulkDeleteView(APIView):
             return Response({"error": "ids required"}, status=status.HTTP_400_BAD_REQUEST)
         deleted, _ = CrawlTargetMovie.objects.filter(pk__in=ids).delete()
         return Response({"deleted": deleted})
+
+
+# ── C002(0926): 극장별 영화명 매핑(Alias) ──
+def _serialize_alias(a):
+    return {
+        "id": a.id,
+        "crawl_title": a.crawl_title,
+        "target_id": a.target_id,
+        "target_title": a.target.title,
+        "is_active": a.is_active,
+        "created_at": timezone.localtime(a.created_at).strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+class CrawlTitleAliasView(APIView):
+    """
+    극장별 영화명 매핑(Alias) 관리 — 크롤링 영화명 → 대표 영화(크롤 대상) 지정
+    GET    /Api/crawler/title-aliases/  - 전체 목록
+    POST   /Api/crawler/title-aliases/  - 추가 {crawl_title, target_id}
+    """
+
+    def get(self, request):
+        from crawler.models import CrawlTitleAlias
+        aliases = CrawlTitleAlias.objects.select_related("target").all()
+        return Response([_serialize_alias(a) for a in aliases])
+
+    def post(self, request):
+        from crawler.models import CrawlTitleAlias
+        crawl_title = (request.data.get("crawl_title") or "").strip()
+        target_id = request.data.get("target_id")
+        if not crawl_title or not target_id:
+            return Response(
+                {"error": "crawl_title, target_id 필드가 필요합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target = CrawlTargetMovie.objects.get(pk=target_id)
+        except CrawlTargetMovie.DoesNotExist:
+            return Response({"error": "대표 영화(크롤 대상)를 찾을 수 없습니다."},
+                            status=status.HTTP_404_NOT_FOUND)
+        # 같은 크롤링명 중복 매핑 방지 (정규화 기준)
+        norm_new = MovieSchedule.normalize_title(
+            MovieSchedule.parse_and_normalize_title(crawl_title)[0]
+        )
+        for a in CrawlTitleAlias.objects.all():
+            norm_old = MovieSchedule.normalize_title(
+                MovieSchedule.parse_and_normalize_title(a.crawl_title)[0]
+            )
+            if norm_new and norm_new == norm_old:
+                return Response(
+                    {"error": f"이미 등록된 크롤링명입니다: {a.crawl_title} → {a.target.title}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        obj = CrawlTitleAlias.objects.create(crawl_title=crawl_title, target=target)
+        return Response(_serialize_alias(obj), status=status.HTTP_201_CREATED)
+
+
+class CrawlTitleAliasDetailView(APIView):
+
+    def patch(self, request, pk):
+        from crawler.models import CrawlTitleAlias
+        try:
+            obj = CrawlTitleAlias.objects.select_related("target").get(pk=pk)
+        except CrawlTitleAlias.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.is_active = not obj.is_active
+        obj.save()
+        return Response({"id": obj.id, "is_active": obj.is_active})
+
+    def delete(self, request, pk):
+        from crawler.models import CrawlTitleAlias
+        try:
+            obj = CrawlTitleAlias.objects.get(pk=pk)
+        except CrawlTitleAlias.DoesNotExist:
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ── 메가박스 윙업 관람객현황(배급사) 스코어 크롤 → 엑셀 다운로드 ──

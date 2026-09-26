@@ -201,16 +201,23 @@ class MovieSchedule(models.Model):
     def normalize_title(title):
         """
         영화 제목 정규화:
-        1. 특수문자 제거 (알파벳, 한글, 숫자만 남김)
-        2. 공백 제거
-        3. 소문자 변환
+        1. 특수 알파벳(Ã·É·Ñ 등)을 일반 알파벳으로 폴딩 (C002 0926 — SÃO↔SAO 통합 매칭)
+        2. 특수문자 제거 (알파벳, 한글, 숫자만 남김)
+        3. 공백 제거
+        4. 소문자 변환
         """
         import re
+        import unicodedata
         if not title:
             return ""
+        # NFKD 분해 후 결합 문자(악센트 등) 제거 → NFC 재결합.
+        # 한글도 NFKD에서 자모로 분해되므로 반드시 NFC로 되돌려야 [가-힣]에 걸린다.
+        s = unicodedata.normalize("NFKD", str(title))
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = unicodedata.normalize("NFC", s)
         # 남길 문자: 영문(a-zA-Z), 숫자(0-9), 한글(가-힣)
         # ^는 부정. 즉, 저것들이 아닌 문자는 모두 공백으로 대체 후 제거
-        return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(title)).lower()
+        return re.sub(r'[^a-zA-Z0-9가-힣]', '', s).lower()
 
     @staticmethod
     def detect_sub_type_tag(*sources):
@@ -684,16 +691,17 @@ class MovieSchedule(models.Model):
         다시 채운다. 잔재(이전 크롤의 폐지·변경 회차, 영진위↔자사 표기 차이
         행 등)가 원천적으로 남지 않는다.
 
-        C002(0827): 교체 단위는 **(브랜드 × 상영일) 전체**다. 같은 날짜를 다시
-        크롤하면 그 날짜의 기존 데이터는 영화 구분 없이 전부 지워지고 이번
-        크롤 대상 영화만 남는다 — 예) 1차에 20편으로 9/2~9/8을 크롤한 뒤
-        2차에 3편만 골라 9/2~9/4를 다시 크롤하면, 9/2~9/4는 그 3편만 남고
-        9/5~9/8은 1차 데이터가 유지된다. (0825의 '영화별 교체'는 이전 크롤
-        영화의 잔재가 보고서에 계속 남는 문제로 0827에 폐기)
+        C002(0926): target_titles(크롤 대상 영화)가 주어지면 교체 단위는
+        **(대상 영화 × 브랜드 × 상영일)**이다. 같은 날짜를 다른 크롤링명으로
+        순차 수집해도(예: 'SÃO' → CGV/메가박스, 'SAO' → 롯데) 이번 대상이
+        아닌 영화·먼저 수집된 데이터는 지워지지 않아 3사 데이터가 합산된다.
+        저장 제목의 표기 변형·영화명 매핑(Alias) 크롤링명도 title_matches
+        정확 일치 규칙으로 같은 영화로 보고 함께 지운다.
 
-        target_titles 는 하위 호환용으로 남겨둔다: 주어지면 예전처럼 그 영화들의
-        행만 지운다(현재 호출부는 모두 미지정). 수집 로그가 있는 날짜만 지우므로,
-        크롤이 통째로 실패한 날짜의 기존 데이터는 유지된다.
+        target_titles 미지정(전체 저장 크롤·재변환)이면 (브랜드 × 상영일)
+        전체 교체다(C002 0827) — 이전 크롤에만 있던 영화의 잔재가 남지 않는다.
+        수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의 기존
+        데이터는 유지된다.
         """
         from datetime import datetime as _dt
         dates = []
@@ -1526,6 +1534,52 @@ class CrawlTargetMovie(models.Model):
 
     def __str__(self):
         return f"{'✅' if self.is_active else '⏸'} [{self.get_movie_type_display()}] {self.title}"
+
+
+class CrawlTitleAlias(models.Model):
+    """
+    C002(0926): 극장별 영화명 매핑(Alias).
+    극장사(CGV/롯데/메가박스 등)가 공시하는 크롤링 영화명 → 당사 대표 영화명
+    (크롤 대상 영화) 1:1 매핑. 한/영 표기 차이('THE FIRST SLAM DUNK' ↔
+    '더 퍼스트 슬램덩크'), 통합 공시명(BTS 지역 통합) 등 정규화만으로 못
+    잇는 표기를 수동으로 잇는다. 매핑된 크롤링명으로 수집된 스케줄은
+    대표 영화명으로 통일 저장되어 3사 데이터가 한 작품으로 합산된다.
+    """
+    target = models.ForeignKey(
+        CrawlTargetMovie, on_delete=models.CASCADE,
+        related_name="aliases", verbose_name="대표 영화(크롤 대상)"
+    )
+    crawl_title = models.CharField(max_length=500, verbose_name="크롤링 영화명")
+    is_active = models.BooleanField(default=True, verbose_name="활성화")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "크롤 영화명 매핑"
+
+    def __str__(self):
+        return f"{'✅' if self.is_active else '⏸'} {self.crawl_title} → {self.target.title}"
+
+    @classmethod
+    def build_map(cls, targets=None):
+        """활성 매핑 → {정규화(크롤링명): 대표영화 clean 제목}.
+
+        targets(CrawlTargetMovie 목록)가 주어지면 그 대상들의 매핑만 사용.
+        반환 맵은 create_from_* 의 title_map 시드와 대상 필터 확장에 쓴다.
+        """
+        qs = cls.objects.filter(is_active=True, target__is_active=True).select_related("target")
+        if targets is not None:
+            qs = qs.filter(target_id__in=[t.id for t in targets])
+        amap = {}
+        for a in qs:
+            clean_c, _ = MovieSchedule.parse_and_normalize_title(a.crawl_title)
+            key = MovieSchedule.normalize_title(clean_c)
+            if not key:
+                continue
+            clean_t, _ = MovieSchedule.parse_and_normalize_title(a.target.title)
+            amap[key] = clean_t
+        return amap
 
 
 class MegaboxDistributorAccount(models.Model):

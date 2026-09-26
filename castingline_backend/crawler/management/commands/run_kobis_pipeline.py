@@ -157,7 +157,9 @@ class KobisPipelineService:
         else:
             logs = KobisScheduleLog.objects.filter(created_at__date=datetime.now().date())
         total, errors = 0, []
-        title_map = {}
+        # C002(0926): 영화명 매핑(Alias) 시드 — 매핑된 크롤링명을 대표 영화명으로 통일 저장
+        from crawler.models import CrawlTitleAlias
+        title_map = CrawlTitleAlias.build_map()
         for log in logs:
             try:
                 cnt, errs = MovieSchedule.create_from_kobis_log(log, target_titles=target_titles, title_map=title_map)
@@ -205,8 +207,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"수집: 로그 {len(collected)}건 / 일반극장 {total}곳 / 실패 {len(failures)}건"))
 
         if options.get('transform'):
-            from crawler.models import CrawlTargetMovie, MovieSchedule
+            from crawler.models import CrawlTargetMovie, CrawlTitleAlias, MovieSchedule
             targets = list(CrawlTargetMovie.objects.filter(is_active=True).values_list('title', flat=True)) or None
+            if targets:
+                # C002(0926): 영화명 매핑(Alias)의 크롤링명도 수집 대상에 포함
+                targets = targets + list(CrawlTitleAlias.build_map().keys())
             # 0825: 완전 교체 — 수집된 날짜의 기존 스케줄을 지우고 다시 채운다
             wipe_brands = (['일반극장', 'CGV', 'LOTTE', 'MEGABOX']
                            if include_multiplex else ['일반극장'])

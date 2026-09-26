@@ -482,9 +482,12 @@ def get_movie_ids_for_primary(movie_id, format_movie_ids=None):
         return [primary.id] + [int(fid) for fid in format_movie_ids if str(fid).isdigit()]
 
     # 전체 하위영화 반환 (기존 동작)
+    # K001(0926): movie_code 쪽도 Trim — 코드에 공백이 섞인 대표영화가 자기 그룹에서
+    # 빠지지 않도록 (primary_movie_code만 Trim하던 비대칭 보완)
     related_movies = Movie.objects.annotate(
-        trimmed_code=Trim("primary_movie_code")
-    ).filter(Q(movie_code=base_code) | Q(trimmed_code=base_code))
+        trimmed_code=Trim("primary_movie_code"),
+        trimmed_own=Trim("movie_code"),
+    ).filter(Q(trimmed_own=base_code) | Q(trimmed_code=base_code))
 
     return list(related_movies.values_list("id", flat=True))
 
@@ -3786,10 +3789,23 @@ def _resolve_kofic_movie(movie_name):
 
     primaries = Movie.objects.filter(is_primary_movie=True).order_by("-release_date")
     exact = [m for m in primaries if _norm_movie_title(m.title_ko) == norm]
-    if len(exact) == 1:
+
+    # K001(0926): 괄호 접미만 다른 동명 대표영화('하나그리고둘' vs '하나그리고둘(2025)')가
+    # 함께 등록돼 있으면 자동 확정하지 않는다. KOBIS 제목('하나 그리고 둘')이 구작과
+    # 정규화 완전일치해 재개봉작 대신 구작으로 잘못 확정되면, 스코어가 재개봉작 그룹에
+    # 저장돼 있어 전 극장이 'CLMS 미등록'으로 오탐지된다 — 후보를 보여주고 직접 고르게 한다.
+    _strip_paren = lambda s: re.sub(r"\(.*?\)", "", str(s or ""))
+    pure = _norm_movie_title(_strip_paren(movie_name))
+    same_pure = (
+        [m for m in primaries if _norm_movie_title(_strip_paren(m.title_ko)) == pure]
+        if pure
+        else []
+    )
+
+    if len(exact) == 1 and len(same_pure) <= 1:
         return exact[0], exact
-    if exact:
-        return None, exact
+    if exact or len(same_pure) > 1:
+        return None, (same_pure if len(same_pure) > len(exact) else exact)
 
     partial = [
         m

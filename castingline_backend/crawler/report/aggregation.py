@@ -121,8 +121,20 @@ def _movie_units(main_title=None, competitors=None):
     대상 중 그 작품들만 집계 단위로 삼는다 (엑셀 다운로드의 경쟁작 선택과 동일).
     미지정이면 기존처럼 활성 크롤 대상 전체.
     """
-    units = []       # [{key, title}]
+    units = []       # [{key, title, alt_titles}]
     seen = set()
+
+    # C002(0926): 영화명 매핑(Alias) — 대표영화 키별 크롤링명 목록.
+    # 매핑된 크롤링명으로 저장된 (통일 이전) 행도 같은 작품으로 집계한다.
+    from crawler.models import CrawlTitleAlias
+    alias_by_key = {}
+    for a in CrawlTitleAlias.objects.filter(
+        is_active=True, target__is_active=True
+    ).select_related("target"):
+        t_clean, _ = MovieSchedule.parse_and_normalize_title(a.target.title)
+        t_key = MovieSchedule.normalize_title(t_clean)
+        if t_key:
+            alias_by_key.setdefault(t_key, []).append(a.crawl_title)
 
     def push(raw_title):
         clean, _ = MovieSchedule.parse_and_normalize_title(raw_title)
@@ -130,7 +142,14 @@ def _movie_units(main_title=None, competitors=None):
         if not key or key in seen:
             return
         seen.add(key)
-        units.append({"key": key, "title": clean})
+        # C001(0926): 표시 제목은 등록 원문 그대로 둔다 — parse_and_normalize_title이
+        # 메타태그 제거용으로 모든 괄호를 지우기 때문에 '암살자(들)' 같은 본제목의
+        # 괄호까지 잘려 보였다. 집계 키(key)는 기존 정규화를 유지해 매칭은 안 깨진다.
+        units.append({
+            "key": key,
+            "title": str(raw_title).strip(),
+            "alt_titles": alias_by_key.get(key, []),
+        })
 
     comp_keys = None
     if competitors:
@@ -207,8 +226,11 @@ def _collect(date_list, units, brands=None, maps=None):
         """
         if raw_title in title_cache:
             return title_cache[raw_title]
+        # C002(0926): 대표 제목 외에 영화명 매핑(Alias)의 크롤링명과도 매칭
         matched = [u["key"] for u in units
-                   if MovieSchedule.title_matches(u["title"], raw_title)]
+                   if MovieSchedule.title_matches(u["title"], raw_title)
+                   or any(MovieSchedule.title_matches(a, raw_title)
+                          for a in u.get("alt_titles", []))]
         title_cache[raw_title] = matched
         return matched
 

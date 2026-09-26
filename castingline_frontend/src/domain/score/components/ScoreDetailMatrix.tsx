@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import styled from "styled-components";
 import { useRecoilValue } from "recoil";
 import { ActiveTabIdState } from "../../../atom/TabState";
-import { AxiosGet, AxiosPatch, AxiosPost } from "../../../axios/Axios";
+import { AxiosGet, AxiosPost } from "../../../axios/Axios";
 import { useToast } from "../../../components/common/CustomToast";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
@@ -325,29 +325,32 @@ export function ScoreDetailMatrix({ selectedScore, allScores, setScores, setSele
         return Array.from(set).sort((a, b) => a - b);
     }, [dynamicFareList, serverMatrix]);
 
-    // 관 변경/추가 드롭다운
-    const handleAuditoriumSelect = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    // 관 추가 드롭다운 (S001): 선택된 행의 극장/영화/입회일을 그대로 물고
+    // 해당 관의 입력 매트릭스를 새로 연다. 기존 행의 관을 PATCH로 덮어쓰지 않는다
+    // (기존 스코어가 엉뚱한 관으로 이동하는 사고 방지 — '기존 관 수정'은 제공하지 않음).
+    // 입력값 저장은 bulk-save가 (관/요금/회차) 키로 update_or_create 하므로
+    // 해당 관에 스코어가 있든 없든 안전하게 동작한다.
+    const handleAuditoriumSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const code = e.target.value;
         if (!code || !selectedScore) return;
         const theater = auditoriumOptions.find((t) => t.auditorium === code);
         if (!theater) return;
+        if (selectedScore.auditorium === theater.auditorium) return;
+
+        if (isDirty) {
+            toast.warning("미저장 입력이 있습니다. 저장(Ctrl+S) 후 관을 추가해주세요.");
+            return;
+        }
 
         setSelectedScore({
             ...selectedScore,
+            id: null,
+            ids: undefined,
+            is_order_only: false,
             auditorium: theater.auditorium,
             auditorium_name: theater.auditorium_name,
             seat_count: theater.seat_count,
         });
-
-        if (selectedScore.id) {
-            try {
-                await AxiosPatch("scores", { auditorium: theater.auditorium }, selectedScore.id);
-                setScores(selectedScore.id);
-                toast.success("관 정보가 업데이트되었습니다.");
-            } catch (err) {
-                toast.error(handleBackendErrors(err));
-            }
-        }
     };
 
     // 로컬 셀 값 변경 (API 호출 없음)

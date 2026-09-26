@@ -87,6 +87,15 @@ class FundViewSet(viewsets.ModelViewSet):
         if client_id:
             queryset = queryset.filter(id=client_id)
 
+        # F001: 극장명 키워드 부분일치 조회 — 자동완성에서 선택하지 않고 검색했을 때
+        # 키워드가 포함된 극장 전체를 반환 (LIKE %키워드%). get_queryset에 두어
+        # 목록뿐 아니라 엑셀 내보내기(FundExcelExportView)에서도 동일하게 동작한다.
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(client_name__icontains=search) | Q(client_code__icontains=search)
+            )
+
         # 5. 기존 필터링 로직
         if multi_only and multi_only.lower() == "true":
             queryset = queryset.exclude(theater_kind="일반극장")

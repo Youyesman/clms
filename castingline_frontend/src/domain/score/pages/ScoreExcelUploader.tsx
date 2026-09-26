@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
-import { CloudArrowUp, WarningCircle, CheckCircle, FunnelIcon, MinusCircle } from "@phosphor-icons/react";
+import { CloudArrowUp, WarningCircle, CheckCircle, FunnelIcon, MinusCircle, PencilSimple, Trash } from "@phosphor-icons/react";
 import { AxiosPost } from "../../../axios/Axios";
 import { handleBackendErrors } from "../../../axios/handleBackendErrors";
 import { useToast } from "../../../components/common/CustomToast";
@@ -302,14 +302,59 @@ export function ScoreExcelUploader({
     // 필터 상태
     const [showOnlyErrors, setShowOnlyErrors] = useState(false);
     const [showMinusOnly, setShowMinusOnly] = useState(false);
+    // U001: 영화명 검색 필터 — 특정 영화 상영건만 모아 보고 일괄 선택/제외
+    const [movieFilter, setMovieFilter] = useState("");
 
-    // ✅ 필터링된 데이터 계산 (관객수 마이너스 기준)
-    const visibleData = useMemo(() => {
-        let filtered = previewData;
-        if (showOnlyErrors) filtered = filtered.filter((d) => !d.is_matched);
-        if (showMinusOnly) filtered = filtered.filter((d) => (parseInt(d.visitor) || 0) < 0);
-        return filtered;
-    }, [previewData, showOnlyErrors, showMinusOnly]);
+    // U001: 선택 제외용 행 선택 상태 (previewData 배열 인덱스 기준)
+    const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+
+    // U002: 행별 영화 수동 지정(Override) — 같은 표기 영화명 행 전체에 적용
+    const [editingMovieRow, setEditingMovieRow] = useState<{ movieName: string; count: number } | null>(null);
+    const [overrideMovieForm, setOverrideMovieForm] = useState<{ movie: { id?: string; title_ko: string } }>({
+        movie: { title_ko: "" },
+    });
+    const [overrideMovieInput, setOverrideMovieInput] = useState("");
+
+    // previewData가 갈리면(새 분석/제외 반영) 행 선택은 인덱스가 어긋나므로 초기화
+    useEffect(() => {
+        setSelectedRows(new Set());
+    }, [previewData]);
+
+    // ✅ 필터링된 데이터 계산 (원본 인덱스 보존 — 선택/제외에 필요)
+    const visibleEntries = useMemo(() => {
+        let entries = previewData.map((row, idx) => ({ row, idx }));
+        if (showOnlyErrors) entries = entries.filter(({ row }) => !row.is_matched);
+        if (showMinusOnly) entries = entries.filter(({ row }) => (parseInt(row.visitor) || 0) < 0);
+        const q = movieFilter.trim().toLowerCase();
+        if (q) {
+            entries = entries.filter(({ row }) =>
+                String(row.movie_name || "").toLowerCase().includes(q)
+            );
+        }
+        return entries;
+    }, [previewData, showOnlyErrors, showMinusOnly, movieFilter]);
+
+    // U001: 현재 보이는(필터 적용) 행 전체 선택 여부
+    const allVisibleSelected =
+        visibleEntries.length > 0 && visibleEntries.every(({ idx }) => selectedRows.has(idx));
+
+    const toggleSelectAllVisible = () => {
+        setSelectedRows((prev) => {
+            const next = new Set(prev);
+            if (allVisibleSelected) visibleEntries.forEach(({ idx }) => next.delete(idx));
+            else visibleEntries.forEach(({ idx }) => next.add(idx));
+            return next;
+        });
+    };
+
+    const toggleSelectRow = (idx: number) => {
+        setSelectedRows((prev) => {
+            const next = new Set(prev);
+            if (next.has(idx)) next.delete(idx);
+            else next.add(idx);
+            return next;
+        });
+    };
 
     // ✅ 전체 합계 계산
     const totals = useMemo(() => {
@@ -601,6 +646,58 @@ export function ScoreExcelUploader({
         }
     };
 
+    // U001: 선택한 행을 미리보기에서 제외 — 저장·오더 자동 생성이 완전히 차단된다
+    // (confirm_save/오더 미리보기는 previewData만 바라보므로 제외 즉시 반영)
+    const handleExcludeSelected = () => {
+        const count = selectedRows.size;
+        if (count === 0) {
+            toast.warning("제외할 행을 선택해주세요.");
+            return;
+        }
+        showAlert(
+            `선택한 ${count.toLocaleString()}건을 업로드에서 제외하시겠습니까?`,
+            "제외된 상영건은 스코어 저장과 오더 자동 생성 대상에서 완전히 빠집니다. (파일을 다시 업로드하면 복원됩니다)",
+            "warning",
+            () => {
+                setPreviewData((prev) => prev.filter((_, i) => !selectedRows.has(i)));
+                setSelectedRows(new Set());
+                toast.success(`${count.toLocaleString()}건이 제외되었습니다.`);
+            },
+            true
+        );
+    };
+
+    // U002: 영화 수동 지정(Override) 적용 — 자동 파싱 결과보다 사용자가 고른
+    // 영화(포맷 포함)가 우선한다. 같은 표기의 영화명 행 전체에 한 번에 적용.
+    const applyMovieOverride = () => {
+        const m = overrideMovieForm.movie;
+        if (!m?.id || !editingMovieRow) {
+            toast.warning("지정할 영화를 검색해 선택해주세요.");
+            return;
+        }
+        const targetName = editingMovieRow.movieName;
+        setPreviewData((prev) =>
+            prev.map((row) => {
+                if (row.movie_name !== targetName) return row;
+                // '영화 없음' 계열 에러만 걷어내고 나머지(관/극장 에러)는 유지
+                const errParts = String(row.match_error || "")
+                    .split(" / ")
+                    .filter((p) => p && !p.startsWith("영화 없음"));
+                return {
+                    ...row,
+                    movie_id: Number(m.id),
+                    movie_name: m.title_ko,
+                    match_error: errParts.join(" / "),
+                    is_matched: errParts.length === 0,
+                };
+            })
+        );
+        setEditingMovieRow(null);
+        setOverrideMovieForm({ movie: { title_ko: "" } });
+        setOverrideMovieInput("");
+        toast.success(`영화가 '${m.title_ko}'(으)로 수동 지정되었습니다.`);
+    };
+
     return (
         <Container>
             {previewData.length === 0 ? (
@@ -688,13 +785,93 @@ export function ScoreExcelUploader({
                                 <FunnelIcon size={16} weight={showOnlyErrors ? "fill" : "bold"} />
                                 에러 데이터만 보기 ({previewData.filter((d) => !d.is_matched).length}건)
                             </label>
+
+                            {/* U001: 영화명 검색 필터 — 특정 영화 상영건만 모아 일괄 선택/제외 */}
+                            <input
+                                type="text"
+                                placeholder="영화명 필터"
+                                value={movieFilter}
+                                onChange={(e) => setMovieFilter(e.target.value)}
+                                style={{
+                                    height: "28px", padding: "0 10px", border: "1px solid #cbd5e1",
+                                    borderRadius: "6px", fontSize: "12px", outline: "none", width: "180px",
+                                }}
+                            />
+                            {movieFilter.trim() && (
+                                <span style={{ fontSize: "12px", color: "#2563eb", fontWeight: 700 }}>
+                                    {visibleEntries.length.toLocaleString()}건 표시
+                                </span>
+                            )}
+                        </div>
+
+                        {/* U001: 선택 항목 제외 */}
+                        <div className="filter-group">
+                            {selectedRows.size > 0 && (
+                                <span style={{ fontSize: "12px", fontWeight: 700, color: "#dc2626" }}>
+                                    {selectedRows.size.toLocaleString()}건 선택됨
+                                </span>
+                            )}
+                            <StyledButton
+                                $disabled={selectedRows.size === 0}
+                                disabled={selectedRows.size === 0}
+                                onClick={handleExcludeSelected}
+                                title="체크한 상영건을 저장·오더 생성 대상에서 제외합니다."
+                                style={{ height: "28px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                <Trash size={14} />
+                                선택 항목 제외
+                            </StyledButton>
                         </div>
                     </FilterBar>
+
+                    {/* U002: 영화 수동 지정(Override) 패널 */}
+                    {editingMovieRow && (
+                        <div style={{
+                            display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px",
+                            border: "1px solid #bfdbfe", borderRadius: "6px", background: "#eff6ff",
+                        }}>
+                            <span style={{ fontSize: "12.5px", fontWeight: 700, color: "#1d4ed8", whiteSpace: "nowrap" }}>
+                                영화 수동 지정 — "{editingMovieRow.movieName}" ({editingMovieRow.count.toLocaleString()}건)
+                            </span>
+                            <div style={{ flex: 1, maxWidth: "420px" }}>
+                                <AutocompleteInputMovie
+                                    label=""
+                                    formData={overrideMovieForm}
+                                    setFormData={setOverrideMovieForm}
+                                    inputValue={overrideMovieInput}
+                                    setInputValue={setOverrideMovieInput}
+                                    placeholder="지정할 영화 검색 (포맷별로 표시)"
+                                    labelWidth="0px"
+                                />
+                            </div>
+                            <StyledButton $primary onClick={applyMovieOverride} style={{ height: "28px" }}>
+                                적용
+                            </StyledButton>
+                            <StyledButton
+                                onClick={() => {
+                                    setEditingMovieRow(null);
+                                    setOverrideMovieForm({ movie: { title_ko: "" } });
+                                    setOverrideMovieInput("");
+                                }}
+                                style={{ height: "28px" }}>
+                                취소
+                            </StyledButton>
+                        </div>
+                    )}
 
                     <PreviewWrapper>
                         <PreviewTable>
                             <thead>
                                 <tr>
+                                    {/* U001: 선택 제외용 체크박스 (보이는 행 전체 선택) */}
+                                    <th style={{ width: "34px", textAlign: "center" }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleSelected}
+                                            onChange={toggleSelectAllVisible}
+                                            style={{ cursor: "pointer" }}
+                                            title="보이는 행 전체 선택/해제"
+                                        />
+                                    </th>
                                     <th>상태</th>
                                     <th>사유</th>
                                     <th>상영일자</th>
@@ -707,14 +884,14 @@ export function ScoreExcelUploader({
                                 </tr>
                             </thead>
                             <tbody>
-                                {visibleData.length === 0 ? (
+                                {visibleEntries.length === 0 ? (
                                     <tr>
-                                        <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>
+                                        <td colSpan={10} style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>
                                             표시할 데이터가 없습니다.
                                         </td>
                                     </tr>
                                 ) : (
-                                    visibleData.map((row, idx) => {
+                                    visibleEntries.map(({ row, idx }) => {
                                         const isMinusVisitor = (parseInt(row.visitor) || 0) < 0;
                                         const isError = !row.is_matched;
                                         // 극장은 매칭됐으나 관(상영관)이 없어서 난 에러 → 인라인 관 등록 가능
@@ -726,6 +903,14 @@ export function ScoreExcelUploader({
 
                                         return (
                                             <tr key={idx} className={`${isError ? "error" : ""} ${isMinusVisitor ? "minus-error" : ""}`}>
+                                                <td style={{ textAlign: "center" }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedRows.has(idx)}
+                                                        onChange={() => toggleSelectRow(idx)}
+                                                        style={{ cursor: "pointer" }}
+                                                    />
+                                                </td>
                                                 <td style={{ textAlign: "center" }}>
                                                     {isError ? (
                                                         <WarningCircle size={18} color="#dc2626" />
@@ -764,7 +949,29 @@ export function ScoreExcelUploader({
                                                     )}
                                                 </td>
                                                 <td>{row.entry_date}</td>
-                                                <td>{row.movie_name}</td>
+                                                <td>
+                                                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                                        {row.movie_name}
+                                                        {/* U002: 영화 수동 지정(Override) — 같은 표기 행 전체에 적용 */}
+                                                        <button
+                                                            type="button"
+                                                            title="영화 수동 지정 (같은 영화명 행 전체 적용)"
+                                                            onClick={() =>
+                                                                setEditingMovieRow({
+                                                                    movieName: row.movie_name,
+                                                                    count: previewData.filter(
+                                                                        (d) => d.movie_name === row.movie_name
+                                                                    ).length,
+                                                                })
+                                                            }
+                                                            style={{
+                                                                border: "none", background: "none", cursor: "pointer",
+                                                                color: "#94a3b8", padding: "0 2px", lineHeight: 1,
+                                                            }}>
+                                                            <PencilSimple size={13} />
+                                                        </button>
+                                                    </span>
+                                                </td>
                                                 <td>{row.client_name}</td>
                                                 <td>{row.display_auditorium}</td>
                                                 <td>{row.show_count}</td>
@@ -783,7 +990,7 @@ export function ScoreExcelUploader({
                             </tbody>
                             <tfoot>
                                 <TotalRow>
-                                    <td colSpan={7} style={{ textAlign: "center" }}>전체 합계</td>
+                                    <td colSpan={8} style={{ textAlign: "center" }}>전체 합계</td>
                                     <td style={{ textAlign: "right", color: "#2563eb" }}>{totals.fare.toLocaleString()}</td>
                                     <td style={{ textAlign: "right" }}>{totals.visitor.toLocaleString()}</td>
                                 </TotalRow>
@@ -862,7 +1069,15 @@ export function ScoreExcelUploader({
                     )}
 
                     <ActionFooter>
-                        <StyledButton onClick={() => { setPreviewData([]); setUploadedFile(null); setEditingTheater(null); setEditingClient(null); }}>
+                        <StyledButton onClick={() => {
+                            setPreviewData([]);
+                            setUploadedFile(null);
+                            setEditingTheater(null);
+                            setEditingClient(null);
+                            setEditingMovieRow(null);
+                            setMovieFilter("");
+                            setSelectedRows(new Set());
+                        }}>
                             다시 업로드
                         </StyledButton>
                         <StyledButton
