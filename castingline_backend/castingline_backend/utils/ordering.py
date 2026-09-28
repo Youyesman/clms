@@ -41,6 +41,17 @@ class KoreanOrderingFilter(OrderingFilter):
             ]
 
         if ordering:
+            # P002(0928): 정렬 키가 같은 행(예: 지역이 같은 수십 개 극장)은 DB가 임의 순서로
+            # 돌려줘 페이지를 넘길 때 순서가 흔들린다. 뷰가 지정한 보조 정렬키(ordering_tiebreakers)와
+            # pk를 뒤에 붙여 [지역 → 극장명 → pk] 처럼 항상 결정적으로 정렬되게 한다.
+            seen = {f.lstrip("-") for f in ordering}
+            for tb in getattr(view, "ordering_tiebreakers", []) or []:
+                if tb.lstrip("-") not in seen:
+                    ordering = list(ordering) + [tb]
+                    seen.add(tb.lstrip("-"))
+            if "pk" not in seen and "id" not in seen:
+                ordering = list(ordering) + ["pk"]
+
             new_ordering = []
             target_collation = "ko-KR-x-icu"
             model = queryset.model

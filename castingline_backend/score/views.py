@@ -1674,14 +1674,20 @@ def _normalize_multi(theater_kind, is_car_theater):
 def score_seat_rate(request):
     """
     좌석판매율 현황 API
-    GET /Api/score/seat-rate/?movie_id=1&date=2025-02-11
-    집계단위: 날짜 + 극장 (특정 날짜 단일)
+    GET /Api/score/seat-rate/?movie_id=1&date_from=2025-02-11&date_to=2025-02-17
+    (하위호환: date=YYYY-MM-DD 단일 날짜)
+    집계단위: 기간 내 합산 + 극장 (V001 0928: 하루 → From~To 기간 합산)
+    좌석수는 [관 좌석수 × 관객이 있는 (날짜×회차) 수] 로 기간 전체를 합산한다.
     """
     movie_id = request.query_params.get("movie_id")
-    date_str = request.query_params.get("date")
+    date_from = request.query_params.get("date_from") or request.query_params.get("date")
+    date_to = request.query_params.get("date_to") or date_from
 
-    if not movie_id or not date_str:
-        return Response({"error": "movie_id, date 필수"}, status=400)
+    if not movie_id or not date_from:
+        return Response({"error": "movie_id, date_from(또는 date) 필수"}, status=400)
+    if date_to < date_from:
+        date_from, date_to = date_to, date_from
+    date_str = date_from if date_from == date_to else f"{date_from} ~ {date_to}"
 
     # 포맷(서브영화) 필터
     format_ids_str = request.query_params.get("format_movie_ids", "")
@@ -1700,8 +1706,8 @@ def score_seat_rate(request):
     # ── 1. Score 집계: (client_id, auditorium, show_count, fare) → sum(visitor) ──
     qs = list(
         Score.objects
-        .filter(movie_id__in=movie_ids, entry_date=date_str)
-        .values("client_id", "auditorium", "show_count", "fare")
+        .filter(movie_id__in=movie_ids, entry_date__range=(date_from, date_to))
+        .values("client_id", "auditorium", "show_count", "fare", "entry_date")
         .annotate(total_visitor=Sum(Cast("visitor", IntegerField())))
     )
 
@@ -1710,6 +1716,8 @@ def score_seat_rate(request):
             "movie_title": primary.title_ko if primary else "",
             "release_date": str(primary.release_date) if primary and primary.release_date else "",
             "date": date_str,
+            "date_from": date_from,
+            "date_to": date_to,
         }
         return Response({"meta": meta, "summary": [], "detail": []})
 
@@ -1747,14 +1755,15 @@ def score_seat_rate(request):
             ""
         )
 
-    # ── 4. (관별×회차별) 집계: 관객수·매출액 계산 ──
-    # aud_show_map: {(client_id, auditorium, show_count): {visitor, revenue}}
+    # ── 4. (관별×날짜×회차별) 집계: 관객수·매출액 계산 ──
+    # aud_show_map: {(client_id, auditorium, entry_date, show_count): {visitor, revenue}}
+    # 날짜를 키에 넣어야 기간 조회 시 날짜마다 회차가 따로 세어져 좌석수가 정확히 합산된다.
     aud_show_data = defaultdict(lambda: {"visitor": 0, "revenue": 0})
 
     for row in qs:
         cid = row["client_id"]
         aud = row["auditorium"] or ""
-        sc = row["show_count"] or ""
+        sc = (str(row["entry_date"]), row["show_count"] or "")
         try:
             fare_int = int(row["fare"] or 0)
         except (ValueError, TypeError):
@@ -1896,6 +1905,8 @@ def score_seat_rate(request):
         "movie_title": primary.title_ko if primary else "",
         "release_date": str(primary.release_date) if primary and primary.release_date else "",
         "date": date_str,
+        "date_from": date_from,
+        "date_to": date_to,
     }
 
     return Response({"meta": meta, "summary": summary, "detail": detail_rows})

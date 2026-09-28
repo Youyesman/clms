@@ -689,6 +689,7 @@ export function ScoreExcelUploader({
                     movie_name: m.title_ko,
                     match_error: errParts.join(" / "),
                     is_matched: errParts.length === 0,
+                    match_note: "영화 수동 지정됨",
                 };
             })
         );
@@ -711,12 +712,15 @@ export function ScoreExcelUploader({
                             setFormData={setMovieForm}
                             inputValue={movieInput}
                             setInputValue={setMovieInput}
-                            placeholder="영진위(일반극장) 업로드 시 영화 검색 (포맷별로 표시)"
+                            placeholder="영화(포맷) 검색 — 영진위 파일은 필수, 그 외 파일은 선택 시 강제 매핑"
                             labelWidth="70px"
                         />
                     </div>
                     <div style={{ marginTop: "6px", fontSize: "11px", color: "#94a3b8" }}>
                         ※ 영진위 일반극장 파일은 영화를 먼저 선택하세요. (CGV·메가박스·롯데는 자동 제외됩니다.)
+                        <br />
+                        ※ CGV·메가박스·롯데·씨네큐 파일도 영화(포맷)를 선택해 올리면 자동 인식 결과 대신
+                        선택한 영화로 강제 매핑됩니다. (같은 제목의 다른 포맷 / 미매칭 행에 적용)
                     </div>
                 </div>
                 <DropZone
@@ -925,6 +929,15 @@ export function ScoreExcelUploader({
                                                         {isMinusVisitor && "[마이너스 관객] "}
                                                         {row.match_error}
                                                     </ErrorText>
+                                                    {/* U002(0928): 대표영화 폴백/강제 매핑 등 주의 표시 */}
+                                                    {row.match_note && (
+                                                        <span style={{
+                                                            display: "block", fontSize: "11px", fontWeight: 600,
+                                                            color: row.match_note.includes("권장") ? "#b45309" : "#1d4ed8",
+                                                        }}>
+                                                            ⚠ {row.match_note}
+                                                        </span>
+                                                    )}
                                                     {isAudMissing && (
                                                         <FixButton
                                                             type="button"
@@ -1069,9 +1082,11 @@ export function ScoreExcelUploader({
                     )}
 
                     <ActionFooter>
-                        <StyledButton onClick={() => {
+                        <StyledButton
+                            title="미리보기를 닫습니다. 파일은 보관되므로 상단에서 영화(포맷)를 고르면 같은 파일을 선택값으로 재분석합니다."
+                            onClick={() => {
                             setPreviewData([]);
-                            setUploadedFile(null);
+                            // U002(0928): 파일은 보관 — 영화(포맷) 선택값 변경만으로 재분석 가능
                             setEditingTheater(null);
                             setEditingClient(null);
                             setEditingMovieRow(null);

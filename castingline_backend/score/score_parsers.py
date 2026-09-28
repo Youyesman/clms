@@ -33,6 +33,20 @@ def _norm_title(s):
     return _TITLE_NORM_RE.sub("", s).lower()
 
 
+# U002(0928): 포맷 속성 비교 정규화 — DB('4-DX', 'Super-4D', 'IMAX-L')와 파서 판정값
+# ('4DX' 등)의 하이픈/대소문자/공백 표기 차이로 하위영화 매칭이 실패하지 않도록 한다.
+# (실제 장애: CGV '(4DX 2D)' 파일이 DB '4-DX' 하위영화와 불일치 → 대표영화 폴백 →
+#  포맷 비어있는 중복 오더 자동 생성)
+def _attr_key(v):
+    if v is None:
+        return ""
+    return re.sub(r"[\s\-_]", "", str(v)).upper()
+
+
+def _attr_eq(a, b):
+    return _attr_key(a) == _attr_key(b)
+
+
 def _read_excel(file, **kwargs):
     """엑셀을 읽되 openpyxl이 손상된 셀로 실패하면 calamine 엔진으로 재시도한다.
 
@@ -257,6 +271,8 @@ class BulkMatcher:
         """
         # 1. 속성 추출 (수정된 7개 필드 기준)
         attr = parse_screening_attributes(f"{original_excel_movie_text} {type_str}")
+        # U002(0928): 대표영화 폴백 등 '주의' 메시지 — 미리보기 행에 match_note 로 전달
+        self.last_match_note = ""
 
         # U002(0926): 극장별 영화명 매핑(Alias) — 엑셀 원문/제목이 매핑에 등록돼
         # 있으면 대표 영화명으로 치환한 뒤 기존 매칭을 태운다. (포맷 속성은
@@ -280,13 +296,13 @@ class BulkMatcher:
             for m in movie_list:
                 # 1순위: 7개 전체 속성 정확히 일치
                 if (
-                    m.media_type == attr["media_type"]
-                    and m.audio_mode == attr["audio_mode"]
-                    and m.viewing_dimension == attr["viewing_dimension"]
-                    and m.screening_type == attr["screening_type"]
-                    and m.dx4_viewing_dimension == attr["dx4_viewing_dimension"]
-                    and m.imax_l == attr["imax_l"]
-                    and m.screen_x == attr["screen_x"]
+                    _attr_eq(m.media_type, attr["media_type"])
+                    and _attr_eq(m.audio_mode, attr["audio_mode"])
+                    and _attr_eq(m.viewing_dimension, attr["viewing_dimension"])
+                    and _attr_eq(m.screening_type, attr["screening_type"])
+                    and _attr_eq(m.dx4_viewing_dimension, attr["dx4_viewing_dimension"])
+                    and _attr_eq(m.imax_l, attr["imax_l"])
+                    and _attr_eq(m.screen_x, attr["screen_x"])
                 ):
                     return m
 
@@ -294,19 +310,19 @@ class BulkMatcher:
                 # 2순위: 유연한 매칭 (2D/자막 DB 공백 허용)
                 # 고정 속성 체크
                 if not (
-                    m.media_type == attr["media_type"]
-                    and m.screening_type == attr["screening_type"]
-                    and m.dx4_viewing_dimension == attr["dx4_viewing_dimension"]
-                    and m.imax_l == attr["imax_l"]
-                    and m.screen_x == attr["screen_x"]
+                    _attr_eq(m.media_type, attr["media_type"])
+                    and _attr_eq(m.screening_type, attr["screening_type"])
+                    and _attr_eq(m.dx4_viewing_dimension, attr["dx4_viewing_dimension"])
+                    and _attr_eq(m.imax_l, attr["imax_l"])
+                    and _attr_eq(m.screen_x, attr["screen_x"])
                 ):
                     continue
 
-                audio_ok = (m.audio_mode == attr["audio_mode"]) or (not m.audio_mode)
+                audio_ok = _attr_eq(m.audio_mode, attr["audio_mode"]) or (not m.audio_mode)
                 view_ok = (
-                    (m.viewing_dimension == "2D" or not m.viewing_dimension)
+                    (_attr_eq(m.viewing_dimension, "2D") or not m.viewing_dimension)
                     if attr["viewing_dimension"] == "2D"
-                    else (m.viewing_dimension == attr["viewing_dimension"])
+                    else _attr_eq(m.viewing_dimension, attr["viewing_dimension"])
                 )
 
                 if audio_ok and view_ok:
@@ -355,6 +371,11 @@ class BulkMatcher:
             exact = [m for m in candidates if m.title_pure_norm == norm_raw]
             pool = exact or candidates
             matched = next((m for m in pool if m.is_primary_movie), pool[0])
+            # U002(0928): 포맷 하위영화 없이 대표영화로 붙는 경우는 저장을 막지는 않되
+            # 미리보기에 주의 표시 → 사용자가 [영화 수동 지정]으로 포맷을 강제할 수 있게 한다.
+            # (이 상태로 저장하면 포맷 비어있는 오더가 자동 생성됨)
+            if matched.is_primary_movie:
+                self.last_match_note = "포맷 하위영화 미일치 → 대표영화로 매칭됨 (포맷 수동 지정 권장)"
 
         parts = [attr["media_type"]]
         for key in [
@@ -413,9 +434,9 @@ def parse_screening_attributes(text):
     elif "ATMOS" in u:
         attr["screening_type"] = "ATMOS"
 
-    # 4. dx4_viewing_dimension (4DX/Super-4D/Dolby)
+    # 4. dx4_viewing_dimension (4DX/Super-4D/Dolby) — DB 저장 표기('4-DX')와 동일하게
     if "4DX" in u or "4-DX" in u:
-        attr["dx4_viewing_dimension"] = "4DX"
+        attr["dx4_viewing_dimension"] = "4-DX"
     elif "SUPER4D" in u:
         attr["dx4_viewing_dimension"] = "Super-4D"
     elif "DOLBY" in u:
@@ -505,7 +526,47 @@ def handle_score_file_upload(file, movie_id=None):
     # 프론트가 멀티 종류별 저장 정책(메일함 파일명 단위 교체 — M001)을 판단할 수 있게 전달
     if "error" not in result:
         result["file_type"] = file_type
+        # U002(0928): 영진위 외 파일도 업로드 화면에서 영화(포맷)를 선택해 올리면
+        # 자동 파싱 결과보다 선택값을 우선 적용(강제 매핑)한다.
+        if file_type != "영진위" and movie_id:
+            _apply_forced_movie(result.get("data") or [], movie_id)
     return result
+
+
+def _apply_forced_movie(rows, movie_id):
+    """업로드 화면에서 사용자가 고른 영화(포맷)를 미리보기 행에 강제 적용한다.
+
+    대상 행: ① 영화 매칭에 실패한 행 ② 같은 대표영화 계열(제목 동일, 포맷만 다름)로
+    자동 매칭된 행. 전혀 다른 영화로 매칭된 행(여러 영화가 섞인 파일)은 건드리지 않는다.
+    """
+    try:
+        forced = Movie.objects.get(id=movie_id)
+    except (Movie.DoesNotExist, ValueError, TypeError):
+        return
+    forced_base = (
+        forced.movie_code if forced.is_primary_movie else forced.primary_movie_code
+    ) or ""
+    forced_base = forced_base.strip()
+
+    matched_ids = {r.get("movie_id") for r in rows if r.get("movie_id")}
+    family = {}
+    for m in Movie.objects.filter(id__in=matched_ids):
+        base = (m.movie_code if m.is_primary_movie else m.primary_movie_code) or ""
+        family[m.id] = base.strip()
+
+    for r in rows:
+        mid = r.get("movie_id")
+        if mid and family.get(mid) != forced_base:
+            continue
+        r["movie_id"] = forced.id
+        r["movie_name"] = forced.title_ko
+        errs = [
+            e for e in str(r.get("match_error") or "").split(" / ")
+            if e and not e.startswith("영화 없음")
+        ]
+        r["match_error"] = " / ".join(errs)
+        r["is_matched"] = not errs
+        r["match_note"] = "업로드 시 선택한 영화로 강제 매핑됨"
 
 
 def _is_excluded_kofic_theater(theater_name):
@@ -787,6 +848,7 @@ def preview_cgv_format(file):
                                 "visitor": int(vis),
                                 "is_matched": not match_errs,
                                 "match_error": " / ".join(match_errs),
+                                "match_note": matcher.last_match_note,
                             }
                         )
         return {"data": preview_data}
@@ -883,6 +945,7 @@ def preview_megabox_format(file):
                     "visitor": int(row["매수"]),
                     "is_matched": not match_errs,
                     "match_error": " / ".join(match_errs),
+                    "match_note": matcher.last_match_note,
                 }
             )
         return {"data": preview_data}
@@ -957,6 +1020,7 @@ def preview_lotte_format(file):
                     "visitor": int(row["매수"]),
                     "is_matched": not match_errs,
                     "match_error": " / ".join(match_errs),
+                    "match_note": matcher.last_match_note,
                 }
             )
         return {"data": preview_data}
@@ -1026,6 +1090,7 @@ def preview_cineq_format(file):
                                 "visitor": int(vis),
                                 "is_matched": not match_errs,
                                 "match_error": " / ".join(match_errs),
+                                "match_note": matcher.last_match_note,
                             }
                         )
         return {"data": preview_data}

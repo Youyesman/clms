@@ -59,7 +59,7 @@ interface DetailRow {
 }
 
 interface SeatRateData {
-    meta: { movie_title: string; release_date: string; date: string } | null;
+    meta: { movie_title: string; release_date: string; date: string; date_from?: string; date_to?: string } | null;
     summary: SummaryRow[];
     detail: DetailRow[];
 }
@@ -240,11 +240,17 @@ export function SeatRatePage() {
     const [data, setData] = useState<SeatRateData>({ meta: null, summary: [], detail: [] });
     const [loading, setLoading] = useState(false);
 
+    // V001(0928): 하루 조회 → 기간(From~To) 조회로 변경. 기간 내 데이터는 합산 표기.
     const [searchParams, setSearchParams] = useState({
         yyyy: scoreFilter.yyyy,
         movie_id: scoreFilter.movieId,
-        date: scoreFilter.date,
+        dateFrom: scoreFilter.dateFrom || scoreFilter.date,
+        dateTo: scoreFilter.dateTo || scoreFilter.date,
     });
+    const periodLabel =
+        searchParams.dateFrom === searchParams.dateTo
+            ? searchParams.dateFrom
+            : `${searchParams.dateFrom}~${searchParams.dateTo}`;
 
     // 포맷(서브영화)
     const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
@@ -312,7 +318,8 @@ export function SeatRatePage() {
         AxiosGet(`score/seat-rate/`, {
             params: {
                 movie_id: searchParams.movie_id,
-                date: searchParams.date,
+                date_from: searchParams.dateFrom,
+                date_to: searchParams.dateTo,
                 ...(formatIds ? { format_movie_ids: formatIds } : {}),
             },
         })
@@ -323,12 +330,20 @@ export function SeatRatePage() {
             )
             .catch((err) => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
-    }, [searchParams.movie_id, searchParams.date, selectedFormats, formatOptions, toast]);
+    }, [searchParams.movie_id, searchParams.dateFrom, searchParams.dateTo, selectedFormats, formatOptions, toast]);
 
     // 조회는 검색 버튼으로만 실행 — 필터를 바꿔도 자동 조회하지 않는다 (정산조회와 동일)
     const handleSearch = () => {
         if (!searchParams.movie_id) {
             toast.error("영화를 선택해 주세요.");
+            return;
+        }
+        if (!searchParams.dateFrom || !searchParams.dateTo) {
+            toast.error("조회 기간(시작일~종료일)을 선택해 주세요.");
+            return;
+        }
+        if (searchParams.dateFrom > searchParams.dateTo) {
+            toast.error("시작일이 종료일보다 늦을 수 없습니다.");
             return;
         }
         fetchData();
@@ -407,17 +422,17 @@ export function SeatRatePage() {
         });
 
         const n = downloadExcel(
-            `스코어_좌석판매율_${meta?.movie_title || ""}_${searchParams.date}`,
+            `스코어_좌석판매율_${meta?.movie_title || ""}_${periodLabel}`,
             [
                 {
-                    caption: `[멀티별 좌석판매율 요약] ${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${meta?.date || searchParams.date}`,
+                    caption: `[멀티별 좌석판매율 요약] ${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준기간: ${meta?.date || periodLabel}`,
                     headers: [["영화관", "관객수(명)", "좌석수", "좌석판매율(%)", ...REGIONS]],
                     rows: summaryRows,
                 },
                 {
                     caption: `[극장별 좌석판매율 상세]${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
                     headers: [[
-                        "멀티구분", "순위", "지역", "구분", "극장", "상영일",
+                        "멀티구분", "순위", "지역", "구분", "극장", "상영기간",
                         "관객수(명)", "매출액(원)", "상영횟수", "좌석수", "좌석판매율(%)",
                     ]],
                     rows: detailRows,
@@ -472,11 +487,21 @@ export function SeatRatePage() {
                     <div>
                         <CustomInput
                             inputType="date"
-                            label="날짜"
-                            value={searchParams.date}
+                            label="시작일"
+                            value={searchParams.dateFrom}
                             setValue={(v) => {
-                                setSearchParams((p) => ({ ...p, date: v }));
-                                setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                                setSearchParams((p) => ({ ...p, dateFrom: v }));
+                                setScoreFilter((f) => ({ ...f, date: v, dateFrom: v }));
+                            }} variant="chip" />
+                    </div>
+                    <div>
+                        <CustomInput
+                            inputType="date"
+                            label="종료일"
+                            value={searchParams.dateTo}
+                            setValue={(v) => {
+                                setSearchParams((p) => ({ ...p, dateTo: v }));
+                                setScoreFilter((f) => ({ ...f, dateTo: v }));
                             }} variant="chip" />
                     </div>
                     <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
@@ -497,8 +522,8 @@ export function SeatRatePage() {
                     <MovieInfo>
                         {meta.movie_title}
                         <span>
-                            (개봉일: {meta.release_date || "-"} | 기준일:{" "}
-                            {meta.date})
+                            (개봉일: {meta.release_date || "-"} | 기준기간:{" "}
+                            {meta.date} — 기간 내 합산)
                         </span>
                     </MovieInfo>
                 )}
@@ -581,7 +606,7 @@ export function SeatRatePage() {
                                     <th style={{ minWidth: 120, textAlign: "left" }}>
                                         극장
                                     </th>
-                                    <th>상영일</th>
+                                    <th>상영기간</th>
                                     <th>관객수(명)</th>
                                     <th>매출액(원)</th>
                                     <th>상영횟수</th>

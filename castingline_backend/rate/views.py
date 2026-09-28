@@ -120,6 +120,8 @@ class RateViewSet(viewsets.ModelViewSet):
         'region_code': 'client__region_code',
         'classification': 'client__classification',
     }
+    # P002(0928): 지역/구분처럼 동률이 많은 정렬은 극장명으로 2차 정렬 (페이지 순서 안정)
+    ordering_tiebreakers = ['client__client_name']
 
     def get_queryset(self):
         qs = super().get_queryset()

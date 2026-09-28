@@ -246,23 +246,59 @@ export function ManageScore() {
         );
     };
 
-    const handleAddScore = async () => {
+    // S001(0928): [+ 관 추가]는 선택된 행(체크 또는 클릭)의 극장/영화/입회일자를 그대로 물고
+    // 신규 관 행을 만든다. 상단 검색창에 극장·영화를 매번 지정할 필요 없음.
+    // 선택된 행이 없을 때만 예전처럼 필터 조건을 사용한다.
+    const resolveAddBase = (): { client_id: number; movie_id: number; entry_date: string; label: string } | null => {
+        // 1) 체크된 행 우선 (검색할 때마다 초기화되므로 현재 목록 기준이 보장됨)
+        const checked = selectedIds.length > 0
+            ? flatScores.find((i) => i.id != null && selectedIds.includes(i.id))
+            : undefined;
+        // 2) 클릭(하이라이트)한 행 — 현재 목록에 있는 행일 때만 인정 (이전 검색 잔존값 방지)
+        const clicked =
+            selectedScore &&
+            flatScores.some((i) =>
+                i.id != null && selectedScore.id != null
+                    ? i.id === selectedScore.id
+                    : i.client?.id === selectedScore.client?.id &&
+                      i.movie?.id === selectedScore.movie?.id &&
+                      i.auditorium === selectedScore.auditorium,
+            )
+                ? selectedScore
+                : null;
+        const base = checked || clicked;
+        if (base && base.client?.id && base.movie?.id && base.entry_date) {
+            return {
+                client_id: base.client.id,
+                movie_id: base.movie.id,
+                entry_date: base.entry_date,
+                label: `${base.client.client_name} / ${base.movie.title_ko}`,
+            };
+        }
         const { entry_date, client, movie } = searchParams;
-        if (!entry_date || !client?.id || !movie?.id) {
-            toast.warning("필터에서 극장, 영화, 날짜를 모두 선택해주세요.");
+        if (entry_date && client?.id && movie?.id) {
+            return { client_id: client.id, movie_id: movie.id, entry_date, label: `${client.client_name} / ${movie.title_ko}` };
+        }
+        return null;
+    };
+
+    const handleAddScore = async () => {
+        const base = resolveAddBase();
+        if (!base) {
+            toast.warning("관을 추가할 행을 선택하거나, 필터에서 극장·영화·날짜를 모두 선택해주세요.");
             return;
         }
         try {
             const payload = {
-                client: client.id,
-                movie: movie.id,
-                entry_date,
+                client: base.client_id,
+                movie: base.movie_id,
+                entry_date: base.entry_date,
                 auditorium: "",
                 fare: null,
                 visitor: null,
             };
             const res = await AxiosPost("scores", payload);
-            toast.success("새 스코어가 생성되었습니다.");
+            toast.success(`[${base.label}] 신규 관 행이 추가되었습니다. 관을 선택해 입력하세요.`);
             await handleSearch(res.data.id);
         } catch (error) {
             toast.error(handleBackendErrors(error));
@@ -327,7 +363,7 @@ export function ManageScore() {
                                 <span style={{ fontSize: "11px", color: "#64748b" }}>
                                     {selectedIds.length}건 선택됨
                                 </span>
-                                <CustomIconButton color="blue" onClick={handleAddScore} title="스코어 추가">
+                                <CustomIconButton color="blue" onClick={handleAddScore} title="관 추가 (선택한 행의 극장/영화 기준)">
                                     <PlusIcon weight="bold" />
                                 </CustomIconButton>
                                 <CustomIconButton
