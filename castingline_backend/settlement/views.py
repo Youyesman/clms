@@ -1,4 +1,5 @@
 import calendar
+import copy
 import os
 import re
 import openpyxl
@@ -2403,8 +2404,28 @@ class SettlementEseroExportView(SettlementListView):
                 return f"{yyyy}{mm:02d} '{display_movie_title}' 부금정산({branch})"
             return f"[{display_movie_title}]{mm}월 극장부금"
 
+        # 템플릿은 서식(배경·테두리·텍스트 형식·행 높이)이 정해진 행까지만 칠해져 있다
+        # (under100=105행, over100=488행). 그 아래로 넘치는 행은 첫 데이터 행(7행)의
+        # 서식을 그대로 복사해 건수와 상관없이 같은 양식이 적용되도록 한다.
+        template_last_row = ws.max_row
+        style_src_row = 7
+        style_max_col = ws.max_column
+        style_src_height = ws.row_dimensions[style_src_row].height
+
+        def _apply_row_style(row):
+            for col in range(1, style_max_col + 1):
+                src = ws.cell(row=style_src_row, column=col)
+                if src.has_style:
+                    ws.cell(row=row, column=col)._style = copy.copy(src._style)
+            if style_src_height is not None:
+                ws.row_dimensions[row].height = style_src_height
+
         row_idx = 7
         for (biz_no, sub_biz, _theater_key), item in aggregated_for_esero.items():
+            # 템플릿 서식 범위를 넘는 행은 값을 쓰기 전에 서식부터 복사
+            if row_idx > template_last_row:
+                _apply_row_style(row_idx)
+
             # A: 종류 (01: 일반) / B: 작성일자
             ws.cell(row=row_idx, column=1, value="01")
 
