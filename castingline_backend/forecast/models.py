@@ -63,6 +63,9 @@ class ForecastDailyAgg(models.Model):
     date = models.DateField()
     visitors = models.BigIntegerField()
     theaters = models.IntegerField()
+    shows = models.IntegerField(default=0)          # 상영 회차 수 (극장×관×회차)
+    seats = models.BigIntegerField(default=0)       # 공급 좌석 수 (회차별 관 좌석수 합, 좌석수 등록된 관만)
+    visitors_seated = models.BigIntegerField(default=0)   # 좌석수 등록된 관의 관객 (좌판율 분자)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["movie_code", "date"], name="uniq_forecast_daily_agg")]

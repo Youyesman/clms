@@ -1142,9 +1142,10 @@ class CrawlerReportView(APIView):
             file_path = os.path.join(save_dir, filename)
 
             if fmt == 'pdf':
-                # 흥행 전망: 주요작이 CLMS 영화와 매칭되고 개봉 7일차가 지났으면 마지막 장에 전망 1장 추가
+                # 흥행 전망: 주요작이 CLMS 영화와 매칭되고 개봉 7일차가 지났으면 마지막 장에 전망 1장 추가 (관리자 전용)
                 extra_pages = None
-                if mode == 'main' and request.data.get('include_forecast', True):
+                is_admin = bool(getattr(request.user, "is_superuser", False))
+                if mode == 'main' and is_admin and request.data.get('include_forecast', True):
                     try:
                         from forecast.service import forecast_for_title
                         from forecast.pdf import forecast_page

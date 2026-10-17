@@ -1,11 +1,12 @@
 """개봉 후 최종 관객 예측 + 리포트 payload.
 
 예측 대상: log(최종관객 / 기준시점 누적관객) = 배수.  HistGradientBoosting(중앙값)
-- 7일차: CLMS 기본 피처
-- 14일차: 입소문 피처 + KOBIS 대형작 보강
-- 21일차: CLMS 기본 피처
+- 7일차: CLMS 기본 피처 + 좌판율 (KOBIS 보강은 오히려 나빠져 제외)
+- 14일차: 입소문 피처 + 좌판율 + KOBIS 대형작 보강
+- 21일차: CLMS 기본 피처 + 좌판율 + KOBIS 대형작 보강
 범위: 과거 연도별 '학습에 안 쓴' 예측 오차의 5~95% 분위 → 실제 포함률 약 80% (백테스트 2023~2025)
 미래 정보 차단: 기준일 이전에 상영이 끝난 작품만 학습에 쓴다.
+장르 원-핫·배우/감독 흥행 이력은 백테스트에서 개선이 없어 쓰지 않는다 (2026-10).
 """
 import warnings
 
@@ -15,14 +16,14 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-MODEL_VERSION = "v2.2-2026-10"
+MODEL_VERSION = "v2.3-2026-10"
 META = ["pre_share", "rerelease", "animation", "n_한국", "n_미국", "n_일본"]
 FS = {
-    7: ["cum7", "decay", "release_wd"] + META,
-    14: ["cum14", "decay", "decay2", "we2_we1", "wk_hold", "we1_share", "th_grow7", "th_grow14"] + META,
-    21: ["cum21", "decay", "decay2", "decay3"] + META,
+    7: ["cum7", "decay", "release_wd"] + META + ["occ7", "occ_trend"],
+    14: ["cum14", "decay", "decay2", "we2_we1", "wk_hold", "we1_share", "th_grow7", "th_grow14"] + META + ["occ7", "occ14"],
+    21: ["cum21", "decay", "decay2", "decay3"] + META + ["occ14", "occ21"],
 }
-USE_KOBIS = {7: False, 14: True, 21: False}
+USE_KOBIS = {7: False, 14: True, 21: True}
 HORIZONS = [7, 14, 21]
 LEGGY_THR = float(np.log(1.18))     # 5~7일차 관객이 1~3일차보다 18%+ → 입소문 상승 신호
 MIN_W1 = 1000
@@ -165,7 +166,7 @@ class Forecaster:
             lo, hi = self._calib(h, int(t.y) + 1, pool_f, before_date=as_of)
             med = _fit(tr, h).predict(_X(self.clms.loc[[pkey]], h))[0]
             base = float(t[f"cum{h}"])
-            item = {"h": h, "base": int(base), "pred": int(base * np.exp(med)),
+            item = {"h": h, "base": int(base), "pred": int(max(base, base * np.exp(med))),
                     "lo": int(max(base, base * np.exp(med + lo))), "hi": int(base * np.exp(med + hi)),
                     "model": "입소문+대형작 보강" if USE_KOBIS[h] else "기본"}
             if h == 7:

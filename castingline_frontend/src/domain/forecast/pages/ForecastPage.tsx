@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRecoilValue } from "recoil";
 import styled from "styled-components";
 import { MagnifyingGlass, FilePdf } from "@phosphor-icons/react";
 import { AxiosGet } from "../../../axios/Axios";
+import { AccountState } from "../../../atom/AccountState";
 import { useToast } from "../../../components/common/CustomToast";
 import { ForecastChart } from "../components/ForecastChart";
 import { ForecastMovie, ForecastPayload, man, pct } from "../types";
@@ -9,8 +11,26 @@ import { ForecastMovie, ForecastPayload, man, pct } from "../types";
 /**
  * 흥행 전망 — 개봉 후 관객 추이로 최종 관객 수를 예측한다 (개봉 7일 이후).
  * 7·14·21일차 기준을 골라 볼 수 있고, 상영이 끝난 작품은 그 시점 예측과 실제 결과를 함께 보여준다.
+ * 관리자(superuser) 전용 — 이전에 열어 둔 탭이 남아 있어도 안내만 보인다.
  */
 export const ForecastPage = () => {
+    const account = useRecoilValue(AccountState);
+    if (!account?.is_superuser) {
+        return (
+            <Wrapper>
+                <Header>
+                    <div>
+                        <h2>흥행 전망</h2>
+                        <p>관리자만 볼 수 있는 화면입니다.</p>
+                    </div>
+                </Header>
+            </Wrapper>
+        );
+    }
+    return <ForecastPageBody />;
+};
+
+const ForecastPageBody = () => {
     const toast = useToast();
     const [movies, setMovies] = useState<ForecastMovie[]>([]);
     const [query, setQuery] = useState("");

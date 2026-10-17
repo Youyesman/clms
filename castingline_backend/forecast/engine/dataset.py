@@ -29,16 +29,26 @@ def refresh_daily_agg(since=None):
             cur.execute("DELETE FROM forecast_forecastdailyagg WHERE date >= %s", [since])
         else:
             cur.execute("DELETE FROM forecast_forecastdailyagg")
+        # 스코어 행은 요금별이라 (극장, 관, 회차)로 먼저 묶어 회차 단위로 만든 뒤 관 좌석수를 붙인다
         cur.execute(f"""
-            INSERT INTO forecast_forecastdailyagg (movie_code, date, visitors, theaters)
-            SELECT mk.pkey, s.entry_date,
-                   SUM(CASE WHEN s.visitor ~ '^-?[0-9]+$' THEN s.visitor::bigint ELSE 0 END),
-                   COUNT(DISTINCT s.client_id)
-            FROM score_score s
-            JOIN (SELECT id, TRIM(CASE WHEN is_primary_movie THEN movie_code ELSE primary_movie_code END) pkey
-                  FROM movie_movie) mk ON mk.id = s.movie_id
-            {where} {"AND" if since else "WHERE"} s.entry_date IS NOT NULL AND mk.pkey IS NOT NULL AND mk.pkey <> ''
-            GROUP BY mk.pkey, s.entry_date
+            INSERT INTO forecast_forecastdailyagg (movie_code, date, visitors, theaters, shows, seats, visitors_seated)
+            WITH th AS (
+                SELECT client_id, auditorium, MAX(CASE WHEN seat_count ~ '^[0-9]+$' THEN seat_count::int END) seats
+                FROM client_theater GROUP BY client_id, auditorium
+            ), sh AS (
+                SELECT mk.pkey, s.entry_date d, s.client_id, s.auditorium, s.show_count,
+                       SUM(CASE WHEN s.visitor ~ '^-?[0-9]+$' THEN s.visitor::bigint ELSE 0 END) v
+                FROM score_score s
+                JOIN (SELECT id, TRIM(CASE WHEN is_primary_movie THEN movie_code ELSE primary_movie_code END) pkey
+                      FROM movie_movie) mk ON mk.id = s.movie_id
+                {where} {"AND" if since else "WHERE"} s.entry_date IS NOT NULL AND mk.pkey IS NOT NULL AND mk.pkey <> ''
+                GROUP BY mk.pkey, s.entry_date, s.client_id, s.auditorium, s.show_count
+            )
+            SELECT sh.pkey, sh.d, SUM(sh.v), COUNT(DISTINCT sh.client_id), COUNT(*),
+                   COALESCE(SUM(CASE WHEN th.seats > 0 THEN th.seats END), 0),
+                   COALESCE(SUM(CASE WHEN th.seats > 0 THEN sh.v END), 0)
+            FROM sh LEFT JOIN th ON th.client_id = sh.client_id AND th.auditorium = sh.auditorium
+            GROUP BY sh.pkey, sh.d
         """, params)
         return cur.rowcount
 
@@ -57,8 +67,9 @@ def primary_movies():
 
 
 def clms_daily():
-    df = pd.DataFrame(list(ForecastDailyAgg.objects.values_list("movie_code", "date", "visitors", "theaters")),
-                      columns=["pkey", "d", "v", "th"])
+    df = pd.DataFrame(list(ForecastDailyAgg.objects.values_list(
+        "movie_code", "date", "visitors", "theaters", "seats", "visitors_seated")),
+        columns=["pkey", "d", "v", "th", "seats", "v_seat"])
     df["d"] = pd.to_datetime(df.d)
     return df
 
@@ -113,7 +124,7 @@ def build_clms(daily=None, movies=None):
     df["completed"] = df.end < last_data - pd.Timedelta(days=21)
     df = _meta_columns(df)
 
-    run_daily = dd.merge(df[["run"]].reset_index(), on=["pkey", "run"])[["pkey", "d", "v", "th"]]
+    run_daily = dd.merge(df[["run"]].reset_index(), on=["pkey", "run"])[["pkey", "d", "v", "th", "seats", "v_seat"]]
     F = build_features(run_daily, df.release_date)
     df = df.join(F)
     df["src"] = "CLMS"

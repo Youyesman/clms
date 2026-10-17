@@ -31,6 +31,7 @@ interface NavMenuItem {
     path: string;
     label: string;
     icon: React.ReactNode;
+    adminOnly?: boolean;   // 관리자(superuser)에게만 노출
 }
 interface NavMenuGroup {
     title: string;
@@ -67,7 +68,7 @@ const MENU: NavMenuGroup[] = [
             { path: "/manage/manage_order", label: "오더 관리", icon: <ClipboardText /> },
             { path: "/manage/manage_score", label: "스코어 관리", icon: <TrendUp /> },
             { path: "/manage/manage_fund", label: "기금 관리", icon: <Bank /> },
-            { path: "/manage/forecast", label: "흥행 전망", icon: <Target /> },
+            { path: "/manage/forecast", label: "흥행 전망", icon: <Target />, adminOnly: true },
         ],
     },
     {
@@ -289,7 +290,7 @@ export function Sidebar() {
                 {MENU.map((group) => (
                     <Group key={group.title} $open={hovered}>
                         <GroupLabel $open={hovered}>{group.title}</GroupLabel>
-                        {group.items.map((item) => (
+                        {group.items.filter((item) => !item.adminOnly || nowAccount?.is_superuser).map((item) => (
                             <Item
                                 key={item.path}
                                 $active={location.pathname === item.path}

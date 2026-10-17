@@ -1,6 +1,7 @@
 """개봉 후 예측 피처 — CLMS·KOBIS 공통으로 계산 가능한 것만 사용
 입력 daily: columns [pkey, d(datetime), v(관객), th(극장/스크린 수)], rel: Series pkey→개봉일
 극장 수는 CLMS(극장 수)와 KOBIS(스크린 수) 단위가 달라서 '증감 비율'만 사용
+좌판율(occ*)은 CLMS만 계산 가능 (daily에 seats·v_seat 열이 있을 때) — KOBIS는 NaN
 """
 import numpy as np, pandas as pd
 
@@ -42,4 +43,17 @@ def build_features(daily, rel):
     out["cum21"] = out.cum14 + out.w3
     out["decay3"] = np.log((out.w3 + 1) / (out.w2 + 1))
     out["pre_share"] = out.pre / out.cum7.replace(0, np.nan)
+
+    # 좌판율 = 좌석수 등록된 관의 관객 / 공급 좌석
+    if "seats" in x:
+        def occ(lo, hi):
+            m = x.dn.between(lo, hi)
+            return (g(m, "v_seat") / g(m, "seats").replace(0, np.nan)).reindex(out.index)
+        out["occ7"] = occ(1, 7)
+        out["occ_trend"] = np.log((occ(5, 7) + 1e-3) / (occ(1, 3) + 1e-3))   # 1주차 안 좌판율 유지 (입소문)
+        out["occ14"] = occ(8, 14)
+        out["occ21"] = occ(15, 21)
+    else:
+        for c in ["occ7", "occ_trend", "occ14", "occ21"]:
+            out[c] = np.nan
     return out

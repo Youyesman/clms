@@ -3,6 +3,7 @@
 - GET Api/forecast/movies/?q=        : 전망 가능한 작품 목록 (최근 개봉순)
 - GET Api/forecast/report/?movie_id=&dn= : 전망 payload (dn 생략 시 최신일)
 - GET Api/forecast/report/pdf/?movie_id=&dn= : 전망 PDF
+모두 관리자(superuser) 전용.
 """
 import io
 from urllib.parse import quote
@@ -11,12 +12,19 @@ from django.http import FileResponse
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from movie.models import Movie
 from . import service
 from .pdf import build_forecast_pdf
+
+
+class IsSuperuser(BasePermission):
+    message = "관리자만 사용할 수 있습니다."
+
+    def has_permission(self, request, view):
+        return bool(getattr(request.user, "is_superuser", False))
 
 
 def _movie(request):
@@ -26,7 +34,7 @@ def _movie(request):
 
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def forecast_movies(request):
     fc, _ = service.get_forecaster()
     rows = service.candidate_movies(fc)
@@ -38,7 +46,7 @@ def forecast_movies(request):
 
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def forecast_report(request):
     movie = _movie(request)
     if not movie:
@@ -52,7 +60,7 @@ def forecast_report(request):
 
 @api_view(["GET"])
 @authentication_classes([TokenAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def forecast_report_pdf(request):
     movie = _movie(request)
     if not movie:
