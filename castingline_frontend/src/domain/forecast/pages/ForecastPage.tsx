@@ -124,6 +124,7 @@ interface BodyProps {
 }
 
 const ReportBody = ({ data, dn, setDn, showAfter, setShowAfter, onPdf }: BodyProps) => {
+    const [showComps, setShowComps] = useState(false);
     const f = data.film;
     const fcs = data.forecasts;
     if (!fcs.length) {
@@ -186,20 +187,20 @@ const ReportBody = ({ data, dn, setDn, showAfter, setShowAfter, onPdf }: BodyPro
             <Section>
                 <SecHead>
                     <h4>누적 관객 추이</h4>
-                    {data.actual_after && (
-                        <label className="toggle" htmlFor="forecast-show-after">
-                            <input id="forecast-show-after" type="checkbox" checked={showAfter} onChange={(e) => setShowAfter(e.target.checked)} />
-                            기준일 이후 실제 관객 함께 보기
+                    <Toggles>
+                        <label className="toggle" htmlFor="forecast-show-comps">
+                            <input id="forecast-show-comps" type="checkbox" checked={showComps} onChange={(e) => setShowComps(e.target.checked)} />
+                            유사 작품 흐름 보기
                         </label>
-                    )}
+                        {data.actual_after && (
+                            <label className="toggle" htmlFor="forecast-show-after">
+                                <input id="forecast-show-after" type="checkbox" checked={showAfter} onChange={(e) => setShowAfter(e.target.checked)} />
+                                기준일 이후 실제 관객 함께 보기
+                            </label>
+                        )}
+                    </Toggles>
                 </SecHead>
-                <Legend>
-                    <span><i style={{ borderColor: "#0f172a" }} />실제 누적</span>
-                    <span><i style={{ borderColor: "#a8b3c2" }} />유사 작품 흐름</span>
-                    <span><i className="band" />예상 범위</span>
-                    {data.actual_after && showAfter && <span><i style={{ borderColor: "#ea580c", borderTopStyle: "dashed" }} />기준일 이후 실제</span>}
-                </Legend>
-                <ForecastChart data={data} showAfter={showAfter} />
+                <ForecastChart data={data} showAfter={showAfter} showComps={showComps} />
             </Section>
 
             <Section>
@@ -422,13 +423,10 @@ const Section = styled.section`
 const SecHead = styled.div`
     display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
     .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #475569; cursor: pointer; }
-    input { accent-color: #ea580c; }
+    input { accent-color: #2563eb; }
 `;
-const Legend = styled.div`
-    display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: #475569;
-    span { display: inline-flex; align-items: center; gap: 7px; }
-    i { width: 18px; height: 0; border-top: 2px solid; }
-    i.band { height: 10px; border: 0; border-left: 2px solid #2563eb; background: rgba(37, 99, 235, 0.14); }
+const Toggles = styled.div`
+    display: flex; gap: 16px; flex-wrap: wrap;
 `;
 const Timeline = styled.div`
     display: grid;

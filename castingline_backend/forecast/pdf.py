@@ -5,6 +5,8 @@
 - 상영현황 보고서(P001)에 붙일 때: forecast_page(payload, title_prefix) → flowable 목록
 폰트·로고·표 스타일은 상영현황 보고서와 같은 것을 쓴다.
 """
+import math
+
 from reportlab.graphics.shapes import Drawing, Line, PolyLine, Polygon, Rect, String, Circle
 from reportlab.lib import colors
 from reportlab.platypus import (BaseDocTemplate, Frame, KeepInFrame, PageTemplate, Paragraph, Spacer, Table,
@@ -18,6 +20,7 @@ BLUE = colors.HexColor("#2a78d6")
 BAND = colors.Color(42 / 255, 120 / 255, 214 / 255, alpha=0.16)
 ORANGE = colors.HexColor("#eb6834")
 GREY = colors.HexColor("#a6a9ad")
+BAND_SOLID = colors.HexColor("#c7d7f5")
 INK = colors.HexColor("#14171c")
 MUTED = colors.HexColor("#83868d")
 GRIDC = colors.HexColor("#e2e3df")
@@ -30,6 +33,41 @@ def man(n):
     return f"{v:.1f}".rstrip("0").rstrip(".")
 
 
+def _value_at(curve, d):
+    v = None
+    for day, val in curve:
+        if day > d:
+            break
+        v = val
+    return v
+
+
+def _projection(payload):
+    """기준일 이후 예상 흐름 — 유사 작품들이 (기준일→최종) 사이에서 d일차까지 채운 비율의 중앙값을 따라 이어 그림.
+    화면(ForecastChart.tsx)과 같은 규칙."""
+    cut = payload["dn_now"]
+    base = payload["film"]["cum_now"]
+    last = payload["forecasts"][-1]
+    comps = []
+    for c in payload.get("comps", []):
+        ref = _value_at(c["curve"], payload.get("comp_basis", cut)) or base or 1
+        comps.append([(d, v * base / ref) for d, v in c["curve"]])
+    comp_end = max([c[-1][0] for c in comps if c] or [0])
+    end = max(cut + 21, min(comp_end or cut + 42, cut + 70))
+    proj, prev = [], 0.0
+    for d in range(cut, end + 1):
+        fr = []
+        for c in comps:
+            fin, v = c[-1][1], _value_at(c, d)
+            if fin - base > 0 and v is not None:
+                fr.append(min(1.0, max(0.0, (v - base) / (fin - base))))
+        p = 1.0 if d == end else (sorted(fr)[len(fr) // 2] if fr else 1 - math.exp(-(d - cut) / 8))
+        prev = max(prev, p)
+        proj.append((d, prev))
+    line = lambda target: [(d, base + (target - base) * p) for d, p in proj]
+    return line(last["pred"]), line(last["lo"]), line(last["hi"]), end
+
+
 def _chart(payload, w, h):
     fcs = payload["forecasts"]
     last = fcs[-1]
@@ -37,19 +75,15 @@ def _chart(payload, w, h):
     cut = payload["dn_now"]
     base = payload["film"]["cum_now"]
     after = (payload.get("actual_after") or {}).get("curve") or []
-    comps = []
-    for c in payload.get("comps", []):
-        pts = [p for p in c["curve"] if p[0] <= payload["comp_basis"]]
-        if not pts: continue
-        k = base / pts[-1][1] if pts[-1][1] else 1
-        comps.append([(d, v * k) for d, v in c["curve"]])
-    x_max = max([70] + [p[0] for p in after] + [c[-1][0] for c in comps if c])
-    y_raw = max([last["hi"], (payload.get("actual_after") or {}).get("total", 0)] + [c[-1][1] for c in comps if c])
-    step = next(s for s in [10000, 20000, 50000, 100000, 200000, 250000, 500000, 1000000, 2000000, 5000000] if y_raw / s <= 6)
+    mid, lo, hi, end = _projection(payload)
+    x_max = max([end] + [p[0] for p in after])
+    y_raw = max(last["hi"], (payload.get("actual_after") or {}).get("total", 0))
+    step = next(s for s in [10000, 20000, 50000, 100000, 200000, 250000, 500000, 1000000, 2000000, 5000000, 10000000] if y_raw / s <= 6)
     y_max = -(-y_raw // step) * step
     ml, mr, mt, mb = 40, 70, 8, 22
     X = lambda d: ml + (d - 1) / (x_max - 1) * (w - ml - mr)
     Y = lambda v: mb + v / y_max * (h - mt - mb)
+    flat = lambda pts: [q for a, b in pts for q in (X(a), Y(b))]
     D = Drawing(w, h)
     v = 0
     while v <= y_max:
@@ -58,23 +92,22 @@ def _chart(payload, w, h):
         v += step
     d = 1
     while d <= x_max:
-        D.add(String(X(d), mb - 11, "개봉일" if d == 1 else f"{d}일", fontName=_FONT, fontSize=6.5, fillColor=MUTED, textAnchor="middle"))
+        if d == 1 or X(d) < w - mr - 16:
+            D.add(String(X(d), mb - 11, "개봉일" if d == 1 else f"{d}일", fontName=_FONT, fontSize=6.5, fillColor=MUTED, textAnchor="middle"))
         d += 6 if d == 1 else 7
     D.add(Line(X(cut), mb, X(cut), h - mt, strokeColor=MUTED, strokeWidth=0.5, strokeDashArray=[2, 3]))
-    D.add(String(X(cut) + 3, h - mt - 7, "기준일", fontName=_FONT, fontSize=6.5, fillColor=MUTED))
-    D.add(Polygon([X(cut), Y(base), X(x_max), Y(last["hi"]), X(x_max), Y(last["lo"])], fillColor=BAND, strokeColor=None))
-    for c in comps:
-        pts = [(X(a), Y(b)) for a, b in c if a >= cut]
-        if len(pts) > 1:
-            D.add(PolyLine([q for p in pts for q in p], strokeColor=GREY, strokeWidth=0.8))
+    D.add(String(X(cut) + 3, h - mt - 7, f"기준일 (개봉 {cut}일차)", fontName=_FONT, fontSize=6.5, fillColor=MUTED))
+    D.add(Polygon(flat(hi) + flat(list(reversed(lo))), fillColor=BAND, strokeColor=None))
+    D.add(PolyLine(flat(mid), strokeColor=BLUE, strokeWidth=1.4, strokeDashArray=[4, 3]))
     if after:
-        pts = [(X(a), Y(b)) for a, b in after if a >= cut]
+        pts = [p for p in after if p[0] >= cut]
         if len(pts) > 1:
-            D.add(PolyLine([q for p in pts for q in p], strokeColor=ORANGE, strokeWidth=1.2, strokeDashArray=[3, 2]))
-    pts = [(X(r[0]), Y(r[3])) for r in daily]
+            D.add(PolyLine(flat(pts), strokeColor=ORANGE, strokeWidth=1.2, strokeDashArray=[1.5, 2]))
+    pts = [(r[0], r[3]) for r in daily]
     if len(pts) > 1:
-        D.add(PolyLine([q for p in pts for q in p], strokeColor=INK, strokeWidth=1.6))
+        D.add(PolyLine(flat(pts), strokeColor=INK, strokeWidth=1.6))
     D.add(Circle(X(cut), Y(base), 2.6, fillColor=INK, strokeColor=colors.white))
+    D.add(String(X(cut) - 5, Y(base) + 6, f"현재 {man(base)}만", fontName=_FONT_B, fontSize=6.5, fillColor=INK, textAnchor="end"))
     xe = w - mr + 12
     D.add(Rect(xe - 4, Y(last["lo"]), 8, max(2, Y(last["hi"]) - Y(last["lo"])), rx=3, ry=3, fillColor=BAND, strokeColor=BLUE, strokeWidth=0.8))
     D.add(Line(xe - 7, Y(last["pred"]), xe + 7, Y(last["pred"]), strokeColor=BLUE, strokeWidth=1.8))
@@ -83,6 +116,7 @@ def _chart(payload, w, h):
         D.add(String(xe + 10, Y(last["hi"]) - 3, man(last["hi"]) + "만", fontName=_FONT, fontSize=6.5, fillColor=MUTED))
     if Y(last["pred"]) - Y(last["lo"]) > 9:
         D.add(String(xe + 10, Y(last["lo"]) - 3, man(last["lo"]) + "만", fontName=_FONT, fontSize=6.5, fillColor=MUTED))
+    D.add(String(xe, mb - 11, "예상 최종", fontName=_FONT, fontSize=6.5, fillColor=MUTED, textAnchor="middle"))
     if after:
         tot = payload["actual_after"]["total"]
         D.add(Circle(xe, Y(tot), 2.6, fillColor=ORANGE, strokeColor=colors.white))
@@ -91,11 +125,18 @@ def _chart(payload, w, h):
 
 
 def _legend(has_after):
-    items = [("━", INK, "실제 누적"), ("━", GREY, "유사 작품 흐름"), ("■", BLUE, "예상 범위")]
+    items = [("━", INK, "실제 누적 관객"), ("- -", BLUE, "앞으로 예상되는 누적 관객"), ("■", BAND_SOLID, "예상 범위")]
     if has_after:
-        items.append(("- -", ORANGE, "기준일 이후 실제"))
+        items.append(("···", ORANGE, "기준일 이후 실제 누적"))
     txt = "&nbsp;&nbsp;&nbsp;".join(f'<font color="{c.hexval().replace("0x", "#")}">{s}</font> {t}' for s, c, t in items)
     return _p(txt, size=7, align="LEFT", color=MUTED)
+
+
+def _caption(payload):
+    last = payload["forecasts"][-1]
+    return _p(f"검은 선은 기준일까지 실제 누적 관객, 파란 점선은 비슷한 작품들이 같은 시점 이후 늘어난 모양을 따라 그린 예상 흐름입니다. "
+              f"파란 영역은 실제 결과가 들어올 가능성이 높은 범위({man(last['lo'])}만~{man(last['hi'])}만 명)입니다.",
+              size=6.8, align="LEFT", color=MUTED)
 
 
 def forecast_page(payload, title="흥행 전망"):
@@ -153,7 +194,7 @@ def forecast_page(payload, title="흥행 전망"):
             txt = (f"<b>입소문 확산 조짐은 아직 없습니다.</b> 개봉 5~7일차 관객이 1~3일차보다 {level} 수준입니다"
                    f"(18% 이상 많으면 확산 조짐으로 봅니다).")
         right += [Spacer(1, 6), _p(txt, size=7.2, align="LEFT", color=ORANGE if sig["on"] else MUTED)]
-    body = Table([[[Paragraph("누적 관객 추이", S["section"]), Spacer(1, 2), _legend(bool(payload.get("actual_after"))), chart],
+    body = Table([[[Paragraph("누적 관객 추이", S["section"]), Spacer(1, 2), _legend(bool(payload.get("actual_after"))), chart, _caption(payload)],
                    right]], colWidths=[left_w + 10, right_w])
     body.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                               ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
