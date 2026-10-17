@@ -334,7 +334,7 @@ def _rank_card_table(labels_rows):
 
 
 # ---------- 본문 구성 ----------
-def build_pdf(data, out_path, scope=None):
+def build_pdf(data, out_path, scope=None, extra_pages=None):
     """A001(0829): 보고서 포맷 개편.
 
     주요작 있음 (3P)
@@ -347,6 +347,7 @@ def build_pdf(data, out_path, scope=None):
 
     scope: A003 시절의 출력 범위 옵션. 화면에서 더 이상 보내지 않고 페이지 구성이
     바뀌어 의미가 없어졌으므로 받기만 하고 쓰지 않는다.
+    extra_pages: 뒤에 덧붙일 페이지(flowable 목록)들 — 흥행 전망(forecast.pdf.forecast_page)
     """
     _ensure_fonts()
     S = _styles()
@@ -506,6 +507,10 @@ def build_pdf(data, out_path, scope=None):
                 f'({_WEEKDAY_KOR[d.weekday()]})</font>', S["section"]))
             story.append(Spacer(1, 6))
             story.append(_day_movies_table(day["rows"], highlight_main=False))
+
+    for pg in extra_pages or []:
+        story.append(PageBreak())
+        story.extend(pg)
 
     # 페이지 넘침 방지: 표 행이 많거나(포맷 6종+합계) 전주比가 두 줄로 감기면
     # 내용이 다음 장으로 흘러 로고와 겹친 깨진 페이지가 생긴다. PageBreak 단위로

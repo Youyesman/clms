@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "crawler",
     "mail",
     "memo",
+    "forecast",
 ]
 
 MIDDLEWARE = [
@@ -152,6 +153,8 @@ MAIL_IMAP = {
 # 위탁/일반극장 부금정산서 PDF 대사용 OpenAI 설정. 키는 환경변수로만 주입(공개 저장소 — 하드코딩 금지).
 # 모델은 gpt-5.4 검증 완료(위탁 샘플 13종 금액 전부 정확) — mini 계열은 오추출이 있어 금지.
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# 흥행 전망: KOBIS 오픈API 키 (저장소가 공개라 환경변수로만 주입)
+KOBIS_API_KEY = os.getenv("KOBIS_API_KEY", "")
 OPENAI_SETTLEMENT_MODEL = os.getenv("OPENAI_SETTLEMENT_MODEL", "gpt-5.4")
 
 # 정산서(부금계산서) 자동 수집 시 스캔할 메일함 목록. scan_settlements 커맨드 기본값.

@@ -42,6 +42,7 @@ export const PATH_TO_TAB_LABEL: Record<string, string> = {
     "/manage/crawler/kobis_score": "KOBIS 상세내역",
     "/manage/mailbox": "메일함",
     "/manage/settlement_mail": "정산서 수집",
+    "/manage/forecast": "흥행 전망",
     "/manage/manage_client": "거래처 관리",
     "/manage/manage_user": "사용자 관리",
     "/manage/my_profile": "내 정보 수정",

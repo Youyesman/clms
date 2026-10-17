@@ -5,7 +5,7 @@ import {
     ChartBar, Calendar, Users, Buildings, FilmSlate,
     ClipboardText, TrendUp, MapPin, Receipt,
     SealCheck, Bank, Percent, SignOut, UserCircle, Bug, Table,
-    CurrencyDollar, EnvelopeSimple, Ticket, Popcorn, ChartLineUp,
+    CurrencyDollar, EnvelopeSimple, Ticket, Popcorn, ChartLineUp, Target,
 } from "@phosphor-icons/react";
 import { ui } from "../../styles/uiTokens";
 import { useRecoilValue, useRecoilState, useResetRecoilState } from "recoil";
@@ -67,6 +67,7 @@ const MENU: NavMenuGroup[] = [
             { path: "/manage/manage_order", label: "오더 관리", icon: <ClipboardText /> },
             { path: "/manage/manage_score", label: "스코어 관리", icon: <TrendUp /> },
             { path: "/manage/manage_fund", label: "기금 관리", icon: <Bank /> },
+            { path: "/manage/forecast", label: "흥행 전망", icon: <Target /> },
         ],
     },
     {

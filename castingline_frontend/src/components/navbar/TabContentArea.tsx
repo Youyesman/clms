@@ -22,6 +22,7 @@ import { CineQScorePage } from "../../domain/crawler/pages/CineQScorePage";
 import { KobisScorePage } from "../../domain/crawler/pages/KobisScorePage";
 import { Mailbox } from "../../domain/mail/pages/Mailbox";
 import { SettlementCollector } from "../../domain/mail/pages/SettlementCollector";
+import { ForecastPage } from "../../domain/forecast/pages/ForecastPage";
 import { ScorePage } from "../../customer/domain/score/pages/ScorePage";
 import { CriteriaPage } from "../../customer/domain/score/pages/CriteriaPage";
 import { DailyStatusPage } from "../../customer/domain/score/pages/DailyStatusPage";
@@ -58,6 +59,7 @@ const PATH_TO_COMPONENT: Record<string, React.ComponentType> = {
     "/manage/manage_rate": ManageRate,
     "/manage/manage_score": ManageScore,
     "/manage/manage_fund": ManageFund,
+    "/manage/forecast": ForecastPage,
     "/manage/manage_theater_map": ManageTheaterMap,
     "/manage/manage_settlement": ManageSettlement,
     "/manage/manage_special_settlement": ManageSpecialSettlement,

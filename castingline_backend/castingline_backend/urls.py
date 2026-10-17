@@ -30,6 +30,7 @@ urlpatterns = [
     path("Api/", include("settlement.urls")),
     path("Api/", include("mail.urls")),
     path("Api/", include("memo.urls")),
+    path("Api/", include("forecast.urls")),
     path("api/slack/interactive", include("movie.urls_slack")), # Slack Callback
     path("Api/crawler/", include("crawler.urls")),
 ]
