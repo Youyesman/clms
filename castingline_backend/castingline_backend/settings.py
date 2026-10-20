@@ -142,6 +142,11 @@ MEGABOX_WINGUP = {
     "PASSWORD": os.getenv("MEGABOX_WINGUP_PASSWORD", "BY4M1993!@#"),
 }
 
+# CGV 시간표 API에 붙이는 회원번호(custNo). 무대인사·GV 등 로그인 회원에게만 노출되는
+# 회차는 이 파라미터가 있어야 내려온다(쿠키·토큰 불필요, 1020 확인). 기본값은 pms8882 계정.
+# 빈 문자열이면 파라미터를 붙이지 않는다(= 비로그인과 동일).
+CGV_CUST_NO = os.getenv("CGV_CUST_NO", "280016052")
+
 # 관리자 메일함(IMAP) 조회용 계정 (네이버). 환경변수 우선, 없으면 기본값 사용.
 MAIL_IMAP = {
     "HOST": os.getenv("MAIL_IMAP_HOST", "imap.naver.com"),

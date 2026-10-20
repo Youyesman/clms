@@ -13,6 +13,10 @@
        CGVScheduleLog.response_json 에 저장 → 기존 파서
        (MovieSchedule.create_from_cgv_log) 가 변경 없이 처리한다.
        (브라우저가 가로채던 응답과 필드가 100% 동일함을 확인)
+     ※ custNo(회원번호)를 함께 보내야 무대인사·GV 등 '로그인 회원에게만 노출되는'
+       회차까지 내려온다(1020 확인). 로그인 쿠키·토큰은 필요 없고 파라미터만으로
+       충분하며, 기존 회차는 그대로이고 특수 회차만 추가되는 상위집합이다.
+       값은 settings.CGV_CUST_NO(환경변수 CGV_CUST_NO)에서 읽는다.
 """
 
 import threading
@@ -21,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import requests
+from django.conf import settings
 from django.db import close_old_connections
 
 from crawler.models import CGVScheduleLog
@@ -105,6 +110,10 @@ def fetch_schedule_json(session, site_no, scn_ymd):
     """극장×날짜 상영 회차 조회 (searchMovScnInfo 응답 원본)."""
     params = {"coCd": _CO_CD, "siteNo": site_no,
               "scnYmd": scn_ymd, "rtctlScopCd": _RTCTL}
+    # 회원번호를 붙여야 무대인사·GV 등 회원 전용 노출 회차가 포함된다 (모듈 docstring 참고)
+    cust_no = getattr(settings, "CGV_CUST_NO", "")
+    if cust_no:
+        params["custNo"] = cust_no
     last_err = None
     # 429는 쿨다운 후 재시도하므로 연결오류(_RETRY)보다 시도 횟수를 넉넉히 준다
     for attempt in range(_RETRY + len(_RETRY_429_WAITS)):
