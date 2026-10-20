@@ -11,6 +11,8 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
 from openpyxl.utils import get_column_letter
 
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
+
 from crawler.models import MovieSchedule
 from client.models import Client
 
@@ -61,10 +63,8 @@ BLACK_FILL = PatternFill(start_color="000000", end_color="000000", fill_type="so
 PINK_FILL = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
 TOTAL_BLUE_FILL = PatternFill(start_color="0033CC", end_color="0033CC", fill_type="solid")
 
-THIN_BORDER = Border(
-    left=Side(style='thin'), right=Side(style='thin'),
-    top=Side(style='thin'), bottom=Side(style='thin')
-)
+_THIN_SIDE = Side(style='thin', color=EXCEL_BORDER_COLOR)  # A001: 연한 회색 테두리
+THIN_BORDER = Border(left=_THIN_SIDE, right=_THIN_SIDE, top=_THIN_SIDE, bottom=_THIN_SIDE)
 
 CENTER = Alignment(horizontal='center', vertical='center')
 LEFT = Alignment(horizontal='left', vertical='center')
@@ -1330,16 +1330,16 @@ def export_special_screenings(queryset, keyword=None, start_date=None, end_date=
 
     rows = list(queryset)
 
-    # 멀티(브랜드) 순서: CGV → MEGA → LOTTE → 일반극장 (예시 파일 기준)
-    BRAND_ORD = {'CGV': 0, 'MEGABOX': 1, 'LOTTE': 2, '일반극장': 3}
+    # C002(1020): 기본 정렬 = 멀티(CGV → LOTTE → MEGA → 일반극장) → 날짜 → 극장명(가나다) → 상영시간
+    # (모두 오름차순. 관 이름은 정렬 키에서 제외 — 같은 극장 안에서는 시간순으로만)
+    BRAND_ORD = {'CGV': 0, 'LOTTE': 1, 'MEGABOX': 2, '일반극장': 3}
     BRAND_LABEL = {'CGV': 'CGV', 'MEGABOX': 'MEGA', 'LOTTE': 'LOTTE', '일반극장': '일반극장'}
 
     def sort_key(s):
         return (
             BRAND_ORD.get(s.brand, 9),
             str(s.play_date or (s.start_time.date() if s.start_time else "")),
-            s.theater_name or "",
-            s.screen_name or "",
+            (s.theater_name or "").replace(" ", ""),
             s.start_time or dj_timezone.now(),
         )
     rows.sort(key=sort_key)
@@ -1356,7 +1356,7 @@ def export_special_screenings(queryset, keyword=None, start_date=None, end_date=
     SUB_FONT = Font(bold=True, size=10)
     TOTAL_FONT = Font(bold=True, size=10, color="FFFFFF")
     DATA_FONT_ = Font(size=10)
-    thin = Side(style="thin", color="D9D9D9")
+    thin = Side(style="thin", color=EXCEL_BORDER_COLOR)
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     center = Alignment(horizontal="center", vertical="center")
     NUMFMT = '#,##0'

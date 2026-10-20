@@ -125,6 +125,21 @@ class BulkMatcher:
         )
         self.theater_dict = {(t.client_id, t.name_norm): t for t in theaters}
 
+        # S002(1020): 관이름 보조 인덱스 (체인·영진위 공통)
+        # - theater_by_core: 괄호 안 부가정보([성한빈관], (132) 등)와 끝의 '관'을 뗀 핵심명.
+        #   '부티크 102호 [후이관]' ↔ '부티크 102호 [박지현관]', 'CINEMA PREMIUM' ↔ 'CINEMA PREMIUM관(132)'
+        # - theater_by_ho: 관이름 속 'N호' 번호. 같은 극장 안에서 유일할 때만 쓴다.
+        self.theater_by_core = {}  # (client_id, 핵심명) -> Theater
+        self.theater_by_ho = {}    # (client_id, 호수) -> Theater 또는 None(중복)
+        for t in theaters:
+            core = self._aud_core(t.auditorium_name)
+            if core:
+                self.theater_by_core.setdefault((t.client_id, core), t)
+            ho = self._extract_ho(t.auditorium_name)
+            if ho is not None:
+                key = (t.client_id, ho)
+                self.theater_by_ho[key] = None if key in self.theater_by_ho else t
+
         # 영진위관이름 명시적 인덱스 + 관 번호 보조 인덱스 (relaxed 모드 전용)
         # 영진위 관명("산천어관" 등)은 영진위관이름 필드로 매핑하고,
         # "02관" vs DB "2관" 같은 표기 차이는 관 번호로 폴백 매칭한다.
@@ -187,6 +202,25 @@ class BulkMatcher:
             return int(m.group(1))
         return None
 
+    @staticmethod
+    def _aud_core(name):
+        """관이름 핵심명: 괄호([..], (..)) 내용 제거 → 공백 제거·소문자 → 끝의 '관' 제거."""
+        if not name:
+            return ""
+        s = re.sub(r"\[[^\]]*\]|\([^)]*\)", "", str(name))
+        s = s.replace(" ", "").lower().strip()
+        if len(s) > 1 and s.endswith("관"):
+            s = s[:-1]
+        return s
+
+    @staticmethod
+    def _extract_ho(name):
+        """관이름 속 호수('102호', '101 호') → int. 없으면 None."""
+        if not name:
+            return None
+        m = re.search(r"(\d+)\s*호", str(name))
+        return int(m.group(1)) if m else None
+
     def _match_theater_logic(self, client_id, raw_aud):
         """내부용: 특정 클라이언트 내에서 상영관 매칭 시도 (정제 규칙 포함)"""
         if not client_id or not raw_aud:
@@ -218,6 +252,22 @@ class BulkMatcher:
         t = self.theater_dict.get((client_id, clean_core.replace(" ", "").lower()))
         if t:
             return t
+
+        # 3-1. S002: 괄호 부가정보·끝 '관'을 뗀 핵심명 일치
+        #   예) '부티크 102호 [후이관]' → '부티크102호' == DB '부티크 102호 [박지현관]'
+        #       'CINEMA PREMIUM' == DB 'CINEMA PREMIUM관(132)'
+        core = self._aud_core(raw_aud_str)
+        if core:
+            t = self.theater_by_core.get((client_id, core))
+            if t:
+                return t
+
+        # 3-2. S002: 호수('102호') 일치 — 같은 극장 안에서 호수가 유일할 때만
+        ho = self._extract_ho(raw_aud_str)
+        if ho is not None:
+            t = self.theater_by_ho.get((client_id, ho))
+            if t:
+                return t
 
         # 4. relaxed(영진위) 폴백: 관 번호로 매칭 ("02관"=="2관", "가람 2관"=="2관(삼척관)")
         if self.relaxed_aud:
@@ -1346,7 +1396,21 @@ def collect_replace_scope(data_list):
     return scope
 
 
-def _scope_filter(movie_id, entry_date, kinds, source_file=None):
+def collect_replace_clients(data_list):
+    """S001(1020): 극장 단위 교체용 — (영화 × 상영일자)별 이번 업로드에 포함된 극장 id 집합.
+
+    미리보기에서 일부 극장 행만 체크해 올린 경우(부분 업로드)에는 멀티 통째가 아니라
+    체크한 극장의 기존 스코어만 지우고 교체한다. 반환: {(movie_id, entry_date): {client_id,...}}
+    """
+    scope = {}
+    for i in data_list:
+        if not i.get("movie_id") or not i.get("client_id"):
+            continue
+        scope.setdefault((i["movie_id"], i["entry_date"]), set()).add(i["client_id"])
+    return scope
+
+
+def _scope_filter(movie_id, entry_date, kinds, source_file=None, client_ids=None):
     """(영화 × 상영일자 × 멀티집합)에 해당하는 Score 쿼리셋.
 
     theater_kind 가 비어있는(NULL/'') 극장도 하나의 그룹으로 취급한다.
@@ -1354,6 +1418,7 @@ def _scope_filter(movie_id, entry_date, kinds, source_file=None):
 
     source_file 이 주어지면 같은 파일명으로 업로드된 행만으로 좁힌다.
     (메일함 CGV/롯데 재업로드 정책 — M001)
+    client_ids 가 주어지면 그 극장들의 행만으로 좁힌다. (부분 업로드 극장 단위 교체 — S001)
     """
     named = sorted(k for k in kinds if k)
     cond = Q()
@@ -1366,17 +1431,22 @@ def _scope_filter(movie_id, entry_date, kinds, source_file=None):
     )
     if source_file:
         qs = qs.filter(source_file=source_file)
+    if client_ids is not None:
+        qs = qs.filter(client_id__in=list(client_ids))
     return qs
 
 
-def preview_replace_scope(data_list, source_file=None, replace_by_file=False):
+def preview_replace_scope(data_list, source_file=None, replace_by_file=False,
+                          replace_by_theater=False):
     """
     확정 저장 전, 삭제될 기존 스코어의 규모를 dry-run 으로 조회한다. (DB 미반영)
     replace_by_file 이면 같은 파일명(source_file)으로 올렸던 행만 삭제 범위로 계산한다.
+    replace_by_theater 이면 업로드에 포함된 극장의 행만 삭제 범위로 계산한다. (S001)
     반환: [{"movie_id", "movie_title", "entry_dates", "existing_count", "theater_count"}]
     """
     scope_source_file = source_file if (replace_by_file and source_file) else None
     scope = collect_replace_scope(data_list)
+    clients_scope = collect_replace_clients(data_list) if replace_by_theater else {}
     if not scope:
         return []
 
@@ -1388,7 +1458,10 @@ def preview_replace_scope(data_list, source_file=None, replace_by_file=False):
     # 영화별로 (날짜 / 멀티 / 삭제될 행 수 / 실제 데이터가 있는 극장 수)를 합산
     agg = {}
     for (movie_id, entry_date), kinds in scope.items():
-        qs = _scope_filter(movie_id, entry_date, kinds, source_file=scope_source_file)
+        qs = _scope_filter(
+            movie_id, entry_date, kinds, source_file=scope_source_file,
+            client_ids=clients_scope.get((movie_id, entry_date)) if replace_by_theater else None,
+        )
         a = agg.setdefault(
             movie_id,
             {"dates": set(), "multis": set(), "existing": 0, "theaters": set()},
@@ -1413,7 +1486,8 @@ def preview_replace_scope(data_list, source_file=None, replace_by_file=False):
     return result
 
 
-def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
+def save_confirmed_scores(data_list, source_file=None, replace_by_file=False,
+                          replace_by_theater=False):
     """
     엑셀에서 확정된 데이터를 DB에 벌크로 저장하고 관련 오더(OrderList, Order)를 생성/업데이트함.
     저장된 (영화×극장) 조합에 부율(Rate)이 없으면 국가별 기준 부율을 자동 생성함.
@@ -1426,6 +1500,10 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
     메일함(CGV/롯데) 예외 — M001: replace_by_file=True 이면 같은 파일명(source_file)으로
     올렸던 기존 행만 삭제한다. 첨부파일명이 다르면 같은 (날짜×영화×멀티)라도 기존 스코어를
     지우지 않고 누적하고, 완전히 같은 파일을 재업로드하면 그 파일 분량만 교체된다.
+
+    부분 업로드 예외 — S001(1020): replace_by_theater=True 이면 (상영일자 × 영화 × 업로드에
+    포함된 극장)의 기존 행만 삭제한다. 미리보기에서 일부 극장만 체크해 올릴 때 쓰며,
+    체크하지 않은 다른 극장의 기존 스코어는 그대로 남는다. 전체 업로드는 기존 정책 유지.
 
     반환: {"saved": 저장 건수, "deleted": 삭제 건수, "rates_created": 부율 생성 건수,
            "rates_skipped_no_country": [영화명],
@@ -1501,6 +1579,8 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
     replace_scope = collect_replace_scope(valid_data)
     # 파일명 단위 교체(M001)는 파일명이 실제로 전달된 경우에만. 없으면 기존 정책으로 폴백.
     scope_source_file = source_file if (replace_by_file and source_file) else None
+    # 극장 단위 교체(S001): 부분 업로드일 때만 업로드 극장으로 삭제 범위를 좁힌다.
+    clients_scope = collect_replace_clients(valid_data) if replace_by_theater else {}
     deleted_count = 0
 
     with transaction.atomic():
@@ -1510,7 +1590,9 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
         # 메일함(M001)에서는 scope_source_file 로 좁혀 같은 파일 분량만 지운다.
         for (movie_id, entry_date), kinds in replace_scope.items():
             deleted, _ = _scope_filter(
-                movie_id, entry_date, kinds, source_file=scope_source_file
+                movie_id, entry_date, kinds, source_file=scope_source_file,
+                client_ids=(clients_scope.get((movie_id, entry_date))
+                            if replace_by_theater else None),
             ).delete()
             deleted_count += deleted
 
@@ -1554,6 +1636,9 @@ def save_confirmed_scores(data_list, source_file=None, replace_by_file=False):
                 "movie_id": movie_id,
                 "entry_date": str(entry_date),
                 "multis": sorted(k or "" for k in kinds),
+                # 부분 업로드(S001)면 취소도 그 극장들만 지우도록 극장 id를 같이 내려준다
+                **({"client_ids": sorted(clients_scope.get((movie_id, entry_date), set()))}
+                   if replace_by_theater else {}),
             }
             for (movie_id, entry_date), kinds in replace_scope.items()
         ],

@@ -12,11 +12,13 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
+
 from crawler.report.common import find_korean_font, flat_logo_bytes
 
 # ---------- 엑셀 공통 ----------
 FONT = "맑은 고딕"
-_side = Side(style="thin", color="BFBFBF")
+_side = Side(style="thin", color=EXCEL_BORDER_COLOR)
 BORDER = Border(left=_side, right=_side, top=_side, bottom=_side)
 HEAD_FILL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
 TOTAL_FILL = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")

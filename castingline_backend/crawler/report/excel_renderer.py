@@ -9,6 +9,8 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
+
 from .common import (COLOR_HEADER_GREEN, COLOR_MAIN_CREAM, COLOR_RED,
                      flat_logo_bytes, fmt_cmp, fmt_num, fmt_pct, fmt_rank_cmp)
 
@@ -25,7 +27,7 @@ DATA_BOLD = Font(name=FONT_NAME, size=9, bold=True)
 BIG_FONT = Font(name=FONT_NAME, size=14, bold=True)
 RED_FONT = Font(name=FONT_NAME, size=9, bold=True, color=COLOR_RED)
 
-_side = Side(style="thin", color="BFBFBF")
+_side = Side(style="thin", color=EXCEL_BORDER_COLOR)
 BORDER = Border(left=_side, right=_side, top=_side, bottom=_side)
 # C001(0926): 긴 영화명이 잘리지 않도록 데이터 셀은 줄바꿈 허용 + 행 높이 자동 맞춤
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -303,7 +305,8 @@ def build_excel(data, out_path):
 
         # ================= P.3 주요작 vs 경쟁작 =================
         ws = wb.create_sheet("P3 주요작 vs 경쟁작")
-        _set_widths(ws, [6, 30] + [22, 24] * max(n, 3))
+        # C001(1020): A열에 순위 카드·지표명이 들어가므로 PDF처럼 넓혀 줄바꿈을 막는다
+        _set_widths(ws, [18, 30] + [22, 24] * max(n, 3))
         _sheet_head(ws, "P.3 주요작 vs 경쟁작", f"{cur_s} | {prev_s}",
                     last_col=max(2 * n + 2, 6))
         _cell(ws, 4, 1, f"주요작 경쟁 포지션  (전체 {data['movie_count']}개 작품 중)",
@@ -331,7 +334,8 @@ def build_excel(data, out_path):
 
         # ================= P.1 경쟁작 전체 상영 요약 =================
         ws = wb.create_sheet("P1 경쟁작 전체 상영 요약")
-        _set_widths(ws, [6, 30] + [22, 24] * max(n, 3))
+        # C001(1020): A열에 '총 좌석수' 등 지표명과 1위 영화명이 들어가므로 넓혀 줄바꿈을 막는다
+        _set_widths(ws, [18, 30] + [22, 24] * max(n, 3))
         _sheet_head(ws, "P.1 경쟁작 전체 상영 요약",
                     f"주요 상영작 {data['movie_count']}개 작품 | {cur_s} | {prev_s}",
                     last_col=max(2 * n + 2, 6))

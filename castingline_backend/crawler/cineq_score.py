@@ -21,6 +21,8 @@ import requests
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
+
 BASE = "https://score.cineq.co.kr"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 N_SHOW = 13  # 씨네큐 관객현황 회차 컬럼 수 (1회~13회 고정)
@@ -154,7 +156,7 @@ def rows_to_xlsx(rows):
     ws = wb.active
     ws.title = "Sheet1"
 
-    thin = Side(style="thin", color="FF000000")
+    thin = Side(style="thin", color=EXCEL_BORDER_COLOR)  # A001: 연한 회색 테두리
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     f_header = Font(name=_FONT_NAME, size=11, bold=True)
     f_data = Font(name=_FONT_NAME, size=10)

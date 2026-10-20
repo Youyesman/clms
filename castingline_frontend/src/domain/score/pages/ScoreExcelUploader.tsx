@@ -434,6 +434,20 @@ export function ScoreExcelUploader({
         ? { source_file: uploadedFile!.name, replace_by_file: true }
         : {};
 
+    // S001(1020): 체크한 행이 있고 전체가 아니면 '부분 업로드' — 체크한 행만 저장하고
+    // 그 극장들(+상영일)의 기존 스코어만 교체한다. 체크하지 않은 다른 극장은 그대로 유지.
+    // 체크가 없거나 전체를 체크하면 기존 정책(해당 멀티 통째 교체)으로 저장한다.
+    const isPartialUpload = selectedRows.size > 0 && selectedRows.size < previewData.length;
+    const uploadRows = useMemo(
+        () => (isPartialUpload ? previewData.filter((_, i) => selectedRows.has(i)) : previewData),
+        [previewData, selectedRows, isPartialUpload]
+    );
+    const uploadParams = { ...replaceParams, ...(isPartialUpload ? { replace_by_theater: true } : {}) };
+    const uploadTheaterCount = useMemo(
+        () => new Set(uploadRows.filter((r) => r.client_id).map((r) => r.client_id)).size,
+        [uploadRows]
+    );
+
     // 재업로드 교체 범위 (같은 상영일자·영화의 기존 스코어가 얼마나 삭제되는지) dry-run 조회
     const [replaceScope, setReplaceScope] = useState<IReplaceScope[]>([]);
 
@@ -443,7 +457,8 @@ export function ScoreExcelUploader({
             return;
         }
         let cancelled = false;
-        AxiosPost("score/preview_replace", { data: previewData, ...replaceParams })
+        // S001: 부분 업로드면 체크한 행 기준(극장 단위)으로 삭제 범위를 계산한다
+        AxiosPost("score/preview_replace", { data: uploadRows, ...uploadParams })
             .then((res) => {
                 if (!cancelled) setReplaceScope(res.data?.data || []);
             })
@@ -454,7 +469,7 @@ export function ScoreExcelUploader({
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [previewData, usePerFileReplace]);
+    }, [previewData, usePerFileReplace, uploadRows]);
 
     const replaceScopeTotal = useMemo(
         () => replaceScope.reduce((sum, r) => sum + r.existing_count, 0),
@@ -474,7 +489,8 @@ export function ScoreExcelUploader({
     // A001: 방금 확정 저장한 결과 — 있으면 '업로드 취소' 버튼을 노출한다
     const [savedResult, setSavedResult] = useState<{
         saved: number;
-        scope: { movie_id: number; entry_date: string; multis: string[] }[];
+        // client_ids: 부분 업로드(S001)로 저장한 경우 그 극장들만 취소 대상
+        scope: { movie_id: number; entry_date: string; multis: string[]; client_ids?: number[] }[];
         sourceFile: string | null;
     } | null>(null);
 
@@ -508,7 +524,12 @@ export function ScoreExcelUploader({
     const handleConfirmSave = () => {
         // 재업로드 교체 정책 안내: 이번 파일에 들어있는 멀티의 기존 스코어만 삭제·교체된다.
         // 메일함 CGV/롯데(M001)는 같은 파일명 분량만 교체되고, 다른 파일 스코어는 유지·누적된다.
-        const subtitle = usePerFileReplace
+        // S001: 부분 업로드(체크한 행만)는 체크한 극장의 기존 스코어만 교체된다.
+        const subtitle = isPartialUpload
+            ? replaceScopeTotal > 0
+                ? `체크한 ${uploadRows.length.toLocaleString()}건(극장 ${uploadTheaterCount.toLocaleString()}곳)만 업로드합니다. 해당 극장·상영일의 기존 스코어 ${replaceScopeTotal.toLocaleString()}건만 삭제되고 이번 내용으로 교체되며, 체크하지 않은 다른 극장의 스코어는 그대로 유지됩니다.`
+                : `체크한 ${uploadRows.length.toLocaleString()}건(극장 ${uploadTheaterCount.toLocaleString()}곳)만 업로드합니다. 체크하지 않은 다른 극장의 기존 스코어는 그대로 유지됩니다.`
+            : usePerFileReplace
             ? replaceScopeTotal > 0
                 ? `같은 파일(${uploadedFile!.name})로 올렸던 기존 스코어 ${replaceScopeTotal.toLocaleString()}건(극장 ${replaceScopeTheaters.toLocaleString()}곳)만 삭제되고 이번 내용으로 교체됩니다. 다른 파일로 올린 스코어는 유지됩니다.`
                 : "다른 파일로 올린 기존 스코어는 유지되고, 이번 파일 내용이 추가됩니다."
@@ -516,15 +537,15 @@ export function ScoreExcelUploader({
                 ? `[${replaceScopeMultis.join(", ")}]의 기존 스코어 ${replaceScopeTotal.toLocaleString()}건(극장 ${replaceScopeTheaters.toLocaleString()}곳)이 삭제되고 이번 파일 내용으로 교체됩니다. 삭제된 데이터는 복구할 수 없습니다.`
                 : "저장 후에는 기존 데이터에 반영됩니다.";
         showAlert(
-            `${previewData.length}건의 데이터를 저장하시겠습니까?`,
+            `${uploadRows.length}건의 데이터를 저장하시겠습니까?`,
             subtitle,
             "warning",
             async () => {
                 setLoading(true);
                 try {
                     const res = await AxiosPost("score/confirm_save", {
-                        data: previewData,
-                        ...replaceParams,
+                        data: uploadRows,
+                        ...uploadParams,
                     });
                     toast.success(res.data?.message || "데이터가 성공적으로 저장되었습니다.");
                     const skippedMovies: string[] = res.data?.rates_skipped_no_country || [];
@@ -625,7 +646,8 @@ export function ScoreExcelUploader({
         );
     };
 
-    const hasMatchError = previewData.some((d) => !d.is_matched);
+    // S001: 부분 업로드면 체크한 행 중 에러만 저장을 막는다 (에러 행을 빼고 체크해 올릴 수 있게)
+    const hasMatchError = uploadRows.some((d) => !d.is_matched);
     const errorCount = useMemo(() => previewData.filter((d) => !d.is_matched).length, [previewData]);
 
     // 관 정보 수정 패널 닫기: 변경이 있었으면 파일을 다시 분석해 재매칭
@@ -813,6 +835,12 @@ export function ScoreExcelUploader({
                             {selectedRows.size > 0 && (
                                 <span style={{ fontSize: "12px", fontWeight: 700, color: "#dc2626" }}>
                                     {selectedRows.size.toLocaleString()}건 선택됨
+                                </span>
+                            )}
+                            {/* S001: 일부만 체크하면 체크한 행만 업로드(극장 단위 교체) */}
+                            {isPartialUpload && (
+                                <span style={{ fontSize: "12px", fontWeight: 700, color: "#2563eb" }}>
+                                    확정 저장 시 체크한 행만 업로드 — 극장 {uploadTheaterCount.toLocaleString()}곳의 기존 스코어만 교체, 나머지 극장 유지
                                 </span>
                             )}
                             <StyledButton
@@ -1106,8 +1134,15 @@ export function ScoreExcelUploader({
                             $primary
                             $disabled={loading || hasMatchError}
                             disabled={loading || hasMatchError}
-                            onClick={handleConfirmSave}>
-                            {loading ? "저장 중..." : `${previewData.length}건 확정 저장`}
+                            onClick={handleConfirmSave}
+                            title={isPartialUpload
+                                ? "체크한 행만 저장합니다. 체크한 극장의 기존 스코어만 교체되고 다른 극장은 유지됩니다."
+                                : "전체를 저장합니다. 파일에 포함된 멀티의 기존 스코어가 통째로 교체됩니다."}>
+                            {loading
+                                ? "저장 중..."
+                                : isPartialUpload
+                                ? `체크한 ${uploadRows.length}건만 확정 저장`
+                                : `${previewData.length}건 확정 저장`}
                         </StyledButton>
                         {savedResult && (
                             <StyledButton

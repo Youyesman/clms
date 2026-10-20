@@ -9,6 +9,11 @@ from decimal import Decimal  # Decimal 타입 체크를 위해 추가
 _INVALID_SHEET_CHARS = re.compile(r"[\\/*?:\[\]]")
 
 
+# A001(1020): 엑셀 다운로드 공통 셀 테두리 색 — 검정 대신 연한 회색으로 통일
+# (이세로 템플릿은 국세청 양식이라 제외). 각 엑셀 생성 모듈이 이 값을 import해 쓴다.
+EXCEL_BORDER_COLOR = "D3D3D3"
+
+
 class ExcelGenerator:
     def __init__(self, sheet_name="Data"):
         self.wb = openpyxl.Workbook()
@@ -30,10 +35,8 @@ class ExcelGenerator:
         self.left_align = Alignment(horizontal="left", vertical="center")  # 데이터 행용 왼쪽 정렬
         self.right_align = Alignment(
             horizontal="right", vertical="center")  # 숫자용 우측 정렬
-        self.border = Border(
-            left=Side(style='thin'), right=Side(style='thin'),
-            top=Side(style='thin'), bottom=Side(style='thin')
-        )
+        _side = Side(style='thin', color=EXCEL_BORDER_COLOR)
+        self.border = Border(left=_side, right=_side, top=_side, bottom=_side)
 
     def add_header(self, headers, special_header_indices=None):
         """

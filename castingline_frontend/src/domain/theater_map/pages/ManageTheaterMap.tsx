@@ -62,6 +62,14 @@ export function ManageTheaterMap() {
 
     const [currentMaps, setCurrentMaps] = useState<any[]>([]);
     const [selectedPair, setSelectedPair] = useState<any>(null);
+    // N001: 드롭다운에서 극장을 고르지 않고 키워드만 입력한 경우 — 시스템 극장명·코드·
+    // 배급사측 지정명 부분 일치로 조회 (백엔드 ?search=). 상단 구분/멀티 필터와 조합된다.
+    const theaterKeyword: string = filters.theater?.id
+        ? ""
+        : (theaterSearchInput || filters.theater?.client_name || "").trim();
+    // N002: 선택한 배급사의 계열사 목록 (모달·이력의 '동일 적용' 체크박스용)
+    const selectedAffiliates: { id: number; client_name: string }[] =
+        distributors.find((d: any) => Number(d.id) === Number(selectedDistId))?.affiliates || [];
     const [appliedDistName, setAppliedDistName] = useState<string>("");
 
     // 배급사 목록 초기 로드
@@ -79,6 +87,7 @@ export function ManageTheaterMap() {
                             value: String(d.id),
                             name: d.client_name,
                             id: d.id,
+                            affiliates: d.affiliates || [], // N002: 계열사(동일 적용 대상)
                         })),
                 );
             } catch (error) {
@@ -104,6 +113,7 @@ export function ManageTheaterMap() {
             });
 
             if (filters.theater?.id) params.append("theater", filters.theater.id);
+            else if (theaterKeyword) params.append("search", theaterKeyword); // N001: 키워드 부분 검색
             if (filters.status !== "전체") params.append("operational_status", filters.status);
             if (filters.classification !== "전체") params.append("classification", filters.classification);
             if (filters.theater_kind !== "전체") params.append("theater_kind", filters.theater_kind);
@@ -176,6 +186,7 @@ export function ManageTheaterMap() {
             const params = new URLSearchParams();
             if (selectedDistId) params.append("distributor", String(selectedDistId));
             if (filters.theater?.id) params.append("theater", filters.theater.id);
+            else if (theaterKeyword) params.append("search", theaterKeyword); // N001: 키워드 부분 검색
             if (filters.status !== "전체") params.append("operational_status", filters.status);
             if (filters.classification !== "전체") params.append("classification", filters.classification);
             if (filters.theater_kind !== "전체") params.append("theater_kind", filters.theater_kind);
@@ -239,11 +250,12 @@ export function ManageTheaterMap() {
                 <AutocompleteInputClient
                     label="극장명 검색"
                     type="theater"
-                    placeholder="극장명/코드 검색"
+                    placeholder="극장명/코드 검색 (선택 없이 키워드만 입력해도 조회)"
                     formData={filters}
                     setFormData={setFilters}
                     inputValue={theaterSearchInput}
                     setInputValue={setTheaterSearchInput}
+                    showTheaterInfo
                 />
 
                 <CustomSelect
@@ -299,6 +311,7 @@ export function ManageTheaterMap() {
                                         <TheaterMapAddModal
                                             distributorId={selectedDistId!}
                                             distributorName={selectedDistName}
+                                            affiliates={selectedAffiliates}
                                             onSuccess={() => fetchTheaterMaps(1)}
                                         />,
                                         { title: "신규 배급사별 극장명 등록" },
@@ -325,7 +338,7 @@ export function ManageTheaterMap() {
                     />
                 </CommonSectionCard>
                 <CommonSectionCard flex={0.8}>
-                    <TheaterMapHistory selectedPair={selectedPair} onCompleted={() => fetchTheaterMaps(page)} />
+                    <TheaterMapHistory selectedPair={selectedPair} affiliates={selectedAffiliates} onCompleted={() => fetchTheaterMaps(page)} />
                 </CommonSectionCard>
             </MainGrid>
         </PageContainer>

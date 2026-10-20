@@ -35,6 +35,7 @@ interface ICompareRow {
     극장명: string;
     포맷: string; // 포맷 버킷("2D"/"4DX"/"ATMOS"…), 포맷 미분리 체인(롯데/메가박스)은 ""
     파일극장명: string | null;
+    파일명?: string[]; // F005: 이 행을 만든 정산서 파일명들 (극장명 옆에 표기)
     client_code: string | null;
     확인: boolean; // 극장 확인 처리 여부 (월×영화×극장 단위)
     status: "both" | "file_only" | "system_only";
@@ -77,6 +78,8 @@ interface IFileInfo {
     confidence?: "high" | "low"; // AI 추출 신뢰도 (PDF만)
     notes?: string; // AI 판독 특이사항 (PDF만)
     matched_row_count?: number; // 대사표(영화 섹션)에 매칭된 행 수 (PDF만) — 0이면 판독 불가 (P001)
+    theater_matched_count?: number; // 극장(거래처)까지 매칭된 행 수 (PDF만) — 0이면 극장 미매칭 (F003)
+    matched_chain?: string; // 매칭된 극장의 "체인 구분" (예: "CGV 직영") — 없으면 AI 추정 체인 표기
 }
 interface ICompareResult {
     chains: string[];
@@ -1061,25 +1064,36 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                 .map((f) => {
                                     // 판독 성공 = 파일의 행이 하나라도 대사표(영화 섹션)에 매칭됨.
                                     // 수치가 달라도 판독은 된 것 — 차이는 아래 영화별 표에서 확인 (P001)
-                                    const ok = (f.matched_row_count ?? f.row_count) > 0;
+                                    const matchedRows = f.matched_row_count ?? f.row_count;
+                                    const ok = matchedRows > 0;
+                                    // F003: 영화는 잡혔지만 극장을 못 찾은 파일(=하단 '파일에만' 행)은
+                                    // 초록 체크 대신 빨간 X로 — '불명'이 눈에 안 띄던 문제
+                                    const theaterOk =
+                                        f.theater_matched_count === undefined ? ok : f.theater_matched_count > 0;
+                                    const chainLabel = f.matched_chain || f.chain.replace("AI·", "");
                                     return (
                                         <li
                                             key={f.filename}
-                                            className={ok ? "" : "low"}
+                                            className={ok && theaterOk ? "" : "low"}
                                             title={f.notes || undefined}
                                         >
-                                            {ok ? (
+                                            {ok && theaterOk ? (
                                                 <CheckCircle size={14} weight="fill" color="#16a34a" />
+                                            ) : ok ? (
+                                                <XCircle size={14} weight="fill" color="#dc2626" />
                                             ) : (
                                                 <Warning size={14} weight="fill" color="#d97706" />
                                             )}
                                             <span className="ai">AI</span>
                                             <b>{f.filename}</b>
-                                            {ok ? (
+                                            {ok && theaterOk ? (
                                                 <span>
-                                                    ({f.chain.replace("AI·", "")} ·{" "}
-                                                    {f.matched_row_count ?? f.row_count}건 대사)
+                                                    ({chainLabel} · {f.theater_matched_count ?? matchedRows}건 대사)
                                                 </span>
+                                            ) : ok ? (
+                                                <em className="notes" style={{ color: "#dc2626" }}>
+                                                    — 극장 미매칭 ({f.chain.replace("AI·", "")} · 파일에만 있음)
+                                                </em>
                                             ) : (
                                                 <em className="notes">— 판독 불가</em>
                                             )}
@@ -1272,6 +1286,14 @@ export const SettlementCompareModal = ({ yyyyMm }: Props) => {
                                                         </td>
                                                         <td className="left">
                                                             {r.극장명}
+                                                            {/* F005: 대사한 파일명 — 예) CGV 왕십리(2026_비광_(2193)) */}
+                                                            {r.파일명 && r.파일명.length > 0 && (
+                                                                <span className="alias" title={r.파일명.join("\n")}>
+                                                                    ({r.파일명
+                                                                        .map((n) => n.replace(/\.[A-Za-z0-9]+$/, ""))
+                                                                        .join(", ")})
+                                                                </span>
+                                                            )}
                                                             {r.구분 && r.구분 !== "직영" && (
                                                                 <span className="tag cls">
                                                                     {r.구분}

@@ -19,6 +19,8 @@ interface Client {
     id?: string;
     client_name: string;
     client_type: string;
+    classification?: string; // 직영/위탁/기타 (극장)
+    theater_kind?: string; // 멀티 (CGV/롯데/메가박스/…)
 }
 
 interface AutocompleteInputProps {
@@ -35,6 +37,8 @@ interface AutocompleteInputProps {
     disabled?: boolean;
     /** "chip" — 필터바용 노션식 칩 (테두리 없음, hover 시에만 배경) */
     variant?: "default" | "chip";
+    /** N001: 극장 드롭다운에 [직영/위탁/기타] 구분을 함께 표기 (동명 직영·위탁 극장 식별용) */
+    showTheaterInfo?: boolean;
 }
 
 /* ---------------- Styled Components ---------------- */
@@ -245,6 +249,7 @@ export function AutocompleteInputClient({
     labelWidth,
     disabled,
     variant = "default",
+    showTheaterInfo = false,
 }: AutocompleteInputProps) {
     const toast = useToast();
     const [suggestions, setSuggestions] = useState<Client[]>([]);
@@ -445,8 +450,17 @@ export function AutocompleteInputClient({
                                     key={client.id || index}
                                     onClick={() => handleSelectSuggestion(client)}
                                     $isSelected={index === selectedIndex}>
-                                    <span>{client.client_name}</span>
-                                    <TypeBadge $type={badgeTypeOf(client)}>{client.client_type}</TypeBadge>
+                                    <span>
+                                        {client.client_name}
+                                        {showTheaterInfo && client.classification && (
+                                            <span style={{ marginLeft: 6, fontSize: 11, color: "#64748b", fontWeight: 700 }}>
+                                                [{client.classification}]
+                                            </span>
+                                        )}
+                                    </span>
+                                    <TypeBadge $type={badgeTypeOf(client)}>
+                                        {showTheaterInfo && client.theater_kind ? client.theater_kind : client.client_type}
+                                    </TypeBadge>
                                 </SuggestionItem>
                             ))}
                         </Dropdown>,

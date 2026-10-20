@@ -20,6 +20,8 @@ import requests
 from django.conf import settings
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
 from openpyxl.utils import get_column_letter
 
 BASE = "https://wingup.megabox.co.kr"
@@ -149,7 +151,7 @@ def rows_to_xlsx(rows, start_de="", end_de=""):
     ws = wb.active
     ws.title = "Sheet1"
 
-    thin = Side(style="thin", color="FF000000")
+    thin = Side(style="thin", color=EXCEL_BORDER_COLOR)  # A001: 연한 회색 테두리
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     f_title = Font(name=_FONT_NAME, size=20, bold=True)
     f_period = Font(name=_FONT_NAME, size=11, bold=True)

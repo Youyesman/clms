@@ -6,6 +6,7 @@ import { CustomButton } from "../../../components/common/CustomButton";
 import { useToast } from "../../../components/common/CustomToast";
 import { AutocompleteInputClient } from "../../../components/common/AutocompleteInputClient";
 import { useGlobalModal } from "../../../hooks/useGlobalModal";
+import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 
 const ModalContent = styled.div` display: flex; flex-direction: column; gap: 16px; `;
 const FormRow = styled.div` display: flex; flex-direction: column; gap: 8px; `;
@@ -14,13 +15,16 @@ const Label = styled.div` font-size: 13px; font-weight: 700; color: #475569; `;
 interface Props {
     distributorId: number;
     distributorName: string;
+    // N002: 계열사 배급사 목록 (예: NEW ↔ 콘텐츠판다). 있으면 '동일 적용' 체크박스 노출
+    affiliates?: { id: number; client_name: string }[];
     onSuccess: () => void;
 }
 
-export function TheaterMapAddModal({ distributorId, distributorName, onSuccess }: Props) {
+export function TheaterMapAddModal({ distributorId, distributorName, affiliates = [], onSuccess }: Props) {
     const toast = useToast();
     const { closeModal } = useGlobalModal();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [applyToAffiliates, setApplyToAffiliates] = useState(false);
     const [theaterInputValue, setTheaterInputValue] = useState("");
     const [newMapping, setNewMapping] = useState<any>({
         theater: null,
@@ -39,10 +43,14 @@ export function TheaterMapAddModal({ distributorId, distributorName, onSuccess }
                 distributor: distributorId, // 무조건 ID 사용
                 theater: newMapping.theater.id,
                 distributor_theater_name: newMapping.distributor_theater_name,
-                apply_date: newMapping.apply_date
+                apply_date: newMapping.apply_date,
+                // N002: 계열사에도 같은 날짜·지정명 이력을 함께 생성
+                apply_to_affiliates: applyToAffiliates && affiliates.length > 0,
             };
             await AxiosPost("theater-maps", payload);
-            toast.success("신규 매핑이 등록되었습니다.");
+            toast.success(applyToAffiliates && affiliates.length > 0
+                ? "신규 매핑이 등록되었습니다. (계열사에도 동일 적용)"
+                : "신규 매핑이 등록되었습니다.");
             onSuccess();
             closeModal();
         } catch (e: any) {
@@ -81,6 +89,14 @@ export function TheaterMapAddModal({ distributorId, distributorName, onSuccess }
                     setValue={(v) => setNewMapping({ ...newMapping, apply_date: v })}
                 />
             </FormRow>
+            {affiliates.length > 0 && (
+                <CustomCheckbox
+                    checked={applyToAffiliates}
+                    onChange={setApplyToAffiliates}
+                    label={`${affiliates.map((a) => a.client_name).join(", ")}(계열사)에도 동일 적용`}
+                    labelStyle={{ fontSize: "13px" }}
+                />
+            )}
             <CustomButton onClick={handleCreateMapping} disabled={isSubmitting}>
                 {isSubmitting ? "등록 중..." : "확인"}
             </CustomButton>

@@ -34,7 +34,13 @@ REGION_DISPLAY_ORDER = list(REGION_ORDER) + ['기타']
 
 
 def _norm_str(s):
-    return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(s or '')).lower()
+    """영화명 비교용 정규화 — 보고서·엑셀(MovieSchedule.normalize_title)과 같은 규칙.
+
+    T001(1020): 특수 알파벳(Ã·É 등)을 일반 알파벳으로 접어 'SÃO PAULO'(CGV·메가박스)와
+    'SAO PAULO'(롯데)가 같은 영화로 매칭되게 한다. 예전엔 Ã가 통째로 지워져 갈라졌다.
+    """
+    from crawler.models import MovieSchedule
+    return MovieSchedule.normalize_title(s or '')
 
 
 def _region_of(row):

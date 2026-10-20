@@ -15,6 +15,8 @@ import pandas as pd
 import requests
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+from castingline_backend.utils.excel_helper import EXCEL_BORDER_COLOR
 from openpyxl.utils import get_column_letter
 
 # SSRF 방지: 이 호스트의 링크만 허용한다.
@@ -165,7 +167,7 @@ def _build_xlsx_bytes(df):
     ws = wb.active
     ws.title = "Sheet1"
 
-    thin = Side(style="thin", color="FF000000")
+    thin = Side(style="thin", color=EXCEL_BORDER_COLOR)  # A001: 연한 회색 테두리
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     title_font = Font(name=_FONT_NAME, bold=True, underline="single", size=15, color="FF000000")
     bold_font = Font(name=_FONT_NAME, bold=True, size=8, color="FF000000")

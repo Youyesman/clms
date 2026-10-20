@@ -136,20 +136,35 @@ export function TheaterQuickEdit({ clientId, clientName, rawAud, onClose }: Prop
     const [changed, setChanged] = useState(false);
 
     // 새 관 기본값: 관이름/영진위관이름을 '파일의 관 이름'과 동일하게 -> 재검사 시 매칭됨
-    const numMatch = rawAud.match(/(\d+)/);
-    const defaultCode = numMatch ? numMatch[1].padStart(3, "0") : "";
+    // S002(1020): 관코드는 관이름 속 숫자(예: '부티크 102호' → 102)가 아니라
+    // 해당 극장의 다음 순번(기존 최대 코드+1, 3자리)으로 채운다. 배급사 전송 규격(2자리 이하)
+    // 을 넘는 100단위 코드가 생기지 않게 한다. 극장 관 목록을 불러온 뒤 채워진다.
     const [newRow, setNewRow] = useState<TheaterRow>({
         client: clientId,
-        auditorium: defaultCode,
+        auditorium: "",
         seat_count: 0,
         auditorium_name: rawAud,
         kofic_auditorium_name: rawAud,
     });
 
+    // 기존 관코드 중 숫자 최대값 + 1 (없으면 001)
+    const nextAuditoriumCode = (list: TheaterRow[]) => {
+        const nums = list
+            .map((r) => parseInt(String(r.auditorium || ""), 10))
+            .filter((n) => !isNaN(n) && n < 100);
+        const next = (nums.length ? Math.max(...nums) : 0) + 1;
+        return String(next).padStart(3, "0");
+    };
+
     const loadRows = () => {
         setLoading(true);
         AxiosGet(`theaters?client_id=${clientId}`)
-            .then((res) => setRows(res.data?.results || res.data || []))
+            .then((res) => {
+                const list: TheaterRow[] = res.data?.results || res.data || [];
+                setRows(list);
+                // 사용자가 아직 코드를 입력하지 않았을 때만 다음 순번으로 채운다
+                setNewRow((prev) => (prev.auditorium ? prev : { ...prev, auditorium: nextAuditoriumCode(list) }));
+            })
             .catch((err) => toast.error(handleBackendErrors(err)))
             .finally(() => setLoading(false));
     };
@@ -187,7 +202,7 @@ export function TheaterQuickEdit({ clientId, clientName, rawAud, onClose }: Prop
             setChanged(true);
             setNewRow({
                 client: clientId,
-                auditorium: defaultCode,
+                auditorium: "", // 재조회 후 다음 순번으로 다시 채워진다
                 seat_count: 0,
                 auditorium_name: rawAud,
                 kofic_auditorium_name: rawAud,

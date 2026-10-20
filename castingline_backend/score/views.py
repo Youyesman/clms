@@ -984,8 +984,11 @@ def confirm_score_save(request):
     # 메일함(CGV/롯데) 업로드는 파일명 단위로만 교체 (M001)
     source_file = request.data.get("source_file") or None
     replace_by_file = bool(request.data.get("replace_by_file"))
+    # S001: 미리보기에서 일부 극장만 체크해 올린 부분 업로드 → 극장 단위 교체
+    replace_by_theater = bool(request.data.get("replace_by_theater"))
     result = save_confirmed_scores(
-        data_list, source_file=source_file, replace_by_file=replace_by_file
+        data_list, source_file=source_file, replace_by_file=replace_by_file,
+        replace_by_theater=replace_by_theater,
     )
 
     message = f"{result['saved']}건의 데이터가 저장되었습니다."
@@ -1037,9 +1040,14 @@ def delete_scores(request):
             movie_id = item.get("movie_id")
             entry_date = item.get("entry_date")
             multis = item.get("multis") or []
+            client_ids = item.get("client_ids") or []
             if not movie_id or not entry_date:
                 continue
-            cond |= Q(movie_id=movie_id, entry_date=entry_date) & _multi_q(multis)
+            c = Q(movie_id=movie_id, entry_date=entry_date) & _multi_q(multis)
+            # 부분 업로드(S001) 취소는 그때 올린 극장들만 지운다
+            if client_ids:
+                c &= Q(client_id__in=client_ids)
+            cond |= c
         if cond:
             qs = Score.objects.filter(cond)
             if source_file:
@@ -1100,10 +1108,12 @@ def preview_score_replace(request):
     data_list = request.data.get("data", [])
     source_file = request.data.get("source_file") or None
     replace_by_file = bool(request.data.get("replace_by_file"))
+    replace_by_theater = bool(request.data.get("replace_by_theater"))  # S001
     return Response(
         {
             "data": preview_replace_scope(
-                data_list, source_file=source_file, replace_by_file=replace_by_file
+                data_list, source_file=source_file, replace_by_file=replace_by_file,
+                replace_by_theater=replace_by_theater,
             )
         },
         status=200,
@@ -2093,8 +2103,9 @@ def score_timetable_dates(request):
     except Movie.DoesNotExist:
         return Response({"error": "영화를 찾을 수 없습니다."}, status=404)
 
+    # T001(1020): 시간표 본문(timetable_agg)과 같은 규칙 — 특수 알파벳 폴딩 포함
     def normalize_str(s):
-        return re.sub(r'[^a-zA-Z0-9가-힣]', '', s).lower()
+        return MovieSchedule.normalize_title(s or "")
 
     clean_target = normalize_str(movie.title_ko)
 

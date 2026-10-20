@@ -836,6 +836,9 @@ export function ManageSettlement() {
     const [theaterSuggestions, setTheaterSuggestions] = useState<any[]>([]);
     const [showTheaterSuggestions, setShowTheaterSuggestions] = useState(false);
     const [selectedTheater, setSelectedTheater] = useState<{ id: number; client_name: string } | null>(null);
+    // F001(1020): 드롭다운에서 극장을 고르지 않고 키워드(예: 인천)만 입력 후 Enter →
+    // 키워드가 포함된 모든 극장의 정산 내역 조회. 상단 멀티/직위 필터와 조합된다.
+    const [theaterKeyword, setTheaterKeyword] = useState("");
     const theaterWrapperRef = useRef<HTMLDivElement>(null);
     const [searchParams, setSearchParams] = useState({
         yyyyMm: dayjs().subtract(1, "month").format("YYYY-MM"),
@@ -931,6 +934,7 @@ export function ManageSettlement() {
                 target: searchParams.target,
             };
             if (selectedTheater) params.client_id = String(selectedTheater.id);
+            else if (theaterKeyword) params.theater_keyword = theaterKeyword; // F001
             const res = await AxiosGet(`settlements/`, { params });
             setSettlements(res.data);
         } catch (error: any) {
@@ -938,7 +942,7 @@ export function ManageSettlement() {
         } finally {
             setIsLoading(false);
         }
-    }, [searchParams, selectedTheater, toast]);
+    }, [searchParams, selectedTheater, theaterKeyword, toast]);
 
     /** 목록만 다시 불러오기 (스크롤 유지) — 로컬 반영이 불가능한 경우의 폴백 */
     const refreshSettlements = useCallback(() => fetchSettlements(true), [fetchSettlements]);
@@ -963,6 +967,7 @@ export function ManageSettlement() {
             closeModal();
             pendingJumpRef.current = { yyyyMm, movieId: String(movieId) };
             setSelectedTheater(null);
+            setTheaterKeyword("");
             setTheaterInput("");
             setConfirmFilter("전체");
             setMultiFilter("전체");
@@ -1664,6 +1669,7 @@ export function ManageSettlement() {
             if (multiFilter !== "전체") params.multi = multiFilter;
             if (classFilter !== "전체") params.classification = classFilter;
             if (selectedTheater) params.client_id = String(selectedTheater.id);
+            else if (theaterKeyword) params.theater_keyword = theaterKeyword; // F001
             // 화면 토글 상태 그대로 — 극장명 컬럼에 배급사별 극장명 사용
             if (useDistName) params.theater_name = "dist";
             const res = await AxiosGet("settlement-excel-export/", {
@@ -1882,15 +1888,39 @@ export function ManageSettlement() {
                                 ×
                             </ClearBtn>
                         </TheaterChip>
+                    ) : theaterKeyword ? (
+                        // F001: 키워드 검색 상태 칩 — 해당 키워드가 포함된 모든 극장
+                        <TheaterChip title="키워드가 포함된 모든 극장의 정산 내역을 조회합니다">
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                                "{theaterKeyword}" 포함 극장
+                            </span>
+                            <ClearBtn
+                                onClick={() => {
+                                    setTheaterKeyword("");
+                                    setTheaterInput("");
+                                }}
+                                title="키워드 검색 해제"
+                            >
+                                ×
+                            </ClearBtn>
+                        </TheaterChip>
                     ) : (
                         <TheaterSearchInput
-                            placeholder="극장 검색"
+                            placeholder="극장 검색 (키워드만 입력 후 Enter 가능)"
                             name="theater-search"
                             autoComplete="off"
                             value={theaterInput}
                             onChange={(e) => setTheaterInput(e.target.value)}
                             onFocus={() => {
                                 if (theaterSuggestions.length > 0) setShowTheaterSuggestions(true);
+                            }}
+                            onKeyDown={(e) => {
+                                // F001: 드롭다운 선택 없이 Enter → 키워드 부분 검색으로 조회
+                                if (e.key === "Enter" && theaterInput.trim()) {
+                                    e.preventDefault();
+                                    setTheaterKeyword(theaterInput.trim());
+                                    setShowTheaterSuggestions(false);
+                                }
                             }}
                         />
                     )}

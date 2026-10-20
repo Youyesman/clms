@@ -7,12 +7,21 @@ import { useToast } from "../../../components/common/CustomToast";
 import { useAppAlert } from "../../../atom/alertUtils";
 import styled from "styled-components";
 import { CommonListHeader } from "../../../components/common/CommonListHeader";
+import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 
+interface Props {
+    selectedPair: any;
+    onCompleted: any;
+    // N002: 현재 배급사의 계열사 목록 — 있으면 '계열사에도 동일 적용' 체크박스 노출
+    affiliates?: { id: number; client_name: string }[];
+}
 
-
-export function TheaterMapHistory({ selectedPair, onCompleted }: { selectedPair: any; onCompleted: any }) {
+export function TheaterMapHistory({ selectedPair, onCompleted, affiliates = [] }: Props) {
     const toast = useToast();
     const { showAlert } = useAppAlert();
+    // N002: 이력 추가·수정을 계열사에도 같이 반영할지 (기본 해제)
+    const [applyToAffiliates, setApplyToAffiliates] = useState(false);
+    const applyAffiliates = applyToAffiliates && affiliates.length > 0;
     const [historyData, setHistoryData] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [historyPage, setHistoryPage] = useState(1);
@@ -51,11 +60,14 @@ export function TheaterMapHistory({ selectedPair, onCompleted }: { selectedPair:
                 distributor: selectedPair.distributor,
                 theater: selectedPair.theater,
                 apply_date: nextDate,
-                distributor_theater_name: "(새 매핑명 입력)"
+                distributor_theater_name: "(새 매핑명 입력)",
+                apply_to_affiliates: applyAffiliates,
             };
 
             await AxiosPost("theater-maps", payload);
-            toast.success("새 이력이 추가되었습니다. 더블 클릭하여 수정하세요.");
+            toast.success(applyAffiliates
+                ? "새 이력이 추가되었습니다. (계열사에도 동일 적용) 더블 클릭하여 수정하세요."
+                : "새 이력이 추가되었습니다. 더블 클릭하여 수정하세요.");
 
             fetchHistory(1);
             onCompleted(1);
@@ -71,10 +83,11 @@ export function TheaterMapHistory({ selectedPair, onCompleted }: { selectedPair:
             const payload = {
                 distributor: selectedPair.distributor,
                 theater: selectedPair.theater,
-                [key]: value
+                [key]: value,
+                apply_to_affiliates: applyAffiliates,
             };
             await AxiosPatch(`theater-maps/${item.id}`, payload);
-            toast.success("수정되었습니다.");
+            toast.success(applyAffiliates ? "수정되었습니다. (계열사에도 동일 적용)" : "수정되었습니다.");
             fetchHistory(historyPage);
             onCompleted(1);
         } catch (e: any) {
@@ -138,9 +151,19 @@ export function TheaterMapHistory({ selectedPair, onCompleted }: { selectedPair:
                 title="히스토리"
                 subtitle={`[${selectedPair.theater_details.client_name}]`}
                 actions={
-                    <CustomIconButton onClick={handleAddNewRow} title="새 이력 즉시 추가">
-                        <Plus size={16} weight="bold" />
-                    </CustomIconButton>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        {affiliates.length > 0 && (
+                            <CustomCheckbox
+                                checked={applyToAffiliates}
+                                onChange={setApplyToAffiliates}
+                                label={`${affiliates.map((a) => a.client_name).join(", ")}(계열사)에도 동일 적용`}
+                                labelStyle={{ fontSize: "12px" }}
+                            />
+                        )}
+                        <CustomIconButton onClick={handleAddNewRow} title="새 이력 즉시 추가">
+                            <Plus size={16} weight="bold" />
+                        </CustomIconButton>
+                    </div>
                 }
             />
             <GenericTable

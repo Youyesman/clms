@@ -23,6 +23,9 @@ from rest_framework import status
 from castingline_backend.utils.ordering import KoreanOrderingFilter
 from django.db.models import Max, Subquery, OuterRef
 from castingline_backend.utils.excel_helper import ExcelGenerator
+from .theater_map_sync import (
+    affiliate_distributors, ensure_default_theater_maps, sync_affiliate_maps,
+)
 from openpyxl.styles import Alignment
 from decimal import Decimal
 
@@ -208,6 +211,16 @@ class ClientViewSet(viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
+    # N002(1020): 거래처가 '극장'으로 저장되면 극장명 매핑 기본 행을 자동 생성
+    # (신규 거래처는 이름만으로 먼저 만들어지고 구분은 나중에 수정되므로 생성·수정 모두 건다)
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        ensure_default_theater_maps(instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        ensure_default_theater_maps(instance)
+
 
 class TheaterViewSet(viewsets.ModelViewSet):
     queryset = Theater.objects.all().order_by("id")
@@ -307,8 +320,16 @@ class TheaterMapDistributorListView(APIView):
             .order_by("client_name")
         )
 
-        # 리스트로 변환하여 JSON 응답
-        return Response(list(distributors), status=status.HTTP_200_OK)
+        # N002: 계열사(동일 적용 대상) 목록을 함께 내려준다
+        result = []
+        for d in distributors:
+            d = dict(d)
+            d["affiliates"] = [
+                {"id": a.id, "client_name": a.client_name}
+                for a in affiliate_distributors(d["id"])
+            ]
+            result.append(d)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class TheaterMapViewSet(viewsets.ModelViewSet):
@@ -388,6 +409,23 @@ class TheaterMapViewSet(viewsets.ModelViewSet):
                 latest_subquery.values("id")[:1]))
 
         return queryset
+
+    # N002(1020): 요청에 apply_to_affiliates=true 가 있으면 계열사 배급사에도 같은
+    # 날짜·지정명 이력을 함께 반영한다 (NEW ↔ 콘텐츠판다)
+    def _apply_to_affiliates(self):
+        v = self.request.data.get("apply_to_affiliates")
+        return str(v).lower() in ("true", "1", "yes")
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        if self._apply_to_affiliates():
+            sync_affiliate_maps(instance)
+
+    def perform_update(self, serializer):
+        prev_apply_date = serializer.instance.apply_date
+        instance = serializer.save()
+        if self._apply_to_affiliates():
+            sync_affiliate_maps(instance, prev_apply_date=prev_apply_date)
 
 
 class ClientExcelExportView(APIView):
