@@ -134,6 +134,7 @@ class SettlementListView(APIView):
         if client_id:
             scores_qs = scores_qs.filter(client_id=client_id)
         kw = (theater_keyword or "").strip()
+        kw_ids = None  # 키워드 검색 시 대상 극장 id — 아래 수동 조정 행에도 같이 적용
         if kw:
             kw_ids = set(Client.objects.filter(client_name__icontains=kw)
                          .values_list("id", flat=True))
@@ -266,6 +267,10 @@ class SettlementListView(APIView):
                     "client").order_by("screen_format", "id")
             if client_id:
                 adjustments = adjustments.filter(client_id=client_id)
+            if kw_ids is not None:
+                # F001(1104): 키워드 검색 중엔 조정도 해당 극장만 — 빠지면 조정이 있는
+                # 다른 극장이 '조정 전용 행'으로 섞여 나온다
+                adjustments = adjustments.filter(client_id__in=kw_ids)
             for adj in adjustments:
                 c = adj.client
                 candidates = [it for it in calculated_list

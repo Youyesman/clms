@@ -3,6 +3,9 @@ KOBIS(영화관입장권 통합전산망) 극장별 시간표 크롤러.
 findTheaterSchedule.do 페이지의 AJAX 캐스케이드(광역→기초→상영관→스케줄)를 순회한다.
 - Playwright 불필요 (순수 requests + JSON).
 - CGV/롯데/메가박스 체인 극장은 제외하고 일반극장만 수집한다. (brand='일반극장')
+- C002(1104): 씨네큐 극장은 KOBIS 수집에서 제외한다. 씨네큐는 크롤러 관리의 별도 대상
+  '씨네큐'(crawler.cineq_schedule_api.CineQPipelineService)가 씨네큐 사이트에서 수집하며,
+  사이트 수집이 실패해도 KOBIS로 대체하지 않는다.
 """
 import re
 import time
@@ -13,6 +16,7 @@ from django.db import close_old_connections
 from concurrent.futures import ThreadPoolExecutor
 
 from crawler.models import KobisScheduleLog
+from crawler import cineq_schedule_api
 
 BASE = "https://www.kobis.or.kr"
 PAGE = BASE + "/kobis/business/mast/thea/findTheaterSchedule.do"
@@ -84,6 +88,8 @@ def crawl_widearea(widearea_cd, dates, stop_signal=None, crawler_run=None,
             thea_cd, thea_nm = th["cd"], th["cdNm"]
             if not include_multiplex and _is_chain_theater(thea_nm):
                 continue  # 체인 극장 제외 (기존 크롤러가 처리)
+            if cineq_schedule_api.is_cineq_kobis_name(thea_nm):
+                continue  # C002(1104): 씨네큐는 씨네큐 사이트에서 수집 (KOBIS 대체 없음)
             theater_count += 1
 
             for ymd in dates:

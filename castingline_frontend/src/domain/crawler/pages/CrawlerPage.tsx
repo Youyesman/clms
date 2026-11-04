@@ -16,6 +16,7 @@ interface IChoiceCompany {
     mega: boolean;
     lotte: boolean;
     normal: boolean; // 일반극장 (KOBIS)
+    cineq: boolean; // C002(1104): 씨네큐 사이트 크롤 (엑셀 표기는 일반극장)
 }
 
 interface ICrawlerConfig {
@@ -190,7 +191,8 @@ const INITIAL_CONFIG: ICrawlerConfig = {
         cgv: true,
         mega: true,
         lotte: true,
-        normal: true
+        normal: true,
+        cineq: true
     },
     kobisMultiplex: false
 };
@@ -618,7 +620,7 @@ export const CrawlerPage = () => {
                 } else if (Array.isArray(conf.brands)) {
                     label = conf.brands.length >= 4 ? '전체' : conf.brands.join('/');
                 } else if (conf.choiceCompany) {
-                    const nameMap: Record<string, string> = { cgv: 'CGV', lotte: '롯데', mega: '메가박스', normal: '일반극장' };
+                    const nameMap: Record<string, string> = { cgv: 'CGV', lotte: '롯데', mega: '메가박스', normal: '일반극장', cineq: '씨네큐' };
                     const selected = Object.keys(nameMap).filter(k => conf.choiceCompany[k]).map(k => nameMap[k]);
                     label = selected.length === 0 ? '-' : selected.length >= 4 ? '전체' : selected.join('/');
                 }
@@ -1391,10 +1393,12 @@ export const CrawlerPage = () => {
 
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>크롤링 대상</div>
-                                <div style={{ display: 'flex', gap: 16 }}>
+                                {/* 씨네큐 추가로 5개가 되면서 좁은 창에서 라벨이 세로로 꺾이지 않게 줄바꿈 금지 + 넘치면 다음 줄 */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px', whiteSpace: 'nowrap' }}>
                                     <CustomCheckbox label="CGV" checked={config.choiceCompany.cgv} onChange={() => handleCompanyChange('cgv')} />
                                     <CustomCheckbox label="Lotte" checked={config.choiceCompany.lotte} onChange={() => handleCompanyChange('lotte')} />
                                     <CustomCheckbox label="Megabox" checked={config.choiceCompany.mega} onChange={() => handleCompanyChange('mega')} />
+                                    <CustomCheckbox label="씨네큐" checked={config.choiceCompany.cineq} onChange={() => handleCompanyChange('cineq')} />
                                     <CustomCheckbox label="일반극장" checked={config.choiceCompany.normal} onChange={() => handleCompanyChange('normal')} />
                                 </div>
                                 {/* C002: 3사 사이트 개편 등으로 자사 크롤이 막혔을 때의 예비용 —
@@ -1409,7 +1413,7 @@ export const CrawlerPage = () => {
                                             // 멀티 포함 수집은 일반극장(KOBIS) 크롤로 실행되며,
                                             // 자사 3사 크롤과 동시에 돌면 서로 덮어쓰므로 3사는 해제
                                             choiceCompany: !prev.kobisMultiplex
-                                                ? { cgv: false, lotte: false, mega: false, normal: true }
+                                                ? { cgv: false, lotte: false, mega: false, normal: true, cineq: false }
                                                 : prev.choiceCompany,
                                         }))}
                                     />

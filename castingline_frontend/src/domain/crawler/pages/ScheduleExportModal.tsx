@@ -5,6 +5,7 @@ import { useToast } from "../../../components/common/CustomToast";
 import { X, DownloadSimple, Spinner } from "@phosphor-icons/react";
 import { CustomCheckbox } from "../../../components/common/CustomCheckbox";
 import { SpecificDatesPicker } from "./SpecificDatesPicker";
+import { ManualTagModal } from "./ManualTagModal";
 
 interface CrawlTarget {
     id: number;
@@ -208,6 +209,8 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
     // C008: 특정 날짜(비연속 다중 선택)로 생성
     const [useSpecificDates, setUseSpecificDates] = useState(false);
     const [specificDates, setSpecificDates] = useState<string[]>([]);
+    // C001(1104): 특수포맷 회차 수동 태깅 창
+    const [showManualTag, setShowManualTag] = useState(false);
 
     // props 변경 시 날짜 동기화
     React.useEffect(() => {
@@ -533,6 +536,26 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                         <div style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 8px" }}>
                             <b>크롤 대상 영화에서 선택</b>한 영화의, 키워드(쉼표 구분 — 무대인사·GV 등)와 위에서 고른 특별 포맷이 든 스케줄만
                             위 기간·계열사 범위에서 별도 양식 엑셀로 받습니다.
+                            <br />
+                            시간표에 표기가 없는 이벤트 회차(메가박스 프리미어 등)는{" "}
+                            <button
+                                type="button"
+                                onClick={() => setShowManualTag(true)}
+                                style={{
+                                    border: "none",
+                                    background: "none",
+                                    padding: 0,
+                                    color: "#b45309",
+                                    fontWeight: 700,
+                                    textDecoration: "underline",
+                                    cursor: "pointer",
+                                    fontSize: 11,
+                                    fontFamily: "SUIT, sans-serif",
+                                }}
+                            >
+                                회차 수동 태깅
+                            </button>
+                            으로 먼저 지정하세요.
                         </div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                             <select
@@ -576,6 +599,16 @@ export const ScheduleExportModal: React.FC<ScheduleExportModalProps> = ({
                     </Button>
                 </Footer>
             </ModalContainer>
+            {showManualTag && (
+                <div onClick={(e) => e.stopPropagation()}>
+                    <ManualTagModal
+                        onClose={() => setShowManualTag(false)}
+                        crawlTargets={crawlTargets}
+                        initialMovieId={specialMovieId}
+                        initialDate={useSpecificDates && specificDates.length ? specificDates[0] : exportStartDate}
+                    />
+                </div>
+            )}
         </Overlay>
     );
 };

@@ -15,6 +15,7 @@ from crawler.management.commands.run_cgv_pipeline import CGVPipelineService
 from crawler.management.commands.run_lotte_pipeline import LottePipelineService
 from crawler.management.commands.run_megabox_pipeline import MegaboxPipelineService
 from crawler.management.commands.run_kobis_pipeline import KobisPipelineService
+from crawler.cineq_schedule_api import CineQPipelineService, SITE_CODE_PREFIX as CINEQ_SITE_PREFIX
 
 # Import Utils
 from crawler.utils.excel_exporter import export_schedules_to_excel
@@ -43,6 +44,13 @@ def _manual_site_defs():
         'normal': {
             'label': '일반극장', 'brand': '일반극장', 'export': '일반극장',
             'service': KobisPipelineService, 'log_model': KobisScheduleLog,
+            'create_fn': MovieSchedule.create_from_kobis_log,
+        },
+        # C002(1104): 씨네큐 — 씨네큐 사이트 크롤 (CGV/롯데/메가박스와 같은 독립 대상).
+        # 저장 브랜드는 '일반극장'(엑셀·보고서 표기 유지), 교체 범위는 씨네큐 극장만.
+        'cineq': {
+            'label': '씨네큐', 'brand': '일반극장', 'export': '씨네큐',
+            'service': CineQPipelineService, 'log_model': KobisScheduleLog,
             'create_fn': MovieSchedule.create_from_kobis_log,
         },
     }
@@ -170,6 +178,11 @@ def run_site_crawler_background(history_id, data, site_key):
             crawl_target_titles = None
 
         site_logs = list(site['log_model'].objects.filter(query_date__in=date_list).order_by('created_at'))
+        # C002(1104): 씨네큐 로그(site_code='CINEQ_…')는 같은 로그 테이블에 있으므로 대상별로 나눈다
+        if site_key == 'cineq':
+            site_logs = [l for l in site_logs if l.site_code.startswith(CINEQ_SITE_PREFIX)]
+        elif site_key == 'normal':
+            site_logs = [l for l in site_logs if not l.site_code.startswith(CINEQ_SITE_PREFIX)]
         if site_key == 'normal' and not kobis_multiplex:
             # 멀티 미포함 실행: 과거 멀티 예비 수집 로그(체인 극장)는 변환하지 않는다
             site_logs = [l for l in site_logs
@@ -184,7 +197,8 @@ def run_site_crawler_background(history_id, data, site_key):
                        if kobis_multiplex else [brand])
         MovieSchedule.replace_before_transform(
             wipe_brands, sorted({l.query_date for l in site_logs}),
-            target_titles=crawl_target_titles)
+            target_titles=crawl_target_titles,
+            scope='cineq' if site_key == 'cineq' else None)
 
         total_created = 0
         # alias 매핑을 시드로 깔고, 크롤 전체가 같은 맵을 공유해 표기를 통일한다
@@ -205,6 +219,12 @@ def run_site_crawler_background(history_id, data, site_key):
             play_date__in=play_dates,
             brand__in=excel_brands
         )
+        if site_key == 'cineq':
+            from crawler.cineq_schedule_api import cineq_theater_names
+            schedule_qs = schedule_qs.filter(theater_name__in=cineq_theater_names())
+        elif site_key == 'normal':
+            from crawler.cineq_schedule_api import cineq_theater_names
+            schedule_qs = schedule_qs.exclude(brand='일반극장', theater_name__in=cineq_theater_names())
         transform_excel = export_transformed_schedules(schedule_qs)
 
         # 7. 결과 저장 — 스킵 사유 분리 (날짜 미등록 등은 실패가 아님)
@@ -289,7 +309,7 @@ class CrawlerExecutionView(APIView):
         try:
             # 선택된 사이트별로 이력을 따로 생성하고 각각 백그라운드 실행
             choice_company = data.get('choiceCompany', {}) or {}
-            selected = [k for k in ('cgv', 'lotte', 'mega', 'normal') if choice_company.get(k)]
+            selected = [k for k in ('cgv', 'lotte', 'mega', 'normal', 'cineq') if choice_company.get(k)]
             if not selected:
                 return Response({"error": "선택된 크롤 대상이 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -307,7 +327,7 @@ class CrawlerExecutionView(APIView):
                 # C002: 멀티 포함 KOBIS 크롤은 이력에서 구분되게 표기
                 if site_key == 'normal' and data.get('kobisMultiplex'):
                     site_conf['site'] = '일반극장(멀티 포함)'
-                site_conf['choiceCompany'] = {k: (k == site_key) for k in ('cgv', 'lotte', 'mega', 'normal')}
+                site_conf['choiceCompany'] = {k: (k == site_key) for k in ('cgv', 'lotte', 'mega', 'normal', 'cineq')}
 
                 history = CrawlerRunHistory.objects.create(
                     status='PENDING',
@@ -474,6 +494,7 @@ def run_transform_background(new_history_id, source_history_id):
         run_lotte = choice_company.get('lotte', False)
         run_mega = choice_company.get('mega', False)
         run_normal = choice_company.get('normal', False)  # 일반극장 (KOBIS)
+        run_cineq = choice_company.get('cineq', False)  # 씨네큐 (C002 1104)
 
         processing_context = {"stage": "init", "log_id": None, "brand": None}
         
@@ -572,6 +593,8 @@ def run_transform_background(new_history_id, source_history_id):
                 cnt = 0
                 errors = []
                 logs = list(KobisScheduleLog.objects.filter(id__in=log_ids).order_by('created_at'))
+                # 씨네큐 로그는 씨네큐 재변환에서만 (C002 1104)
+                logs = [l for l in logs if not l.site_code.startswith(CINEQ_SITE_PREFIX)]
                 if not data.get('kobisMultiplex'):
                     # 멀티 미포함: 과거 멀티 예비 수집 로그(체인 극장)는 변환 제외
                     logs = [l for l in logs
@@ -590,6 +613,23 @@ def run_transform_background(new_history_id, source_history_id):
             else:
                 results['Normal'] = {"created": 0, "message": "No logs found"}
 
+        # 4-2. 씨네큐 Transformation (C002 1104) — 일반극장 중 씨네큐 극장만 교체
+        if run_cineq:
+            from crawler.models import KobisScheduleLog
+            logs = list(KobisScheduleLog.objects.filter(
+                query_date__in=date_list, site_code__startswith=CINEQ_SITE_PREFIX).order_by('created_at'))
+            if logs:
+                MovieSchedule.replace_before_transform(
+                    ['일반극장'], sorted({l.query_date for l in logs}), scope='cineq')
+                cnt = 0
+                for log in logs:
+                    c, _e = MovieSchedule.create_from_cineq_log(log, title_map=title_map)
+                    cnt += c
+                results['CineQ'] = {"created": cnt}
+                total_created += cnt
+            else:
+                results['CineQ'] = {"created": 0, "message": "No logs found"}
+
         # 5. Export to Excel
         from crawler.models import MovieSchedule
         from crawler.utils.excel_exporter import export_transformed_schedules
@@ -598,7 +638,7 @@ def run_transform_background(new_history_id, source_history_id):
         if run_cgv: target_brands.append('CGV')
         if run_lotte: target_brands.append('LOTTE')
         if run_mega: target_brands.append('MEGABOX')
-        if run_normal: target_brands.append('일반극장')
+        if run_normal or run_cineq: target_brands.append('일반극장')
 
         qs = MovieSchedule.objects.filter(
             play_date__gte=start_date.date(),
@@ -1032,26 +1072,34 @@ class CrawlerSpecialExportView(APIView):
             if brands and isinstance(brands, list):
                 qs = qs.filter(brand__in=brands)
 
-            # 키워드 매칭 + (지정 시) 영화 제목 매칭
+            # C001(1104): 수동 태깅(강제 지정)된 회차는 시간표에 키워드 표기가 없어도
+            # 그 태그를 회차 태그에 합쳐 매칭·출력한다 (DB 행은 바꾸지 않고 메모리에서만)
+            from crawler.models import ManualScheduleTag
+            if movie_title:
+                schedules = [s for s in qs if MovieSchedule.title_matches(movie_title, s.movie_title)]
+            else:
+                schedules = list(qs)
+            manual_tags = ManualScheduleTag.tags_by_schedule(schedules)
+            for s in schedules:
+                extra = [t for t in manual_tags.get(s.id, []) if t not in (s.tags or [])]
+                if extra:
+                    s.tags = list(s.tags or []) + extra
+
+            # 키워드 매칭 (영화 제목 매칭은 위에서 적용)
             keywords = [k.replace(" ", "").lower() for k in keyword.split(",") if k.strip()]
             matched = []
-            for s in qs:
+            for s in schedules:
                 title_norm = str(s.movie_title or "").replace(" ", "").lower()
                 tag_norms = [str(t).replace(" ", "").lower() for t in (s.tags or [])]
                 kw_ok = any(k in title_norm or any(k in tn for tn in tag_norms) for k in keywords)
-                if not kw_ok:
-                    continue
-                # 특정 영화 한정 (선택 시)
-                if movie_title and not MovieSchedule.title_matches(movie_title, s.movie_title):
-                    continue
-                matched.append(s.id)
-            qs = MovieSchedule.objects.filter(id__in=matched)
+                if kw_ok:
+                    matched.append(s)
 
-            if not qs.exists():
+            if not matched:
                 msg = f"'{movie_title}'의 " if movie_title else ""
                 return Response({"error": f"{msg}'{keyword}' 키워드에 해당하는 스케줄이 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
-            file_path = export_special_screenings(qs, keyword=keyword, start_date=start_date, end_date=end_date)
+            file_path = export_special_screenings(matched, keyword=keyword, start_date=start_date, end_date=end_date)
             return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=os.path.basename(file_path))
 
         except ValueError:
@@ -1801,4 +1849,111 @@ class KobisAccountDetailView(APIView):
         except KobisDistributorAccount.DoesNotExist:
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── C001(1104): 특수포맷 회차 수동 태깅 ──
+class ManualTagShowingsView(APIView):
+    """태깅할 회차 고르기용 시간표 조회.
+    GET /Api/crawler/manual-tags/showings/?movie_title=..&date=YYYY-MM-DD&brand=MEGABOX(선택)
+    → 수집된 시간표(MovieSchedule)에서 해당 영화·날짜의 회차 목록 + 이미 지정된 수동 태그.
+    """
+    def get(self, request):
+        from crawler.models import ManualScheduleTag
+        movie_title = (request.query_params.get('movie_title') or '').strip()
+        date_str = (request.query_params.get('date') or '').strip()
+        brand = (request.query_params.get('brand') or '').strip()
+        if not movie_title or not date_str:
+            return Response({"error": "movie_title, date는 필수입니다."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            play_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"error": "날짜 형식 오류"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = MovieSchedule.objects.filter(play_date=play_date)
+        if brand:
+            qs = qs.filter(brand=brand)
+        schedules = [s for s in qs if MovieSchedule.title_matches(movie_title, s.movie_title)]
+
+        # 이미 지정된 수동 태그 (id 포함 — 화면에서 바로 해제할 수 있게)
+        tag_index = {}
+        for t in ManualScheduleTag.objects.filter(play_date=play_date):
+            tag_index.setdefault((t.brand, t.theater_name, t.screen_name, t.start_time), []).append(t)
+
+        out = []
+        for s in schedules:
+            manual = [
+                {"id": t.id, "tag": t.tag}
+                for t in tag_index.get((s.brand, s.theater_name, s.screen_name, s.start_time), [])
+                if MovieSchedule.title_matches(t.movie_title, s.movie_title)
+            ]
+            local = timezone.localtime(s.start_time) if s.start_time else None
+            out.append({
+                "brand": s.brand,
+                "theater_name": s.theater_name,
+                "screen_name": s.screen_name,
+                "start_time": s.start_time.isoformat() if s.start_time else None,
+                "time": local.strftime("%H:%M") if local else "",
+                "movie_title": s.movie_title,
+                "tags": s.tags or [],
+                "manual_tags": manual,
+            })
+        out.sort(key=lambda r: (r["brand"], r["theater_name"], r["screen_name"], r["start_time"] or ""))
+        return Response(out)
+
+
+class ManualTagView(APIView):
+    """수동 태그 목록/지정.
+    GET  /Api/crawler/manual-tags/?start_date=..&end_date=..&movie_title=..(선택)
+    POST /Api/crawler/manual-tags/  {tag, movie_title, showings:[{brand, theater_name, screen_name, start_time}]}
+    """
+    def get(self, request):
+        from crawler.models import ManualScheduleTag
+        qs = ManualScheduleTag.objects.all()
+        sd = request.query_params.get('start_date')
+        ed = request.query_params.get('end_date') or sd
+        if sd:
+            qs = qs.filter(play_date__gte=sd, play_date__lte=ed)
+        movie_title = (request.query_params.get('movie_title') or '').strip()
+        rows = [t for t in qs if not movie_title or MovieSchedule.title_matches(movie_title, t.movie_title)]
+        return Response([{
+            "id": t.id, "brand": t.brand, "theater_name": t.theater_name,
+            "screen_name": t.screen_name, "play_date": str(t.play_date),
+            "time": timezone.localtime(t.start_time).strftime("%H:%M"),
+            "movie_title": t.movie_title, "tag": t.tag, "created_by": t.created_by,
+        } for t in rows])
+
+    def post(self, request):
+        from django.utils.dateparse import parse_datetime
+        from crawler.models import ManualScheduleTag
+        tag = (request.data.get('tag') or '').strip()
+        movie_title = (request.data.get('movie_title') or '').strip()
+        showings = request.data.get('showings') or []
+        if not tag or not movie_title or not isinstance(showings, list) or not showings:
+            return Response({"error": "특수포맷, 영화, 회차를 선택해주세요."}, status=status.HTTP_400_BAD_REQUEST)
+        user = getattr(request.user, 'username', '') or ''
+        created = 0
+        for sh in showings:
+            st = parse_datetime(str(sh.get('start_time') or ''))
+            if not st or not sh.get('brand') or not sh.get('theater_name'):
+                continue
+            _obj, is_new = ManualScheduleTag.objects.get_or_create(
+                brand=sh['brand'], theater_name=sh['theater_name'],
+                screen_name=sh.get('screen_name') or '', start_time=st, tag=tag,
+                defaults={
+                    "play_date": timezone.localtime(st).date(),
+                    "movie_title": movie_title, "created_by": user,
+                },
+            )
+            created += int(is_new)
+        return Response({"created": created})
+
+
+class ManualTagDetailView(APIView):
+    """DELETE /Api/crawler/manual-tags/<id>/ — 수동 태그 해제"""
+    def delete(self, request, pk):
+        from crawler.models import ManualScheduleTag
+        deleted, _ = ManualScheduleTag.objects.filter(pk=pk).delete()
+        if not deleted:
+            return Response({"error": "이미 해제된 태그입니다."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

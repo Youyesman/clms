@@ -862,11 +862,15 @@ export function ManageSettlement() {
             setShowTheaterSuggestions(false);
             return;
         }
+        // 입력이 바뀌거나 Enter로 비워지면 이미 나간 조회의 응답은 버린다
+        // (늦게 온 응답이 Enter 뒤에 목록을 다시 띄우던 문제)
+        let cancelled = false;
         const timer = setTimeout(() => {
             AxiosGet(`clients/`, {
                 params: { ordering: "-operational_status,client_name", search: theaterInput, client_type: "극장" },
             })
                 .then((res) => {
+                    if (cancelled) return;
                     // (폐관)/(휴관) 극장은 목록 아래로 (S001)
                     const list = closedTheatersLast(
                         res.data.results || [],
@@ -878,7 +882,10 @@ export function ManageSettlement() {
                 })
                 .catch(() => {});
         }, 300);
-        return () => clearTimeout(timer);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
     }, [theaterInput]);
 
     useEffect(() => {
@@ -916,8 +923,11 @@ export function ManageSettlement() {
     }, [fetchMoviesByMonth]);
 
     // 2. 최종 정산 조회
+    const settleReqSeq = useRef(0);
     // keepList=true면 기존 목록을 비우지 않고 갱신 — 스크롤 위치가 유지된다.
-    const fetchSettlements = useCallback(async (keepList = false) => {
+    // keywordOverride: F001 — Enter로 키워드를 넣는 순간엔 state 반영 전이라 값을 직접 넘긴다
+    // (null = 키워드 없음으로 강제, undefined = 현재 state 사용)
+    const fetchSettlements = useCallback(async (keepList = false, keywordOverride?: string | null) => {
         if (!searchParams.movieId) {
             toast.error("조회할 영화를 선택해주세요.");
             return;
@@ -925,6 +935,9 @@ export function ManageSettlement() {
 
         if (!keepList) setSettlements([]); // 새 조회 시 이전 데이터 즉시 초기화
         setIsLoading(true);
+        // 조회가 겹치면(키워드 해제 직후 재검색 등) 늦게 온 이전 응답이 최신 결과를
+        // 덮어쓰지 않게 마지막 요청의 응답만 반영한다
+        const seq = ++settleReqSeq.current;
 
         try {
             // searchParams.target 값이 "전체극장", "일반극장", "기금면제극장"으로 서버에 전달됨
@@ -933,14 +946,15 @@ export function ManageSettlement() {
                 movie_id: searchParams.movieId,
                 target: searchParams.target,
             };
+            const kw = keywordOverride === undefined ? theaterKeyword : keywordOverride || "";
             if (selectedTheater) params.client_id = String(selectedTheater.id);
-            else if (theaterKeyword) params.theater_keyword = theaterKeyword; // F001
+            else if (kw) params.theater_keyword = kw; // F001
             const res = await AxiosGet(`settlements/`, { params });
-            setSettlements(res.data);
+            if (seq === settleReqSeq.current) setSettlements(res.data);
         } catch (error: any) {
-            toast.error(handleBackendErrors(error));
+            if (seq === settleReqSeq.current) toast.error(handleBackendErrors(error));
         } finally {
-            setIsLoading(false);
+            if (seq === settleReqSeq.current) setIsLoading(false);
         }
     }, [searchParams, selectedTheater, theaterKeyword, toast]);
 
@@ -1704,7 +1718,19 @@ export function ManageSettlement() {
         <PageContainer>
             <CommonFilterBar
                 wrap
-                onSearch={() => fetchSettlements()}
+                onSearch={() => {
+                    // F001(1104): 극장명 칸에 키워드를 입력만 하고 검색(돋보기)을 눌러도
+                    // Enter와 같이 키워드 검색으로 조회한다 (전엔 입력값을 무시하고 전체 조회)
+                    const typed = theaterInput.trim();
+                    if (!selectedTheater && typed) {
+                        setTheaterKeyword(typed);
+                        setTheaterInput("");
+                        setShowTheaterSuggestions(false);
+                        fetchSettlements(false, typed);
+                    } else {
+                        fetchSettlements();
+                    }
+                }}
                 actions={
                     <>
                         <TheaterNameToggle useDistName={useDistName} onChange={setUseDistName} />
@@ -1898,6 +1924,8 @@ export function ManageSettlement() {
                                 onClick={() => {
                                     setTheaterKeyword("");
                                     setTheaterInput("");
+                                    // 키워드로 좁혀진 목록이 남지 않게 전체로 다시 조회
+                                    if (searchParams.movieId) fetchSettlements(false, null);
                                 }}
                                 title="키워드 검색 해제"
                             >
@@ -1916,10 +1944,18 @@ export function ManageSettlement() {
                             }}
                             onKeyDown={(e) => {
                                 // F001: 드롭다운 선택 없이 Enter → 키워드 부분 검색으로 조회
+                                // 필터바의 Enter(조회)로 전파되면 키워드 반영 전 state로 전체 극장이
+                                // 조회되므로 전파를 막고, 키워드를 직접 넘겨 바로 조회한다.
                                 if (e.key === "Enter" && theaterInput.trim()) {
                                     e.preventDefault();
-                                    setTheaterKeyword(theaterInput.trim());
+                                    e.stopPropagation();
+                                    const kw = theaterInput.trim();
+                                    setTheaterKeyword(kw);
+                                    // 입력값을 비워 대기 중인 자동완성 조회를 취소 (칩에 키워드가 표시됨)
+                                    setTheaterInput("");
                                     setShowTheaterSuggestions(false);
+                                    if (searchParams.movieId) fetchSettlements(false, kw);
+                                    else toast.error("조회할 영화를 선택해주세요.");
                                 }
                             }}
                         />

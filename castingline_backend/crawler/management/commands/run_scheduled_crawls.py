@@ -3,7 +3,7 @@
 
 크론에서 5분마다 실행된다. 관리자 화면의 스케줄 설정(CrawlerScheduleConfig)을
 읽어, 설정된 실행 시각(다중)이 도래했으면 데일리 파이프라인
-(CGV → 롯데 → 메가박스 → 일반극장)을 순차 실행한다.
+(CGV → 롯데 → 메가박스 → 일반극장 → 씨네큐)을 순차 실행한다.
 
 - On/Off: enabled=False 면 아무것도 하지 않는다 (당일 스킵, 다시 켜면 다음
   예정 시각부터 실행).
@@ -90,7 +90,7 @@ class Command(BaseCommand):
 
             self.stdout.write(
                 f"🕐 자동 크롤링 시작 (예정 시각 {', '.join(due)} / 대상 {target_dates})")
-            for site in ('cgv', 'lotte', 'megabox', 'kobis'):
+            for site in ('cgv', 'lotte', 'megabox', 'kobis', 'cineq'):
                 try:
                     run_site_pipeline(site, target_dates=target_dates)
                 except Exception as e:

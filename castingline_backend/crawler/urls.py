@@ -8,7 +8,8 @@ from .views import (CrawlerExecutionView, CrawlerHistoryView, CrawlerDownloadVie
                     MegaboxScoreAllView, MegaboxAccountView, MegaboxAccountDetailView,
                     CineQScoreAllView, CineQAccountView, CineQAccountDetailView,
                     KobisScoreAllView, KobisAccountView, KobisAccountDetailView,
-                    CrawlerScheduleConfigView)
+                    CrawlerScheduleConfigView, ManualTagShowingsView, ManualTagView,
+                    ManualTagDetailView)
 
 urlpatterns = [
     path('run/', CrawlerExecutionView.as_view(), name='crawler_run'),
@@ -20,6 +21,10 @@ urlpatterns = [
     path('schedules/options/', CrawlerScheduleOptionsView.as_view(), name='schedule_options'),
     path('schedules/export/', CrawlerScheduleExportView.as_view(), name='schedule_export'),
     path('schedules/special_export/', CrawlerSpecialExportView.as_view(), name='schedule_special_export'),
+    # C001(1104): 특수포맷 회차 수동 태깅
+    path('manual-tags/', ManualTagView.as_view(), name='manual_tags'),
+    path('manual-tags/showings/', ManualTagShowingsView.as_view(), name='manual_tag_showings'),
+    path('manual-tags/<int:pk>/', ManualTagDetailView.as_view(), name='manual_tag_detail'),
     path('schedules/report/', CrawlerReportView.as_view(), name='schedule_report'),
     path('schedules/list/', CrawlerScheduleListView.as_view(), name='schedule_list'),
     path('targets/', CrawlTargetMovieView.as_view(), name='crawl_targets'),

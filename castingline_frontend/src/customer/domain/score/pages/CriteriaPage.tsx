@@ -157,12 +157,33 @@ const GrandTotalRow = styled.tr`
 /* 숫자 콤마 표기 (0/빈값은 공백) */
 const fmt = (n: any) => (n ? Number(n).toLocaleString("ko-KR") : "");
 
+/* V001(1104): 좌석판매율 표기 "(4.0%)" — 관객수가 있는 칸에만 붙인다 */
+const pctText = (n: any, rate: number | null | undefined) =>
+    n && rate != null ? `(${Number(rate).toFixed(1)}%)` : "";
+
+/* 화면용: 관객수 옆에 빨간 글씨로 좌석판매율 */
+const WithRate = ({ n, rate }: { n: any; rate?: number | null }) => {
+    const p = pctText(n, rate);
+    return (
+        <>
+            {fmt(n)}
+            {p && <span style={{ color: "#dc2626", marginLeft: 3, fontWeight: 600 }}>{p}</span>}
+        </>
+    );
+};
+
+/* 엑셀용: "4 (4.0%)" 형태 문자열 (좌석판매율이 없으면 숫자 그대로) */
+const withRateText = (n: any, rate?: number | null) => {
+    const p = pctText(n, rate);
+    return p ? `${Number(n).toLocaleString("ko-KR")} ${p}` : n || "";
+};
+
 /* ── 컴포넌트 ── */
 export function CriteriaPage() {
     const toast = useToast();
     const [scoreFilter, setScoreFilter] = useRecoilState(ScoreFilterState);
     const [moviesList, setMoviesList] = useState<any[]>([]);
-    const [data, setData] = useState<any>({ meta: null, rows: [] });
+    const [data, setData] = useState<any>({ meta: null, rows: [], seat_rates: null });
 
     const [searchParams, setSearchParams] = useState({
         yyyy: scoreFilter.yyyy,
@@ -225,7 +246,7 @@ export function CriteriaPage() {
                 ...(formatIds ? { format_movie_ids: formatIds } : {}),
             },
         })
-            .then((res) => setData(res.data || { meta: null, rows: [] }))
+            .then((res) => setData(res.data || { meta: null, rows: [], seat_rates: null }))
             .catch((err) => toast.error(handleBackendErrors(err)));
     }, [searchParams.movie_id, searchParams.date, searchParams.region, searchParams.multi, searchParams.theater_type, selectedFormats, formatOptions, toast]);
 
@@ -283,8 +304,18 @@ export function CriteriaPage() {
 
         const resetSub = () => ({ sessions: new Array(12).fill(0), daily_total: 0, prev_day: 0, prev_week: 0, cumulative: 0 });
 
-        const pushSubtotal = (label: string, sub: any, type: string) => {
-            result.push({ ...sub, type, label, sessions: [...sub.sessions] });
+        // V001: 관별 합계 → 회차·일계 %, 극장 총 합계 → 일계 %만 (백엔드 계산값, 좌석판매율 현황과 동일 규칙)
+        const seatRates = data.seat_rates || { aud: {}, theater: {} };
+        const pushSubtotal = (label: string, sub: any, type: string, src?: any) => {
+            let rates: any = null;
+            if (src && type === "aud_subtotal") {
+                const r = seatRates.aud?.[`${src.client_id}|${src.auditorium || ""}`];
+                if (r) rates = { sessions: r.sessions, daily: r.daily };
+            } else if (src && type === "theater_subtotal") {
+                const d = seatRates.theater?.[String(src.client_id)];
+                if (d != null) rates = { sessions: null, daily: d };
+            }
+            result.push({ ...sub, type, label, sessions: [...sub.sessions], rates });
         };
 
         for (let i = 0; i < rows.length; i++) {
@@ -294,15 +325,15 @@ export function CriteriaPage() {
 
             // 극장이 바뀌면 이전 관 소계 + 극장 소계
             if (lastTheater && theaterKey !== lastTheater) {
-                pushSubtotal(`합계`, audSub, "aud_subtotal");
-                pushSubtotal(`${rows[i - 1]?.theater} 총 합계`, theaterSub, "theater_subtotal");
+                pushSubtotal(`합계`, audSub, "aud_subtotal", rows[i - 1]);
+                pushSubtotal(`${rows[i - 1]?.theater} 총 합계`, theaterSub, "theater_subtotal", rows[i - 1]);
                 audSub = resetSub();
                 theaterSub = resetSub();
                 lastAud = "";
             }
             // 같은 극장 내에서 관이 바뀌면 관 소계
             else if (lastAud && audKey !== lastAud && lastTheater === theaterKey) {
-                pushSubtotal(`합계`, audSub, "aud_subtotal");
+                pushSubtotal(`합계`, audSub, "aud_subtotal", rows[i - 1]);
                 audSub = resetSub();
             }
 
@@ -317,14 +348,14 @@ export function CriteriaPage() {
 
         // 마지막 관/극장 소계
         if (rows.length > 0) {
-            pushSubtotal(`합계`, audSub, "aud_subtotal");
-            pushSubtotal(`${rows[rows.length - 1]?.theater} 총 합계`, theaterSub, "theater_subtotal");
+            pushSubtotal(`합계`, audSub, "aud_subtotal", rows[rows.length - 1]);
+            pushSubtotal(`${rows[rows.length - 1]?.theater} 총 합계`, theaterSub, "theater_subtotal", rows[rows.length - 1]);
         }
 
         // 전체 합계
         pushSubtotal("합 계", grandTotal, "grand_total");
         return result;
-    }, [filteredRows]);
+    }, [filteredRows, data.seat_rates]);
 
     const meta = data.meta;
 
@@ -342,7 +373,11 @@ export function CriteriaPage() {
             const tail = [row.daily_total || "", row.prev_day || "", row.prev_week || "", row.cumulative || ""];
             if (AGG_TYPES.includes(row.type)) {
                 // 소계/합계 행 — 앞 7칸 중 마지막 칸에 라벨을 넣어 화면과 같은 위치로 맞춘다
-                return ["", "", "", "", "", "", row.label, ...row.sessions.map((s: number) => s || ""), ...tail];
+                // V001: 합계 행은 화면과 동일하게 "4 (4.0%)" 형태로 출력
+                const r = row.rates;
+                const sessions = row.sessions.map((s: number, i: number) => withRateText(s, r?.sessions?.[i]));
+                const aggTail = [withRateText(row.daily_total, r?.daily), ...tail.slice(1)];
+                return ["", "", "", "", "", "", row.label, ...sessions, ...aggTail];
             }
             return [
                 row.region, row.multi, row.classification, row.format,
@@ -354,7 +389,7 @@ export function CriteriaPage() {
         const n = downloadExcel(
             `스코어_기준별조회_${meta?.movie_title || ""}_${searchParams.date}`,
             {
-                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${searchParams.date}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""}`,
+                caption: `${meta?.movie_title || ""} (개봉일: ${meta?.release_date || "-"}) / 기준일: ${searchParams.date}${theaterSearch.trim() ? ` / 극장검색: ${theaterSearch.trim()}` : ""} / ※ 상영관별 회차 합계의 괄호 안 수치는 해당 회차의 좌석판매율(%)입니다. (관객수÷해당 회차 좌석수)`,
                 headers: [HEAD],
                 rows,
             }
@@ -451,6 +486,10 @@ export function CriteriaPage() {
                     <MovieInfo>
                         {meta.movie_title}
                         <span>(개봉일: {meta.release_date || "-"})</span>
+                        {/* V001(1104): 괄호 수치 안내 (요청 이미지 문구) */}
+                        <span style={{ color: "#dc2626", fontWeight: 700, marginLeft: 12 }}>
+                            ※ 상영관별 회차 합계의 괄호 안 수치는 해당 회차의 좌석판매율(%)입니다. (관객수÷해당 회차 좌석수)
+                        </span>
                     </MovieInfo>
                 )}
 
@@ -481,8 +520,10 @@ export function CriteriaPage() {
                                     return (
                                         <SubtotalRow key={`sub-${idx}`}>
                                             <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
-                                            {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
-                                            <td>{fmt(row.daily_total)}</td>
+                                            {row.sessions.map((s: number, i: number) => (
+                                                <td key={i}><WithRate n={s} rate={row.rates?.sessions?.[i]} /></td>
+                                            ))}
+                                            <td><WithRate n={row.daily_total} rate={row.rates?.daily} /></td>
                                             <td>{fmt(row.prev_day)}</td>
                                             <td>{fmt(row.prev_week)}</td>
                                             <td>{fmt(row.cumulative)}</td>
@@ -494,7 +535,7 @@ export function CriteriaPage() {
                                         <SubtotalRow key={`tsub-${idx}`}>
                                             <td colSpan={7} style={{ textAlign: "right", paddingRight: 12 }}>{row.label}</td>
                                             {row.sessions.map((s: number, i: number) => <td key={i}>{fmt(s)}</td>)}
-                                            <td>{fmt(row.daily_total)}</td>
+                                            <td><WithRate n={row.daily_total} rate={row.rates?.daily} /></td>
                                             <td>{fmt(row.prev_day)}</td>
                                             <td>{fmt(row.prev_week)}</td>
                                             <td>{fmt(row.cumulative)}</td>

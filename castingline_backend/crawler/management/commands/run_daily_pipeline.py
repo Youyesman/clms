@@ -21,6 +21,7 @@ SITE_LABELS = {
     'lotte': '롯데',
     'megabox': '메가박스',
     'kobis': '일반극장',
+    'cineq': '씨네큐',  # C002(1104): 씨네큐 사이트 크롤 (저장 브랜드는 '일반극장')
 }
 
 # 재시도해도 소용없는 스킵 사유 (실패로 집계하지 않음)
@@ -170,6 +171,17 @@ def _collect_and_transform(site, history, target_dates, target_titles):
             log_ids=[c['log_id'] for c in logs],
             target_titles=target_titles,
         )
+    elif site == 'cineq':
+        # C002(1104): 씨네큐 사이트 크롤 — 일반극장 중 씨네큐 극장만 교체
+        from crawler.cineq_schedule_api import CineQPipelineService
+        logs, theaters, failures = CineQPipelineService.collect_schedule_logs(dates=target_dates, crawler_run=history)
+        print(f"   ↳ Generating Schedules from {len(logs)} CineQ logs ({theaters} theaters)...")
+        MovieSchedule.replace_before_transform(['일반극장'], sorted({c['date'] for c in logs}),
+                                               target_titles=target_titles, scope='cineq')
+        created, errors = CineQPipelineService.transform_logs_to_schedule(
+            log_ids=[c['log_id'] for c in logs],
+            target_titles=target_titles,
+        )
     else:
         raise ValueError(f"Unknown site: {site}")
 
@@ -260,7 +272,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--site', type=str, choices=list(SITE_LABELS.keys()),
-            help='실행할 사이트 (cgv/lotte/megabox/kobis). 미지정 시 전체 순차 실행'
+            help='실행할 사이트 (cgv/lotte/megabox/kobis/cineq). 미지정 시 전체 순차 실행'
         )
 
     def handle(self, *args, **options):

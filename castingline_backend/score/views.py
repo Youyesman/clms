@@ -1659,7 +1659,72 @@ def score_criteria(request):
         "base_date": date_str,
     }
 
-    return Response({"meta": meta, "rows": rows})
+    return Response({
+        "meta": meta, "rows": rows,
+        "seat_rates": _criteria_seat_rates(common_filter, base_date),
+    })
+
+
+def _criteria_seat_rates(common_filter, base_date):
+    """V001(1104): 기준별 조회 합계 행용 좌석판매율.
+
+    좌석판매율 현황(score_seat_rate)과 같은 규칙 — 회차 좌석수 = 관 좌석수(Theater),
+    관객 1명 이상인 회차만 좌석에 포함, 모든 % = Σ관객수 ÷ Σ좌석수 (%를 더하거나 평균 내지 않음).
+    포맷·요금은 합쳐 관×회차 단위로 본다. 그래서 극장 총 합계 일계 %는 같은 날짜·같은
+    포맷 선택의 좌석판매율 현황 극장 판매율과 일치한다.
+    반환: {"aud": {"<client_id>|<관>": {"sessions": [12칸 % 또는 None], "daily": %}},
+           "theater": {"<client_id>": %}}  — 좌석수가 없으면 None
+    """
+    from client.models import Theater
+
+    # (극장, 관, 회차 원문) → 관객수. 회차 원문을 키로 써야 좌석판매율 현황과 회차 수가 같다.
+    show_visitors = defaultdict(int)
+    for row in (Score.objects.filter(common_filter & Q(entry_date=base_date))
+                .values("client_id", "auditorium", "show_count")
+                .annotate(total=Sum(Cast("visitor", IntegerField())))):
+        show_visitors[(row["client_id"], row["auditorium"] or "", row["show_count"] or "")] += row["total"] or 0
+    if not show_visitors:
+        return {"aud": {}, "theater": {}}
+
+    seat_map = {}
+    for t in Theater.objects.filter(client_id__in={k[0] for k in show_visitors}).values(
+            "client_id", "auditorium", "seat_count"):
+        try:
+            seat_map[(t["client_id"], t["auditorium"] or "")] = int(t["seat_count"] or 0)
+        except (ValueError, TypeError):
+            seat_map[(t["client_id"], t["auditorium"] or "")] = 0
+
+    def pct(v, s):
+        return round(v / s * 100, 1) if s > 0 else None
+
+    # 관별: 회차 칸(1~12회)·일계 / 극장별: 일계
+    aud_acc = defaultdict(lambda: {"sv": [0] * 12, "ss": [0] * 12, "v": 0, "s": 0})
+    th_acc = defaultdict(lambda: {"v": 0, "s": 0})
+    for (cid, aud, sc), v in show_visitors.items():
+        seats = seat_map.get((cid, aud), 0) if v > 0 else 0
+        a = aud_acc[(cid, aud)]
+        a["v"] += v
+        a["s"] += seats
+        th_acc[cid]["v"] += v
+        th_acc[cid]["s"] += seats
+        try:
+            idx = int(sc) - 1
+        except (ValueError, TypeError):
+            idx = -1
+        if 0 <= idx < 12:
+            a["sv"][idx] += v
+            a["ss"][idx] += seats
+
+    return {
+        "aud": {
+            f"{cid}|{aud}": {
+                "sessions": [pct(a["sv"][i], a["ss"][i]) for i in range(12)],
+                "daily": pct(a["v"], a["s"]),
+            }
+            for (cid, aud), a in aud_acc.items()
+        },
+        "theater": {str(cid): pct(t["v"], t["s"]) for cid, t in th_acc.items()},
+    }
 
 
 # ============================

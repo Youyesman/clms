@@ -684,7 +684,7 @@ class MovieSchedule(models.Model):
         return html.unescape(html.unescape(str(crawled_name or ""))), None
 
     @classmethod
-    def replace_before_transform(cls, brands, yyyymmdd_dates, target_titles=None):
+    def replace_before_transform(cls, brands, yyyymmdd_dates, target_titles=None, scope=None):
         """'가장 최근 크롤만 표출' — 교체 방식.
 
         크롤 변환 직전에 이번 크롤 범위의 기존 스케줄을 지운 뒤 새 수집분으로
@@ -702,6 +702,10 @@ class MovieSchedule(models.Model):
         전체 교체다(C002 0827) — 이전 크롤에만 있던 영화의 잔재가 남지 않는다.
         수집 로그가 있는 날짜만 지우므로, 크롤이 통째로 실패한 날짜의 기존
         데이터는 유지된다.
+
+        C002(1104): 씨네큐는 brand='일반극장'으로 저장되지만 크롤은 별도 대상이다.
+        scope='cineq' 면 일반극장 중 씨네큐 극장만, 그 외에 '일반극장'을 지울 때는
+        씨네큐 극장을 빼고 지운다 (서로의 수집분을 지우지 않게).
         """
         from datetime import datetime as _dt
         dates = []
@@ -713,7 +717,14 @@ class MovieSchedule(models.Model):
         if not brands or not dates:
             return 0
         qs = cls.objects.filter(brand__in=list(brands), play_date__in=dates)
-        scope = "전체"
+        if scope == 'cineq' or '일반극장' in brands:
+            from crawler.cineq_schedule_api import cineq_theater_names
+            cq_names = cineq_theater_names()
+            if scope == 'cineq':
+                qs = qs.filter(brand='일반극장', theater_name__in=cq_names)
+            else:
+                qs = qs.exclude(brand='일반극장', theater_name__in=cq_names)
+        scope = "씨네큐" if scope == 'cineq' else "전체"
         if target_titles:
             # 영화별 덮어쓰기 — 저장된 제목의 표기 변형('어떻게 해야 했을까?' 등)도
             # 정확 일치 규칙(title_matches)으로 같은 영화로 보고 함께 지운다
@@ -822,6 +833,14 @@ class MovieSchedule(models.Model):
         showTm 은 콤마 구분 시각 문자열 "0830,1040,1310".
         """
         from datetime import datetime, timedelta
+
+        # C002(1104): 씨네큐 사이트 수집분(site_code='CINEQ_…')은 전용 변환기로
+        from crawler.cineq_schedule_api import is_cineq_log, is_cineq_kobis_name
+        if is_cineq_log(log.site_code):
+            return cls.create_from_cineq_log(log, target_titles=target_titles, title_map=title_map)
+        if is_cineq_kobis_name(log.theater_name):
+            # 씨네큐 극장의 KOBIS 로그(변경 전 수집분)는 변환하지 않는다 — 씨네큐는 사이트 수집만
+            return 0, []
 
         json_data = log.response_json
         if isinstance(json_data, str):
@@ -1006,6 +1025,131 @@ class MovieSchedule(models.Model):
             updated_count = len(to_update)
 
         return created_count + updated_count, errors
+
+    @staticmethod
+    def _cineq_client_name(site_name):
+        """C002(1104): 씨네큐 사이트 극장명('신도림') → 거래처명('씨네큐신도림').
+        기존 KOBIS 수집분과 같은 극장명으로 저장해야 지역·좌석 매칭과 이력이 이어진다.
+        운영 중 거래처를 우선하고, 못 찾으면 '씨네큐'+사이트 극장명을 쓴다."""
+        import re
+        from client.models import Client
+
+        def key(s):
+            s = re.sub(r"^\([^)]*\)", "", str(s or ""))  # (폐관)/(임시중단) 접두 제거
+            return re.sub(r"\s+", "", s.replace("씨네큐", "")).lower()
+
+        k = key(site_name)
+        hits = [c.client_name for c in Client.objects.filter(theater_kind="씨네큐")
+                if c.client_name and key(c.client_name) == k]
+        live = [n for n in hits if not n.startswith("(")]
+        if live or hits:
+            return (live or hits)[0]
+        compact = re.sub(r"\s+", "", str(site_name or ""))
+        return "씨네큐" + compact
+
+    @classmethod
+    def create_from_cineq_log(cls, log, target_titles=None, title_map=None):
+        """C002(1104): 씨네큐 사이트 수집 로그 → MovieSchedule(brand='일반극장').
+
+        - 극장명: 거래처명(예: '씨네큐신도림') — KOBIS 수집분과 같은 이름
+        - 관: 'NN관' (KOBIS 수집분과 같은 두 자리 표기, 예: '(씨네필)9 관' → '09관')
+        - 좌석: 사이트 '잔여 / 전체'
+        - 태그: 제목 괄호((더빙)·(영문자막)) + 시간표 아이콘(프리미어·무대인사·기획전 등,
+          조조·굿즈증정 같은 판촉 표기는 제외)
+        같은 (극장·상영일)에서 이번 수집에 들어온 영화의 기존 행을 지우고 다시 넣는다.
+        """
+        import re
+        from datetime import datetime
+        from crawler.cineq_schedule_api import PROMO_ATTRIBS
+
+        data = log.response_json or {}
+        movies = data.get("movies") or []
+        ymd = str(data.get("play_date") or log.query_date)
+        try:
+            q_date = datetime.strptime(ymd, "%Y%m%d").date()
+        except Exception:
+            return 0, [{"theater": log.theater_name, "error": f"상영일 형식 오류: {ymd}"}]
+
+        theater_name = cls._cineq_client_name(data.get("theater_name") or log.theater_name)
+        booking_url = f"https://www.cineq.co.kr/Theater/Movie?TheaterCode={data.get('theater_code', '')}"
+
+        parsed_items, errors = [], []
+        for mv in movies:
+            raw_title = mv.get("title") or ""
+            if not raw_title:
+                continue
+            if target_titles and not any(cls.title_matches(t, raw_title) for t in target_titles):
+                continue
+            clean_title, title_tags = cls.parse_and_normalize_title(raw_title)
+            tags = list(title_tags)
+            sub_tag = cls.detect_sub_type_tag(*title_tags)
+            if sub_tag and sub_tag not in tags:
+                tags.append(sub_tag)
+            final_title = clean_title
+            if title_map is not None:
+                norm = cls.normalize_title(clean_title)
+                if norm in title_map:
+                    final_title = title_map[norm]
+                else:
+                    title_map[norm] = clean_title
+
+            for sc in mv.get("screens") or []:
+                raw_screen = sc.get("screen") or ""
+                m = re.search(r"(\d+)\s*관", raw_screen)
+                screen_name = f"{int(m.group(1)):02d}관" if m else cls.normalize_screen_name(raw_screen)
+                for t in sc.get("times") or []:
+                    try:
+                        start_dt = cls.parse_robust_datetime(ymd, str(t.get("start", "")).replace(":", ""))
+                        if not start_dt:
+                            continue
+                        end_dt = cls.parse_robust_datetime(ymd, str(t.get("end", "")).replace(":", ""))
+                        if end_dt and end_dt < start_dt:
+                            # 자정 넘어 끝나는 회차
+                            from datetime import timedelta
+                            end_dt += timedelta(days=1)
+                        row_tags = list(tags)
+                        for a in t.get("attribs") or []:
+                            if a not in PROMO_ATTRIBS and a not in row_tags:
+                                row_tags.append(a)
+                        total = t.get("total")
+                        remain = t.get("remain")
+                        parsed_items.append({
+                            'brand': '일반극장',
+                            'theater_name': theater_name,
+                            'screen_name': screen_name,
+                            'start_time': start_dt,
+                            'end_time': end_dt,
+                            'play_date': q_date,
+                            'movie_title': final_title,
+                            'tags': row_tags,
+                            'total_seats': int(total) if total is not None else 0,
+                            'remaining_seats': int(remain) if remain is not None else 0,
+                            'booking_url': booking_url,
+                        })
+                    except Exception as e:
+                        errors.append({'theater': theater_name, 'site_code': log.site_code,
+                                       'movie': raw_title, 'error': str(e)})
+
+        if not parsed_items:
+            return 0, errors
+
+        # 같은 (극장·상영일)에서 이번 수집 영화의 기존 행(이전 KOBIS 수집분 포함) 교체
+        new_keys = {cls.normalize_title(i['movie_title']) for i in parsed_items}
+        scope_qs = cls.objects.filter(brand='일반극장', theater_name=theater_name, play_date=q_date)
+        doomed = [t for t in scope_qs.values_list('movie_title', flat=True).distinct()
+                  if cls.normalize_title(cls.parse_and_normalize_title(t)[0]) in new_keys]
+        if doomed:
+            scope_qs.filter(movie_title__in=doomed).delete()
+
+        seen, to_create = set(), []
+        for item in parsed_items:
+            key = (item['screen_name'], item['start_time'])
+            if key in seen:
+                continue
+            seen.add(key)
+            to_create.append(cls(**item))
+        cls.objects.bulk_create(to_create, ignore_conflicts=True)
+        return len(to_create), errors
 
     @classmethod
     def create_from_megabox_log(cls, log, target_titles=None, title_map=None):
@@ -1580,6 +1724,56 @@ class CrawlTitleAlias(models.Model):
             clean_t, _ = MovieSchedule.parse_and_normalize_title(a.target.title)
             amap[key] = clean_t
         return amap
+
+
+class ManualScheduleTag(models.Model):
+    """
+    C001(1104): 특수포맷 회차 수동 태깅(강제 지정).
+
+    메가박스 등 시간표에 이벤트 표기가 없는 극장의 프리미어 상영회·무대인사·GV 회차를
+    사람이 직접 지정한다. MovieSchedule 행은 크롤마다 (브랜드×상영일) 단위로 지웠다가
+    다시 만들어지므로 태그를 그 행에 쓰면 사라진다 — 그래서 별도 테이블에 두고
+    (브랜드·극장·관·상영시작시각)으로 매 조회 시점에 회차와 연결한다.
+    특수상영 엑셀 다운로드에서 회차 태그에 합쳐져 키워드 매칭·구분1 표기에 쓰인다.
+    """
+    brand = models.CharField(max_length=20, verbose_name="계열사")
+    theater_name = models.CharField(max_length=100, verbose_name="극장명")
+    screen_name = models.CharField(max_length=100, verbose_name="관")
+    start_time = models.DateTimeField(verbose_name="상영 시작 시각")
+    play_date = models.DateField(verbose_name="상영일")
+    # 지정 당시 영화명 — 같은 회차에 다른 영화가 편성되면(시간표 변경) 적용하지 않는다
+    movie_title = models.CharField(max_length=255, verbose_name="영화명")
+    tag = models.CharField(max_length=100, verbose_name="특수포맷(구분)")
+    created_by = models.CharField(max_length=150, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "특수포맷 수동 태깅"
+        unique_together = [('brand', 'theater_name', 'screen_name', 'start_time', 'tag')]
+        indexes = [models.Index(fields=['play_date'])]
+        ordering = ['play_date', 'brand', 'theater_name', 'start_time']
+
+    def __str__(self):
+        return f"[{self.tag}] {self.brand} {self.theater_name} {self.screen_name} {self.start_time}"
+
+    @classmethod
+    def tags_by_schedule(cls, schedules):
+        """스케줄 목록 → {schedule.id: [수동 태그...]} (영화명이 같은 회차만)."""
+        schedules = list(schedules)
+        dates = {s.play_date for s in schedules if s.play_date}
+        if not dates:
+            return {}
+        index = {}
+        for t in cls.objects.filter(play_date__in=dates):
+            index.setdefault((t.brand, t.theater_name, t.screen_name, t.start_time), []).append(t)
+        out = {}
+        for s in schedules:
+            for t in index.get((s.brand, s.theater_name, s.screen_name, s.start_time), []):
+                if MovieSchedule.title_matches(t.movie_title, s.movie_title):
+                    out.setdefault(s.id, [])
+                    if t.tag not in out[s.id]:
+                        out[s.id].append(t.tag)
+        return out
 
 
 class MegaboxDistributorAccount(models.Model):

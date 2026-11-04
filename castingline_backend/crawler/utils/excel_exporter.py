@@ -232,7 +232,7 @@ def _build_normal_theater_index():
     from client.models import Client, Theater
 
     qs = Client.objects.exclude(theater_kind__in=['CGV', '메가박스', '롯데']).only(
-        'id', 'client_name', 'kofic_theater_name', 'kofic_theater_name2', 'region_code'
+        'id', 'client_name', 'kofic_theater_name', 'kofic_theater_name2', 'region_code', 'theater_kind'
     )
     name_to_client = {}
     # 1) 영진위극장명(1·2) 우선
@@ -282,7 +282,9 @@ def _resolve_normal_theater(theater_name, screen_name, normal_index):
         m = re.search(r'(\d+)', str(screen_name or ''))
         if m and int(m.group(1)) in d.get('num', {}):
             seat = d['num'][int(m.group(1))]
-    return {'region': region, 'seat': _safe_int(seat), 'client_name': c.client_name}
+    return {'region': region, 'seat': _safe_int(seat), 'client_name': c.client_name,
+            # C002(1104): 일반극장 중 씨네큐는 항상 맨 위에 표기
+            'is_cineq': c.theater_kind == '씨네큐'}
 
 
 # E004: 특별 상영 포맷 canonical 태그 표시 순서 (MovieSchedule.extract_format_tags 가 저장)
@@ -446,9 +448,11 @@ def _process_to_rows(schedules, region_map, normal_index=None):
 
         # 일반극장(KOBIS): '일반극장' 접두 제거 + 영진위극장명/극장명 매칭으로 지역·좌석수 보강
         unmapped = False
+        is_cineq = False
         if brand == '일반극장':
             info = _resolve_normal_theater(theater, screen, normal_index)
             if info:
+                is_cineq = info['is_cineq']
                 display_theater = info['client_name']
                 region = info['region']
                 if info['seat']:
@@ -501,6 +505,7 @@ def _process_to_rows(schedules, region_map, normal_index=None):
             'total_seats': total_seats_sum,
             'sold_seats': sold_seats_sum,
             'unmapped': unmapped,
+            'cineq': is_cineq,
         })
 
     # C005: 더빙과 자막이 함께 상영되는 영화는, 구분 표기가 없는 회차를
@@ -513,6 +518,7 @@ def _process_to_rows(schedules, region_map, normal_index=None):
 
     rows.sort(key=lambda x: (
         _brand_priority(x['brand']),
+        0 if x.get('cineq') else 1,  # C002(1104): 일반극장 안에서 씨네큐 먼저
         x['region'],
         x['theater'],
         x['screen'],
@@ -952,6 +958,8 @@ def _write_competitor_detail_sheet(ws, main_data, competitor_data_dict, movie_ti
         k[0],  # date
         _brand_priority(theater_movie_index[k].get(movie_title, [{}])[0].get('brand', '') if theater_movie_index[k].get(movie_title) else
                         next(iter(theater_movie_index[k].values()), [{}])[0].get('brand', '')),
+        # C002(1104): 일반극장 안에서 씨네큐 먼저
+        0 if any(r.get('cineq') for rows_ in theater_movie_index[k].values() for r in rows_) else 1,
         k[1]   # theater name
     ))
 
@@ -1334,11 +1342,18 @@ def export_special_screenings(queryset, keyword=None, start_date=None, end_date=
     # (모두 오름차순. 관 이름은 정렬 키에서 제외 — 같은 극장 안에서는 시간순으로만)
     BRAND_ORD = {'CGV': 0, 'LOTTE': 1, 'MEGABOX': 2, '일반극장': 3}
     BRAND_LABEL = {'CGV': 'CGV', 'MEGABOX': 'MEGA', 'LOTTE': 'LOTTE', '일반극장': '일반극장'}
+    # C002(1104): 일반극장 안에서 씨네큐 극장(거래처 멀티='씨네큐')을 맨 위로
+    cineq_names = {
+        re.sub(r'\s+', '', n).lower()
+        for n in Client.objects.filter(theater_kind='씨네큐').values_list('client_name', flat=True) if n
+    }
 
     def sort_key(s):
+        is_cineq = s.brand == '일반극장' and re.sub(r'\s+', '', s.theater_name or '').lower() in cineq_names
         return (
             BRAND_ORD.get(s.brand, 9),
             str(s.play_date or (s.start_time.date() if s.start_time else "")),
+            0 if is_cineq else 1,  # 같은 날짜 안에서 씨네큐 먼저
             (s.theater_name or "").replace(" ", ""),
             s.start_time or dj_timezone.now(),
         )
