@@ -144,15 +144,15 @@ export function DefaultRateDetail({ selectedClient }: { selectedClient: any }) {
     };
 
     const headers = [
-        { key: "is_domestic", label: "구분", render: (v, row) => renderEditableCell("is_domestic", v, row, "select", [{ label: "한국영화", value: "Y" }, { label: "외화", value: "N" }]) },
-        { key: "theater_kind", label: "멀티분류", render: (v, row) => renderEditableCell("theater_kind", v, row, "select", THEATER_KINDS) },
-        { key: "classification", label: "직영/위탁", render: (v, row) => renderEditableCell("classification", v, row, "select", MANAGEMENT_TYPES) },
-        { key: "region_code", label: "지역", render: (v, row) => renderEditableCell("region_code", v, row, "select", REGION_CODES) },
-        { key: "share_rate", label: "부율(%)", render: (v, row) => renderEditableCell("share_rate", v, row, "input") },
+        { key: "is_domestic", label: "구분", renderCell: (v, row) => renderEditableCell("is_domestic", v, row, "select", [{ label: "한국영화", value: "Y" }, { label: "외화", value: "N" }]) },
+        { key: "theater_kind", label: "멀티분류", renderCell: (v, row) => renderEditableCell("theater_kind", v, row, "select", THEATER_KINDS) },
+        { key: "classification", label: "직영/위탁", renderCell: (v, row) => renderEditableCell("classification", v, row, "select", MANAGEMENT_TYPES) },
+        { key: "region_code", label: "지역", renderCell: (v, row) => renderEditableCell("region_code", v, row, "select", REGION_CODES) },
+        { key: "share_rate", label: "부율(%)", renderCell: (v, row) => renderEditableCell("share_rate", v, row, "input") },
         {
             key: "actions",
             label: "관리",
-            render: (_, row) => (
+            renderCell: (_, row) => (
                 <div style={{ display: 'flex', gap: '4px' }}>
                     {editingId === row.id ? (
                         <>
