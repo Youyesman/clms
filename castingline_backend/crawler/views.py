@@ -1190,19 +1190,8 @@ class CrawlerReportView(APIView):
             file_path = os.path.join(save_dir, filename)
 
             if fmt == 'pdf':
-                # 흥행 전망: 주요작이 CLMS 영화와 매칭되고 개봉 7일차가 지났으면 마지막 장에 전망 1장 추가 (관리자 전용)
-                extra_pages = None
-                is_admin = bool(getattr(request.user, "is_superuser", False))
-                if mode == 'main' and is_admin and request.data.get('include_forecast', True):
-                    try:
-                        from forecast.service import forecast_for_title
-                        from forecast.pdf import forecast_page
-                        fc_payload = forecast_for_title(main_title, end_date)
-                        if fc_payload:
-                            extra_pages = [forecast_page(fc_payload, "P.4 흥행 전망")]
-                    except Exception as fe:  # 전망 실패가 보고서 생성을 막지 않도록
-                        logger.warning(f"Forecast page skipped: {fe}")
-                build_pdf(data, file_path, scope=scope, extra_pages=extra_pages)
+                # 흥행 전망(P.4) 페이지는 보고서에 포함하지 않음 — 흥행 전망 화면에서 별도 PDF로 제공
+                build_pdf(data, file_path, scope=scope)
             else:
                 build_excel(data, file_path)
 
