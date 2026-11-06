@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useOutlet } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { RecoilRoot, useRecoilState, useRecoilValue } from "recoil";
+import { RecoilRoot, useRecoilState, useRecoilValue, useSetRecoilState } from "recoil";
 import styled from "styled-components";
 import Topbar from "./components/navbar/Topbar";
 import { SnackbarProvider } from "notistack";
@@ -8,6 +8,9 @@ import { CustomToastProvider } from "./components/common/CustomToast";
 import { GlobalAlert } from "./components/common/Alert";
 import { GlobalModalProvider } from "./hooks/useGlobalModal";
 import { AccountState } from "./atom/AccountState";
+import { ScoreFilterState } from "./atom/ScoreFilterState";
+import { TimeTableFilterState } from "./atom/TimeTableFilterState";
+import { yesterdayStr } from "./utils/dateUtils";
 import StaffTopbar from "./components/navbar/StaffTopbar";
 import CustomerTopbar from "./components/navbar/CustomerTopbar";
 import { Sidebar } from "./components/navbar/Sidebar";
@@ -16,7 +19,7 @@ import { GlobalSkeleton } from "./components/common/GlobalSkeleton";
 import { TabBar } from "./components/navbar/TabBar";
 import { OpenTabsState, ActiveTabIdState, PATH_TO_TAB_LABEL, Tab } from "./atom/TabState";
 import { SIDEBAR_WIDTH } from "./components/navbar/Sidebar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { initExcelCellSelection } from "./utils/excelCellSelection";
 import { initTableColumnResize } from "./utils/tableColumnResize";
@@ -55,6 +58,19 @@ function App() {
     const [openTabs, setOpenTabs] = useRecoilState(OpenTabsState);
     const [activeTabId, setActiveTabId] = useRecoilState(ActiveTabIdState);
     const sidebarWidth = showStaffUI ? SIDEBAR_WIDTH : 0;
+
+    // V003(1106): 조회 조건은 계정별로 별개 — 계정이 바뀌면(로그아웃→다른 계정 로그인) 기간·영화를 초기화.
+    // 로그아웃이 새로고침 없이 이뤄져 Recoil 메모리 상태가 다음 계정에 그대로 남던 문제
+    const setScoreFilter = useSetRecoilState(ScoreFilterState);
+    const setTimeTableFilter = useSetRecoilState(TimeTableFilterState);
+    const prevAccountId = useRef(account?.id);
+    useEffect(() => {
+        if (prevAccountId.current === account?.id) return;
+        prevAccountId.current = account?.id;
+        const y = yesterdayStr();
+        setScoreFilter({ date: y, dateFrom: y, dateTo: y, yyyy: new Date().getFullYear().toString(), movieId: "", movieTitle: "" });
+        setTimeTableFilter({ dateFrom: y, dateTo: y, selectedBrands: [], selectedRegions: [], selectedMovies: [] });
+    }, [account?.id]);
 
     // E001: 모든 테이블에서 엑셀처럼 셀 범위만 드래그 선택 + Ctrl+C 복사 (헤더 행 포함)
     useEffect(() => initExcelCellSelection(), []);
