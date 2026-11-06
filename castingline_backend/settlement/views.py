@@ -412,17 +412,15 @@ class SettlementListView(APIView):
             show_adjustment_info=bool(getattr(request.user, "is_superuser", False)),
             theater_keyword=theater_keyword)
 
-        # 극장별 확인 상태 + 포맷버킷(테이블 직접 금액수정 시 조정 키용) 주입
+        # 행별 확인 상태 + 포맷버킷(테이블 직접 금액수정 시 조정 키용) 주입
+        # F001(1106): 확인은 행 단위 — 극장 전체 확인이 있으면 그 극장 모든 행 확인
         from settlement.compare import format_bucket
-        from settlement.models import SettlementConfirm
-        code_confirm = {}
-        for c in SettlementConfirm.objects.filter(
-                yyyymm=yyyy_mm, movie_id=movie_id).select_related("client"):
-            code_confirm[c.client.client_code] = c
+        confirm_of = _confirm_lookup(yyyy_mm, movie_id)
         for row in results:
             if row.get("is_subtotal"):
                 continue
-            conf = code_confirm.get(row.get("거래처코드"))
+            row["확인키"] = _confirm_row_key(row)
+            conf = confirm_of(row)
             row["확인"] = conf is not None
             row["확인자"] = (conf.confirmed_by or conf.source) if conf else ""
             row["포맷버킷"] = format_bucket(row.get("상영타입"), row.get("멀티구분"))
@@ -1227,10 +1225,10 @@ class SettlementCompareView(SettlementListView):
             if adj.date_to_override:
                 agg["date_to"] = adj.date_to_override.strftime("%Y-%m-%d")
 
-        # 극장별 확인 상태 (거래처코드 기준)
+        # 극장별 확인 상태 (거래처코드 기준) — 대사는 극장 단위이므로 극장 전체 확인만 본다
         from settlement.models import SettlementConfirm
         confirmed_codes = set(SettlementConfirm.objects.filter(
-            yyyymm=yyyy_mm, movie=primary_movie).values_list(
+            yyyymm=yyyy_mm, movie=primary_movie, row_key="").values_list(
                 "client__client_code", flat=True))
 
         # 극장별 비교 — 이번 대사 범위(allowed_pairs) 밖의 시스템 단독 극장은 제외
@@ -1681,7 +1679,7 @@ class SettlementAdjustmentView(APIView):
         # auto_confirm=false 로 자동 확인을 끄고 확인 API를 따로 호출한다 (K001).
         if data.get("auto_confirm", True):
             SettlementConfirm.objects.get_or_create(
-                yyyymm=yyyy_mm, movie_id=movie_id, client=client,
+                yyyymm=yyyy_mm, movie_id=movie_id, client=client, row_key="",
                 defaults={"source": "조정", "confirmed_by": username})
         obj._rebased = rebased  # 응답에 재기준 여부 전달용 (DB 저장 안 됨)
         return obj, None
@@ -1830,13 +1828,41 @@ class SettlementStaleAdjustmentView(APIView):
 # 2-3. 부금 정산 극장별 확인 처리
 
 
+def _confirm_row_key(row):
+    """F001(1106): 부금정산 행 확인용 고유 키.
+    정산 행은 (극장, 부율, 기금면제, 상영타입) 으로 묶이므로 같은 극장 안에서는
+    '부율|기금면제|상영타입' 이 행을 구분한다. 조정 전용 행은 '조정'."""
+    if row.get("is_adjustment"):
+        return "조정"
+    rate = row.get("부율")
+    rate_s = "" if rate is None or rate == "" else f"{float(rate):g}"
+    return f"{rate_s}|{1 if row.get('is_fund_exempt') else 0}|{row.get('상영타입') or ''}"
+
+
+def _confirm_lookup(yyyy_mm, movie_id):
+    """(거래처코드, 행키) → 확인 레코드 조회 함수. 극장 전체 확인("")이 있으면
+    그 극장의 모든 행이 확인으로 본다."""
+    from settlement.models import SettlementConfirm
+    by_key = {}
+    for c in SettlementConfirm.objects.filter(
+            yyyymm=yyyy_mm, movie_id=movie_id).select_related("client"):
+        by_key[(c.client.client_code, c.row_key or "")] = c
+
+    def lookup(row):
+        code = row.get("거래처코드")
+        return by_key.get((code, "")) or by_key.get((code, _confirm_row_key(row)))
+    return lookup
+
+
 class SettlementConfirmView(APIView):
-    """부금 정산 극장별 확인/해제 (관리자 전용).
+    """부금 정산 극장별/행별 확인/해제 (관리자 전용).
 
     POST /Api/settlement-confirms/
       body: yyyyMm, confirmed(true/false, 기본 true), source?("수동"|"대사" 등)
-            + movie_id, client_codes: [..]           — 단일 영화 일괄
+            + movie_id, client_codes: [..]           — 단일 영화 일괄 (극장 전체)
             또는 items: [{movie_id, client_codes: [..]}, ..] — 여러 영화 일괄(대사 모달)
+            또는 F001(1106) 행 단위: movie_id, client_code, row_key, sibling_row_keys: [..]
+              — 그 극장의 다른 행(sibling_row_keys)은 상태를 그대로 유지한다
     반환: {"count": 처리 건수}
     """
 
@@ -1854,6 +1880,10 @@ class SettlementConfirmView(APIView):
         source = (str(data.get("source") or "수동"))[:20]
         username = str(getattr(request.user, "username", "") or "")
 
+        # F001(1106): 행 단위 확인/해제
+        if data.get("row_key"):
+            return self._toggle_row(data, yyyy_mm, bool(confirmed), source, username)
+
         items = data.get("items")
         if not isinstance(items, list):
             items = [{"movie_id": data.get("movie_id"),
@@ -1869,13 +1899,50 @@ class SettlementConfirmView(APIView):
             if confirmed:
                 for c in clients:
                     _obj, created = SettlementConfirm.objects.get_or_create(
-                        yyyymm=yyyy_mm, movie_id=movie_id, client=c,
+                        yyyymm=yyyy_mm, movie_id=movie_id, client=c, row_key="",
                         defaults={"source": source, "confirmed_by": username})
                     count += 1 if created else 0
+                    # 극장 전체 확인이 생기면 개별 행 확인은 중복이므로 정리
+                    SettlementConfirm.objects.filter(
+                        yyyymm=yyyy_mm, movie_id=movie_id, client=c).exclude(row_key="").delete()
             else:
+                # 해제는 극장 전체·행 확인을 모두 지운다
                 count += SettlementConfirm.objects.filter(
                     yyyymm=yyyy_mm, movie_id=movie_id, client__in=clients).delete()[0]
         return Response({"count": count})
+
+    def _toggle_row(self, data, yyyy_mm, confirmed, source, username):
+        """한 행만 확인/해제. 극장 전체 확인 상태에서 한 행을 해제하면
+        극장 전체 확인을 풀고 나머지 행(sibling_row_keys)을 행 단위 확인으로 바꿔 둔다."""
+        from django.db import transaction
+        from settlement.models import SettlementConfirm
+
+        movie_id = data.get("movie_id")
+        code = str(data.get("client_code") or "").strip()
+        row_key = str(data.get("row_key") or "")[:255]
+        siblings = [str(k)[:255] for k in (data.get("sibling_row_keys") or []) if k]
+        client = Client.objects.filter(client_code=code).first()
+        if not movie_id or not client:
+            return Response({"error": "영화/극장 정보가 올바르지 않습니다."}, status=400)
+
+        base = SettlementConfirm.objects.filter(
+            yyyymm=yyyy_mm, movie_id=movie_id, client=client)
+        with transaction.atomic():
+            whole = base.filter(row_key="").first()
+            if whole:
+                # 극장 전체 확인 → 행 단위로 펼친다 (다른 행 상태는 유지)
+                for k in set(siblings) | {row_key}:
+                    SettlementConfirm.objects.get_or_create(
+                        yyyymm=yyyy_mm, movie_id=movie_id, client=client, row_key=k,
+                        defaults={"source": whole.source, "confirmed_by": whole.confirmed_by})
+                whole.delete()
+            if confirmed:
+                SettlementConfirm.objects.get_or_create(
+                    yyyymm=yyyy_mm, movie_id=movie_id, client=client, row_key=row_key,
+                    defaults={"source": source, "confirmed_by": username})
+            else:
+                base.filter(row_key=row_key).delete()
+        return Response({"count": 1})
 
 
 # 3. 월간 부금 정산 엑셀 출력 (SettlementListView 상속)
@@ -1912,17 +1979,14 @@ class SettlementExcelExportView(SettlementListView):
             show_adjustment_info=False,
             theater_keyword=request.query_params.get("theater_keyword") or None)  # F001
 
-        # 확인여부 필터 — 화면과 동일하게 극장(거래처) 단위로 거르고,
+        # 확인여부 필터 — 화면과 동일하게 행 단위로 거르고 (F001 1106),
         # 필터 중엔 소계 행이 맞지 않으므로 제외
         if confirm_filter in ("확인", "미확인"):
-            from settlement.models import SettlementConfirm
-            confirmed = set(SettlementConfirm.objects.filter(
-                yyyymm=yyyy_mm, movie_id=movie_id).values_list(
-                    "client__client_code", flat=True))
+            confirm_of = _confirm_lookup(yyyy_mm, movie_id)
             want = confirm_filter == "확인"
             items = [it for it in items
                      if not it.get("is_subtotal")
-                     and (it.get("거래처코드") in confirmed) == want]
+                     and (confirm_of(it) is not None) == want]
 
         # 멀티(체인) 필터 — 화면과 동일. 해당 멀티의 소계 행만 유지
         multi_filter = request.query_params.get("multi", "")
@@ -2467,6 +2531,22 @@ class SettlementEseroExportView(SettlementListView):
                     ws.cell(row=row, column=col)._style = copy.copy(src._style)
             if style_src_height is not None:
                 ws.row_dimensions[row].height = style_src_height
+
+        # F002(1106): 국세청 양식은 입력 행 수가 정해져 있다 (100건 양식 99행, 1000건 양식 1000행).
+        # 보관 중인 1000건 템플릿 파일은 488행(입력 482행)까지만 서식이 있어 그 아래가 잘려
+        # 보였으므로, 데이터 건수와 관계없이 정해진 입력 행 끝(6행 머리 + 입력 행)까지
+        # 7행 서식으로 빈 틀을 채운다. 행을 자르거나 지우는 처리는 하지 않는다.
+        form_input_rows = 1000 if is_over_100 else 99
+        form_last_row = 6 + form_input_rows
+        # 1000건 템플릿에 남아 있던 예전 작성 예시 값(7~33행)이 섞여 나가지 않도록 입력 영역 값은 비운다
+        for r in range(style_src_row, max(template_last_row, form_last_row) + 1):
+            for col in range(1, style_max_col + 1):
+                cell = ws.cell(row=r, column=col)
+                if cell.value is not None:
+                    cell.value = None
+        for r in range(template_last_row + 1, form_last_row + 1):
+            _apply_row_style(r)
+        template_last_row = max(template_last_row, form_last_row)
 
         row_idx = 7
         for (biz_no, sub_biz, _theater_key), item in aggregated_for_esero.items():

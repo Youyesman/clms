@@ -35,6 +35,7 @@ type CustomInputProps = {
     min?: string | number;
     max?: string | number;
     readOnly?: boolean;
+    list?: string; // <datalist> id — 자주 쓰는 값 목록을 고르거나 직접 입력 (M001)
 };
 
 /** 1. 컨테이너 **/
@@ -246,6 +247,7 @@ export const CustomInput: React.FC<CustomInputProps> = ({
     min,
     max,
     readOnly,
+    list,
 }) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -323,6 +325,7 @@ export const CustomInput: React.FC<CustomInputProps> = ({
                         min={min}
                         max={max}
                         readOnly={readOnly}
+                        list={list}
                     />
 
                     {rightLabel && (

@@ -3,7 +3,8 @@
 기준 (부율은 배급사 부율):
 - 한국영화: CGV/롯데/메가박스 '직영'이면서 '서울' 55%, 그 외 전부 50%
 - 외국영화: 롯데 '서울'(직영+위탁) 55%, 그 외 전부 50%
-- 예외극장(Client.rate_exception_type): '모두'=한국/외화 모두 55%, '외화'=외화만 55%
+- 예외극장(M001 1106): Client.rate_exception_domestic / rate_exception_foreign 에
+  국적별 부율이 지정돼 있으면 그 값을 우선 적용 (빈 값이면 아래 기본 규칙)
 - 씨네큐/프리머스/자동차극장 등 표 외 체인은 일반극장과 동일 취급
 - 영화 국가(Movie.country)가 미지정이면 생성하지 않고 결과에 영화명을 담아 알린다
 - 이미 해당 (영화×극장) Rate가 있으면 건드리지 않는다 (수동 입력 우선)
@@ -32,9 +33,12 @@ def _is_seoul(client):
 
 def _resolve_share_rate(client, is_domestic):
     """극장 구분(예외극장/체인/직영/지역)과 한국·외화 여부에 따른 기준 부율."""
-    exception_type = (client.rate_exception_type or "").strip()
-    if exception_type == "모두" or (exception_type == "외화" and not is_domestic):
-        return Decimal("55")
+    # M001(1106): 극장별 예외 부율 — 국적별로 지정된 값이 있으면 그대로 사용
+    exception_rate = (
+        client.rate_exception_domestic if is_domestic else client.rate_exception_foreign
+    )
+    if exception_rate is not None:
+        return Decimal(exception_rate)
 
     kind = (client.theater_kind or "").strip()
     classification = (client.classification or "").strip()

@@ -90,7 +90,15 @@ class Client(TimeStampedModel):
     kobis_linked = models.BooleanField(default=True)  # KOBIS 연동 여부
     rate_exception_type = models.CharField(
         max_length=10, null=True, blank=True
-    )  # 부율 예외극장 구분: '모두'=한국+외화 55%, '외화'=외화만 55%, 빈값=해당없음
+    )  # (구) 부율 예외극장 구분 — M001(1106)부터 아래 국적별 값으로 대체, 기존 값은 마이그레이션 0020에서 변환
+    # M001(1106): 극장별 예외 부율을 국적별로 직접 지정 (빈 값 = 예외 없음 → 기본 규칙 적용)
+    #   예) 원주영상미디어센터 한국 60 / 외화 60
+    rate_exception_domestic = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )  # 예외 부율(한국영화)
+    rate_exception_foreign = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )  # 예외 부율(외화)
     # F001(0903): 이세로 합산용 메인(상위) 거래처.
     # 메가박스코엑스(발전기금면제관)처럼 부금 계산을 위해 부과관/면제관으로 나눠 둔
     # 극장은 이 값을 본관으로 지정한다. 화면·스코어·부금 계산은 그대로 분리 유지하고,

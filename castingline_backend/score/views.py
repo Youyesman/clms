@@ -609,6 +609,29 @@ def apply_common_filters(qs, request):
     return qs
 
 
+def _summary_periods(request):
+    """V002(1106): 스코어 현황 총괄의 기준 기간·비교 기간.
+    기준 기간 = date_from ~ date_to (미지정 시 date_from 하루).
+    비교 기간 = 같은 길이로 전일(1일)/전주(7일)만큼 당긴 기간.
+      예) 11/01~11/05, 전일 비교 → 10/31~11/04
+    반환: (from_str, to_str, prev_from_str, prev_to_str) — 잘못된 날짜면 None"""
+    date_from_str = request.query_params.get("date_from")
+    date_to_str = request.query_params.get("date_to") or date_from_str
+    if not date_from_str:
+        return None
+    try:
+        d_from = datetime.strptime(date_from_str, "%Y-%m-%d")
+        d_to = datetime.strptime(date_to_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    shift = timedelta(days=7 if request.query_params.get("compare_mode") == "weekly" else 1)
+    fmt = "%Y-%m-%d"
+    return (d_from.strftime(fmt), d_to.strftime(fmt),
+            (d_from - shift).strftime(fmt), (d_to - shift).strftime(fmt))
+
+
 def score_by_region(movie_id, request):
     date_from_str = request.query_params.get("date_from")
     date_to_str = request.query_params.get("date_to")
@@ -619,18 +642,16 @@ def score_by_region(movie_id, request):
     format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
 
     movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
-    if not date_from_str or not movie_ids:
+    periods = _summary_periods(request)
+    if not periods or not movie_ids:
         return Response({"error": "필수 파라미터 누락"}, status=400)
 
-    # 📅 1. 날짜 계산
-    base_date_dt = datetime.strptime(date_from_str, "%Y-%m-%d")
-    prev_days = 7 if compare_mode == "weekly" else 1
-    prev_date_str = (base_date_dt - timedelta(days=prev_days)
-                     ).strftime("%Y-%m-%d")
+    # 📅 1. 기간 계산 — V002: 기준 기간(date_from~date_to)과 같은 길이의 비교 기간
+    date_from_str, date_to_str, prev_from_str, prev_to_str = periods
 
-    # 2. 쿼리셋 (기준일과 대조일 데이터 포함)
+    # 2. 쿼리셋 (기준 기간과 비교 기간 데이터 포함)
     qs = Score.objects.filter(
-        movie_id__in=movie_ids, entry_date__in=[date_from_str, prev_date_str]
+        movie_id__in=movie_ids, entry_date__range=(prev_from_str, date_to_str)
     )
     qs = apply_common_filters(qs, request)
     # 지역별 집계는 정규 지역(REGIONS)만 대상으로 한다.
@@ -650,9 +671,9 @@ def score_by_region(movie_id, request):
         )
     )
 
-    # 3. 기준일(date_from) 데이터 상세 집계
+    # 3. 기준 기간 데이터 상세 집계 (기간 총합, 극장·스크린은 기간 내 고유 수)
     today_stats = (
-        qs.filter(entry_date=date_from_str)
+        qs.filter(entry_date__range=(date_from_str, date_to_str))
         .values(section=F("client__region_code"))
         .annotate(
             visitors=Sum("v_int"),
@@ -664,9 +685,9 @@ def score_by_region(movie_id, request):
     )
     today_dict = {item["section"]: item for item in today_stats}
 
-    # 4. 비교일(prev_date_str) 데이터 집계
+    # 4. 비교 기간 데이터 집계
     prev_stats = (
-        qs.filter(entry_date=prev_date_str)
+        qs.filter(entry_date__range=(prev_from_str, prev_to_str))
         .values(section=F("client__region_code"))
         .annotate(
             visitors=Sum("v_int"),
@@ -745,18 +766,16 @@ def score_by_multi(movie_id, request):
     format_movie_ids = [x for x in format_ids_str.split(",") if x.strip()] if format_ids_str else None
 
     movie_ids = get_movie_ids_for_primary(movie_id, format_movie_ids=format_movie_ids)
-    if not date_from_str or not movie_ids:
+    periods = _summary_periods(request)
+    if not periods or not movie_ids:
         return Response({"error": "필수 파라미터가 누락되었습니다."}, status=400)
 
-    # 2. 📅 대조 시점(prev_date) 계산
-    base_date_dt = datetime.strptime(date_from_str, "%Y-%m-%d")
-    prev_days = 7 if compare_mode == "weekly" else 1
-    prev_date_str = (base_date_dt - timedelta(days=prev_days)
-                     ).strftime("%Y-%m-%d")
+    # 2. 📅 V002: 기준 기간(date_from~date_to)과 같은 길이의 비교 기간
+    date_from_str, date_to_str, prev_from_str, prev_to_str = periods
 
-    # 3. 포인트 데이터 쿼리셋 (기준일 & 대조일)
+    # 3. 기간 데이터 쿼리셋 (기준 기간 & 비교 기간)
     qs_points = Score.objects.filter(
-        movie_id__in=movie_ids, entry_date__in=[date_from_str, prev_date_str]
+        movie_id__in=movie_ids, entry_date__range=(prev_from_str, date_to_str)
     )
     qs_points = apply_common_filters(qs_points, request)
 
@@ -772,9 +791,9 @@ def score_by_multi(movie_id, request):
         )
     )
 
-    # [기준일 집계] - 스크린수와 총요금 포함
+    # [기준 기간 집계] - 스크린수와 총요금 포함 (기간 총합)
     today_stats = (
-        qs_points.filter(entry_date=date_from_str)
+        qs_points.filter(entry_date__range=(date_from_str, date_to_str))
         .values(section=F("client__theater_kind"))
         .annotate(
             visitors=Sum("v_int"),
@@ -785,9 +804,9 @@ def score_by_multi(movie_id, request):
     )
     today_dict = {item["section"]: item for item in today_stats}
 
-    # [대조일 집계] - 증감 계산용
+    # [비교 기간 집계] - 증감 계산용
     prev_stats = (
-        qs_points.filter(entry_date=prev_date_str)
+        qs_points.filter(entry_date__range=(prev_from_str, prev_to_str))
         .values(section=F("client__theater_kind"))
         .annotate(visitors=Sum("v_int"), theaters=Count("client_id", distinct=True))
     )
@@ -825,14 +844,12 @@ def score_by_version(movie_id, request):
     date_to_str = request.query_params.get("date_to")
     compare_mode = request.query_params.get("compare_mode", "daily")
 
-    if not date_from_str or not movie_id:
+    periods = _summary_periods(request)
+    if not periods or not movie_id:
         return Response({"error": "영화 ID와 시작일이 필요합니다."}, status=400)
 
-    # 2. 📅 대조 시점(prev_date) 계산
-    base_date_dt = datetime.strptime(date_from_str, "%Y-%m-%d")
-    prev_days = 7 if compare_mode == "weekly" else 1
-    prev_date_str = (base_date_dt - timedelta(days=prev_days)
-                     ).strftime("%Y-%m-%d")
+    # 2. 📅 V002: 기준 기간(date_from~date_to)과 같은 길이의 비교 기간
+    date_from_str, date_to_str, prev_from_str, prev_to_str = periods
 
     # 3. 🎬 대표 영화 코드를 기준으로 모든 버전 객체 찾기
     try:
@@ -877,32 +894,22 @@ def score_by_version(movie_id, request):
         )
     )
 
-    # 5. 포인트 데이터 집계 (기준일 & 대조일)
-    point_stats = (
-        qs_base.filter(entry_date__in=[date_from_str, prev_date_str])
-        .values("movie_id", "entry_date")
-        .annotate(
-            visitors=Sum("v_int"),
-            theaters=Count("client_id", distinct=True),
-            screens=Count("screen_key", distinct=True),
-            base_fare=Sum("row_revenue"),
+    # 5. 기간 데이터 집계 (기준 기간 & 비교 기간) — V002: 기간 총합, 극장·스크린은 기간 내 고유 수
+    def _period_stats(p_from, p_to):
+        rows = (
+            qs_base.filter(entry_date__range=(p_from, p_to))
+            .values("movie_id")
+            .annotate(
+                visitors=Sum("v_int"),
+                theaters=Count("client_id", distinct=True),
+                screens=Count("screen_key", distinct=True),
+                base_fare=Sum("row_revenue"),
+            )
         )
-    )
+        return {item["movie_id"]: item for item in rows}
 
-    # ✅ [핵심 수정] 데이터 매핑 시 entry_date를 문자열로 변환
-    point_map = {}
-    for item in point_stats:
-        m_id = item["movie_id"]
-        # entry_date가 객체일 수 있으므로 문자열("YYYY-MM-DD")로 변환하여 저장
-        e_date = (
-            item["entry_date"].strftime("%Y-%m-%d")
-            if hasattr(item["entry_date"], "strftime")
-            else str(item["entry_date"])
-        )
-
-        if m_id not in point_map:
-            point_map[m_id] = {}
-        point_map[m_id][e_date] = item
+    base_map = _period_stats(date_from_str, date_to_str)
+    prev_map = _period_stats(prev_from_str, prev_to_str)
 
     # 6. 전체 누계 데이터 집계
     total_stats = (
@@ -916,13 +923,10 @@ def score_by_version(movie_id, request):
     #    (하위영화 레코드가 라벨까지 동일하게 여러 개 존재해도 중복 행이 생기지 않도록)
     merged = {}
     for m_id, label in movie_map.items():
-        # point_map에서 문자열 키로 조회하므로 이제 데이터가 정확히 잡힙니다.
-        m_points = point_map.get(m_id, {})
-        t_data = m_points.get(
-            date_from_str, {"visitors": 0, "theaters": 0,
-                            "screens": 0, "base_fare": 0}
+        t_data = base_map.get(
+            m_id, {"visitors": 0, "theaters": 0, "screens": 0, "base_fare": 0}
         )
-        p_data = m_points.get(prev_date_str, {"visitors": 0, "theaters": 0})
+        p_data = prev_map.get(m_id, {"visitors": 0, "theaters": 0})
         tot = total_dict.get(m_id, {"total_visitors": 0, "total_fare": 0})
 
         if tot["total_visitors"] > 0 or t_data["visitors"] > 0:

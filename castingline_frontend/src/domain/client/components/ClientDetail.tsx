@@ -7,7 +7,7 @@ import { MultiEmailInput } from "../../../components/common/MultiEmailInput";
 import { CustomSelect } from "../../../components/common/CustomSelect";
 import { Buildings, DiscIcon, FloppyDisk, FloppyDiskIcon, Gear } from "@phosphor-icons/react";
 import { CustomIconButton } from "../../../components/common/CustomIconButton";
-import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, RATE_EXCEPTION_TYPES, REGION_CODES, THEATER_KINDS } from "../../../constant/Constants";
+import { CLIENT_TYPES, DISTRIBUTER_THEATER_NAME, LEGAL_ENTITY_TYPES, MANAGEMENT_TYPES, REGION_CODES, THEATER_KINDS } from "../../../constant/Constants";
 import { useToast } from "../../../components/common/CustomToast";
 import { AxiosPatch } from "../../../axios/Axios";
 import { useAppAlert } from "../../../atom/alertUtils";
@@ -133,6 +133,41 @@ function ParentClientField({ selectedClient, formData, updateField }: {
         </InlineRow>
     );
 }
+/** M001(1106): 국적별 예외 부율 입력 — 자주 쓰는 값은 목록에서 고르고, 그 외는 숫자로 직접 입력.
+ *  서버는 "55.00" 같은 문자열로 주므로 화면에서는 "55"로 보여 주고, 비우면 null 로 저장한다. */
+const RATE_PRESETS = ["50", "55", "60", "65", "70", "100"];
+function RateExceptionField({ label, value, onChange }: {
+    label: string; value: any; onChange: (v: string | null) => void;
+}) {
+    const shown = value === null || value === undefined || value === "" ? "" : String(Number(value));
+    const listId = `rate-presets-${label}`;
+    return (
+        <div>
+            <CustomInput
+                label={label}
+                size="sm"
+                inputType="number"
+                min={0}
+                max={100}
+                placeholder="예외 없음"
+                rightLabel="%"
+                value={shown}
+                setValue={(v) => {
+                    const t = String(v ?? "").trim();
+                    if (t === "") return onChange(null);
+                    const n = Number(t);
+                    if (Number.isNaN(n) || n < 0 || n > 100) return;
+                    onChange(t);
+                }}
+                list={listId}
+            />
+            <datalist id={listId}>
+                {RATE_PRESETS.map((p) => <option key={p} value={p} />)}
+            </datalist>
+        </div>
+    );
+}
+
 export function ClientDetail({ selectedClient, formData, setFormData, handleInputChange, handleUpdateClient, handleBulkUpdateSettlement, settlementDepartments, onOpenSettlementSettings }) {
     const toast = useToast()
     const { showAlert } = useAppAlert()
@@ -331,12 +366,16 @@ export function ClientDetail({ selectedClient, formData, setFormData, handleInpu
                                 options={["Y", "N"]}
                                 size="sm"
                             />
-                            <CustomSelect
-                                label="부율 예외극장"
-                                value={formData.rate_exception_type || ""}
-                                onChange={(v) => updateField("rate_exception_type", v)}
-                                options={RATE_EXCEPTION_TYPES}
-                                size="sm"
+                            {/* M001(1106): 예외 부율을 국적별로 직접 입력 (빈 값 = 예외 없음 → 기본 규칙) */}
+                            <RateExceptionField
+                                label="예외 부율(한국영화)"
+                                value={formData.rate_exception_domestic}
+                                onChange={(v) => updateField("rate_exception_domestic", v)}
+                            />
+                            <RateExceptionField
+                                label="예외 부율(외화)"
+                                value={formData.rate_exception_foreign}
+                                onChange={(v) => updateField("rate_exception_foreign", v)}
                             />
                         </FormGrid>
                     </>

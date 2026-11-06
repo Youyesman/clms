@@ -279,7 +279,66 @@ class BulkMatcher:
 
         return None
 
+    # L001(1106): 관(Screen) 단위 예외 매핑 — 한 극장 안의 특정 관만 부율·기금이 다른 경우,
+    # 관 단위로 DB를 나누지 않고 사전 등록한 '가상 극장'으로 업로드 단계에서 분기 적재한다.
+    #   예) 롯데시네마 광교 1관 = 독립영화예술관(부율 100%·기금 면제) → 가상 극장 '롯데광교(1관)'
+    # theaters: 엑셀 극장명(공백 제거·소문자) 후보, aud_nums: 관 번호, target: 가상 극장 거래처명
+    SCREEN_SPLIT_RULES = [
+        {"kind": "롯데", "theaters": {"광교", "롯데광교", "롯데시네마광교"},
+         "aud_nums": {1}, "target": "롯데광교(1관)"},
+    ]
+
+    def _screen_split_target(self, raw_client, raw_aud):
+        """관 단위 예외 매핑 대상이면 가상 극장 Client, 아니면 None.
+        대상인데 가상 극장이 등록돼 있지 않으면 'missing' 문자열을 돌려 오류로 알린다
+        (원래 극장으로 몰래 적재하지 않는다)."""
+        norm_c = str(raw_client or "").replace(" ", "").lower()
+        num = self._extract_aud_num(str(raw_aud or "").strip())
+        for rule in self.SCREEN_SPLIT_RULES:
+            if rule["kind"] != self.kind or norm_c not in rule["theaters"]:
+                continue
+            if num not in rule["aud_nums"]:
+                continue
+            cache = self.__dict__.setdefault("_split_target_cache", {})
+            if rule["target"] not in cache:
+                target_norm = rule["target"].replace(" ", "").lower()
+                found = None
+                for c in Client.objects.exclude(client_type__in=NON_THEATER_CLIENT_TYPES):
+                    if (c.client_name or "").replace(" ", "").lower() == target_norm:
+                        found = c
+                        break
+                cache[rule["target"]] = found
+            return cache[rule["target"]] or ("missing", rule["target"])
+        return None
+
+    def _split_theater(self, client, raw_aud):
+        """가상 극장 안의 관 매칭 — 관 이름 매칭이 안 되면 관 번호로 찾는다."""
+        t = self._match_theater_logic(client.id, raw_aud)
+        if t:
+            return t
+        num = self._extract_aud_num(str(raw_aud or "").strip())
+        if num is None:
+            return None
+        for (cid, _name), th in self.theater_dict.items():
+            if cid != client.id:
+                continue
+            if self._extract_aud_num(th.auditorium_name) == num or                     self._extract_aud_num(th.auditorium) == num:
+                return th
+        return None
+
     def check_client_and_theater(self, raw_client, raw_aud):
+        # L001(1106): 관 단위 예외 매핑(광교 1관 → 롯데광교(1관))을 가장 먼저 적용
+        split = self._screen_split_target(raw_client, raw_aud)
+        if isinstance(split, tuple):
+            return None, None, f"관 예외 매핑 대상 극장 미등록({split[1]})"
+        if split is not None:
+            theater = self._split_theater(split, raw_aud)
+            if theater:
+                return split, theater, None
+            return split, None, f"관 정보 없음({raw_aud}) — {split.client_name}에 관 등록 필요"
+        return self._check_client_and_theater(raw_client, raw_aud)
+
+    def _check_client_and_theater(self, raw_client, raw_aud):
         """
         ✅ 중복 해결 로직: 극장명이 중복되어도 관 이름으로 유일한 극장 하나를 찾아냄.
         영진위(relaxed) 모드에서는 극장명을 client_name/excel_theater_name/영진위극장명으로

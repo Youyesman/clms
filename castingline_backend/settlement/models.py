@@ -53,9 +53,13 @@ class SettlementAdjustment(models.Model):
 
 
 class SettlementConfirm(models.Model):
-    """부금 정산 극장별 확인 처리 (월×대표영화×극장 단위).
+    """부금 정산 확인 처리 (월×대표영화×극장 [×행] 단위).
 
     월초에 지난달 부금정산 내역을 전 극장 확인하는 업무용 체크 상태.
+    - row_key = ""  : 극장 전체 확인 (대사 자동 확인·일괄 확인)
+    - row_key = 값  : 그 행만 확인 (F001 1106 — 같은 극장이 부율·기금면제·상영타입
+                      차이로 여러 행일 때 [미확인] 버튼은 해당 행만 바꾼다)
+      행 키 형식은 settlement.views._confirm_row_key 참고
     - 대사 모달에서 '파일값으로 조정'/'일괄 조정' 저장 시 자동 확인
     - 대사 모달/정산 관리 테이블에서 행별·일괄 수동 확인/해제 가능
     """
@@ -64,6 +68,8 @@ class SettlementConfirm(models.Model):
                               verbose_name="대표영화")
     client = models.ForeignKey("client.Client", on_delete=models.CASCADE,
                                verbose_name="극장")
+    row_key = models.CharField(max_length=255, blank=True, default="",
+                               verbose_name="행 키")  # F001(1106): ""=극장 전체
     source = models.CharField(max_length=20, blank=True, default="수동",
                               verbose_name="확인 경로")  # 수동/조정/대사
     confirmed_by = models.CharField(max_length=100, blank=True, default="",
@@ -71,7 +77,7 @@ class SettlementConfirm(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("yyyymm", "movie", "client")
+        unique_together = ("yyyymm", "movie", "client", "row_key")
         verbose_name = "부금 정산 확인"
 
     def __str__(self):

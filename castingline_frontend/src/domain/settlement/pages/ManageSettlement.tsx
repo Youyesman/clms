@@ -1283,21 +1283,31 @@ export function ManageSettlement() {
         }
     };
 
-    /** 극장(거래처) 단위 확인 토글 — 같은 극장의 모든 행에 함께 반영 */
+    /** F001(1106): 행 단위 확인 토글 — 같은 극장이 부율·기간 등으로 여러 행이어도
+     *  누른 행만 바뀐다 (행 키 = 부율|기금면제|상영타입, 서버가 '확인키'로 내려줌) */
     const toggleConfirm = async (row: any) => {
         const code = row["거래처코드"];
-        if (!code || !searchParams.movieId) return;
+        const rowKey = row["확인키"];
+        if (!code || !rowKey || !searchParams.movieId) return;
         const next = !row["확인"];
+        // 같은 극장의 다른 행 중 현재 확인 상태인 행 — 극장 전체 확인을 행 단위로 펼칠 때 유지용
+        const siblingKeys = settlements
+            .filter((r) => !r.is_subtotal && r["거래처코드"] === code && r["확인키"] !== rowKey && r["확인"])
+            .map((r) => r["확인키"]);
         try {
             await AxiosPost("settlement-confirms", {
                 yyyyMm: searchParams.yyyyMm,
                 movie_id: Number(searchParams.movieId),
-                client_codes: [code],
+                client_code: code,
+                row_key: rowKey,
+                sibling_row_keys: siblingKeys,
                 confirmed: next,
             });
             setSettlements((prev) =>
                 prev.map((r) =>
-                    !r.is_subtotal && r["거래처코드"] === code ? { ...r, 확인: next } : r
+                    !r.is_subtotal && r["거래처코드"] === code && r["확인키"] === rowKey
+                        ? { ...r, 확인: next }
+                        : r
                 )
             );
         } catch (e: any) {

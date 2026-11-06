@@ -118,14 +118,29 @@ const TableSection = styled.div`
     overflow: hidden;
 `;
 
-// R001: 지역별/멀티별/기간별 총괄은 집계값과 무관하게 아래 순서로 고정 표시한다.
+// R001: 지역별/멀티별 총괄은 집계값과 무관하게 아래 순서로 고정 표시한다.
 // (사용자가 표 헤더를 눌러 직접 정렬하면 그때만 값 정렬로 전환)
+// V001(1106): 기간별 총괄은 지역별 총괄과 동일해 삭제했다.
 const FIXED_SECTION_ORDER: Record<string, string[]> = {
     region: ["경강", "경남", "경북", "서울", "충청", "호남"],
     multi: ["CGV", "롯데", "메가박스", "씨네큐", "일반극장"],
-    // 기간별총괄도 지역 단위 행이므로 같은 순서로 고정 (R001 0812)
-    period: ["경강", "경남", "경북", "서울", "충청", "호남"],
 };
+
+const SORT_LABELS: Record<string, string> = {
+    region: "지역별총괄",
+    multi: "멀티별총괄",
+    version: "버전별총괄",
+};
+
+// 'YYYY-MM-DD'에서 days만큼 이동 (로컬 기준 — UTC 변환으로 하루 밀리는 문제 방지)
+const shiftDate = (ymd: string, days: number) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    const dt = new Date(y, m - 1, d + days);
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${dt.getFullYear()}-${mm}-${dd}`;
+};
+const periodText = (from: string, to: string) => (from === to ? from : `${from} ~ ${to}`);
 
 export function ScorePage() {
     const toast = useToast();
@@ -140,7 +155,9 @@ export function ScorePage() {
         region: "전체",
         multi: "전체",
         theater_type: "전체",
-        date: scoreFilter.date,
+        // V002(1106): 하루 → 기간(From~To). 처음 접속 시 기본값은 전일~전일 (ScoreFilterState 기본값)
+        date_from: scoreFilter.dateFrom,
+        date_to: scoreFilter.dateTo,
     });
 
     // 포맷(서브영화) 선택 상태
@@ -222,8 +239,8 @@ export function ScorePage() {
             params: {
                 ...activeFilters,
                 compare_mode: compareMode,
-                date_from: activeFilters.date,
-                date_to: activeFilters.date,
+                date_from: activeFilters.date_from,
+                date_to: activeFilters.date_to,
                 ...(formatIds ? { format_movie_ids: formatIds } : {}),
             },
         })
@@ -244,6 +261,14 @@ export function ScorePage() {
     const handleSearch = () => {
         if (!searchParams.movie_id) {
             toast.error("영화를 선택해 주세요.");
+            return;
+        }
+        if (!searchParams.date_from || !searchParams.date_to) {
+            toast.error("기간을 선택해 주세요.");
+            return;
+        }
+        if (searchParams.date_from > searchParams.date_to) {
+            toast.error("시작일이 종료일보다 늦습니다.");
             return;
         }
         setActiveFilters({ ...searchParams });
@@ -309,22 +334,24 @@ export function ScorePage() {
         );
     }, [data]);
 
+    // 조회한 기간이 하루가 아니면 표 머리글을 '기간'으로 표기
+    const isRange = !!activeFilters.date_from && activeFilters.date_from !== activeFilters.date_to;
+
     const headers = [
         {
             key: "section",
             label:
-                activeFilters.sort_by === "region"
-                    ? "지역"
-                    : activeFilters.sort_by === "multi"
-                        ? "멀티구분"
-                        : activeFilters.sort_by === "version"
-                            ? "버전"
-                            : "기간",
+                activeFilters.sort_by === "multi"
+                    ? "멀티구분"
+                    : activeFilters.sort_by === "version"
+                        ? "버전"
+                        : "지역",
         },
         { key: "theater_count", label: "극장수" },
         { key: "screen_count", label: "스크린수" },
-        { key: "base_day_visitors", label: "기준일관객(명)" },
-        { key: "base_day_fare", label: "기준일총요금(원)" },
+        // V002: 기간 조회 시 기간 총합 (하루면 기존 기준일 값과 동일)
+        { key: "base_day_visitors", label: isRange ? "기간관객(명)" : "기준일관객(명)" },
+        { key: "base_day_fare", label: isRange ? "기간총요금(원)" : "기준일총요금(원)" },
         { key: "total_visitors", label: "총누계(명)" },
         { key: "total_fare", label: "총요금(원)" },
     ];
@@ -333,10 +360,10 @@ export function ScorePage() {
     const handleExcelDownload = () => {
         const movieTitle =
             moviesList.find((m) => m.id?.toString() === searchParams.movie_id)?.title_ko || "";
-        const sortLabel =
-            activeFilters.sort_by === "region" ? "지역별총괄"
-                : activeFilters.sort_by === "multi" ? "멀티별총괄"
-                    : activeFilters.sort_by === "version" ? "버전별총괄" : "기간별총괄";
+        const sortLabel = SORT_LABELS[activeFilters.sort_by] || "지역별총괄";
+        // 파일명·캡션은 화면에 조회된 기간 기준
+        const from = activeFilters.date_from || searchParams.date_from;
+        const to = activeFilters.date_to || searchParams.date_to;
 
         const body: (string | number)[][] = sortedData.map((row) =>
             headers.map((h) => row[h.key] ?? "")
@@ -349,22 +376,26 @@ export function ScorePage() {
             ]);
         }
 
-        const n = downloadExcel(`스코어_${sortLabel}_${movieTitle}_${searchParams.date}`, {
-            caption: `${movieTitle} / ${sortLabel} / 기준일: ${searchParams.date} / 극장유형: ${searchParams.theater_type} / 지역: ${searchParams.region} / 멀티: ${searchParams.multi}`,
+        const n = downloadExcel(`스코어_${sortLabel}_${movieTitle}_${from === to ? from : `${from}~${to}`}`, {
+            caption: `${movieTitle} / ${sortLabel} / ${from === to ? "기준일" : "기간"}: ${periodText(from, to)} / 극장유형: ${searchParams.theater_type} / 지역: ${searchParams.region} / 멀티: ${searchParams.multi}`,
             headers: [headers.map((h) => h.label)],
             rows: body,
         });
         if (n === 0) toast.error("내보낼 데이터가 없습니다. 먼저 조회해 주세요.");
     };
 
-    const baseDate = searchParams.date; // 기준일
-
-    const prevDate = useMemo(() => {
-        const date = new Date(baseDate);
+    // V002: 차트 비교군도 같은 길이의 기간 — 전일(1일)/전주(7일)만큼 당긴 기간의 총합과 비교
+    //   예) 11/01~11/05, 전일 → 10/31~11/04  (백엔드 _summary_periods 와 같은 규칙)
+    const { baseDate, prevDate } = useMemo(() => {
+        const from = activeFilters.date_from;
+        const to = activeFilters.date_to;
+        if (!from || !to) return { baseDate: "", prevDate: "" };
         const offset = compareMode === "daily" ? 1 : 7;
-        date.setDate(date.getDate() - offset);
-        return date.toISOString().split("T")[0]; // 대비일 (1/6 또는 12/31)
-    }, [baseDate, compareMode]);
+        return {
+            baseDate: periodText(from, to),
+            prevDate: periodText(shiftDate(from, -offset), shiftDate(to, -offset)),
+        };
+    }, [activeFilters.date_from, activeFilters.date_to, compareMode]);
 
     const chartConfig = useMemo(() => {
         switch (activeFilters.sort_by) {
@@ -374,8 +405,6 @@ export function ScorePage() {
                 return { categoryName: "멀티사", labelKey: "section" };
             case "version":
                 return { categoryName: "버전", labelKey: "section" };
-            case "period":
-                return { categoryName: "기간", labelKey: "section" };
             default:
                 return { categoryName: "항목", labelKey: "section" };
         }
@@ -391,7 +420,6 @@ export function ScorePage() {
                         <SortTab $active={searchParams.sort_by === "region"} onClick={() => handleSortChange("region")}>지역별총괄</SortTab>
                         <SortTab $active={searchParams.sort_by === "multi"} onClick={() => handleSortChange("multi")}>멀티별총괄</SortTab>
                         <SortTab $active={searchParams.sort_by === "version"} onClick={() => handleSortChange("version")}>버전별총괄</SortTab>
-                        <SortTab $active={searchParams.sort_by === "period"} onClick={() => handleSortChange("period")}>기간별총괄</SortTab>
                     </SortTabGroup>
 
                     {/* 필터: 모두 한 줄 */}
@@ -442,11 +470,21 @@ export function ScorePage() {
                         <div>
                             <CustomInput
                                 inputType="date"
-                                label="날짜"
-                                value={searchParams.date}
+                                label="날짜 from"
+                                value={searchParams.date_from}
                                 setValue={(v) => {
-                                    setSearchParams((p) => ({ ...p, date: v }));
-                                    setScoreFilter((f) => ({ ...f, date: v, dateFrom: v, dateTo: v }));
+                                    setSearchParams((p) => ({ ...p, date_from: v }));
+                                    setScoreFilter((f) => ({ ...f, dateFrom: v, date: v }));
+                                }} variant="chip" />
+                        </div>
+                        <div>
+                            <CustomInput
+                                inputType="date"
+                                label="날짜 to"
+                                value={searchParams.date_to}
+                                setValue={(v) => {
+                                    setSearchParams((p) => ({ ...p, date_to: v }));
+                                    setScoreFilter((f) => ({ ...f, dateTo: v }));
                                 }} variant="chip" />
                         </div>
                         <div>
